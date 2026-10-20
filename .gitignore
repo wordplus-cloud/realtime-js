@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tgz
+__pycache__/
+
+src/server/files/
+assets/realtime.js

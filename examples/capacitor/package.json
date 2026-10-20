@@ -1,0 +1,20 @@
+{
+  "name": "wordplus-realtime-capacitor-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "mkdir -p www && wordplus-realtime copy www && cp shop/shop.css www/ && cp -R shop/avatars shop/products www/ && cp src/index.html www/ && esbuild src/app.js --bundle --splitting --format=esm --target=es2022 --outdir=www --define:SHOP_SERVER=\\\"${SHOP_SERVER:-http://localhost:3000}\\\"",
+    "ios": "npm run build && cap sync ios && cap open ios",
+    "android": "npm run build && cap sync android && cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/ios": "8.5.3",
+    "@wordplus/realtime": "^1.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3",
+    "esbuild": "0.28.2"
+  }
+}

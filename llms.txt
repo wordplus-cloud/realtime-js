@@ -1,0 +1,26 @@
+# @wordplus/realtime
+
+> WordPlus Cloud's realtime SDK for sites and apps outside WordPress: rooms with emit, emitWithAck and volatile, presence and who is online, history, webhooks, calls between two people that ring in the browser, group calls, and Better Messages' ready-made chat, online list and call screen, sealed end to end. The app's server (this package's ./server for Node, wordplus/realtime-php for PHP and Laravel, wordplus-realtime for Python) declares rooms and calls by pattern and decides who may join them; the browser part (this package, ./react, ./native) connects to WordPlus Cloud, joins rooms and opens what arrives.
+
+## Docs
+
+All of them, with the PHP and Python packages' own pages, on the web: https://docs.wordplus.cloud/llms.txt. The server's code is shown for Node, PHP and Python alike.
+
+- [Getting started](docs/getting-started.md): the app in WordPlus Cloud, its key, secret and local key, the server's routes (Next.js, Express, Hono, Laravel, plain PHP, Django, FastAPI, Flask), connect() in the browser, a first room
+- [Why WordPlus Cloud](docs/why.md): what the cloud runs and adds beside a framework's own websockets
+- [Rooms](docs/rooms.md): names and patterns, declaring rooms and their rules, what a room keeps and allows, joining, history
+- [Presence and who is online](docs/presence.md): a presence room's members, counting, rt.online across the app, <online-list>
+- [Sending from your server](docs/sending.md): to().emit(), toUser(), except(), batch(), in() (count, members, history, forget, kick), webhooks
+- [Events from the page](docs/events.md): a room's emit list, emit, emitWithAck, volatile, timeout, <chat-room>
+- [Calls, group calls and the call screen](docs/calls.md): calls() and groupCalls(), calls between two people, adding people, group calls, <call-button>, end reasons
+- [Encryption and your users](docs/encryption.md): what is sealed, the local key, who gets which key, rotating, rt.users()
+- [React, React Native and Capacitor](docs/react.md): RealtimeProvider, useRoom, usePresence, useOnline, useUserEvent, useCalls, Chat, OnlineList, @wordplus/realtime-ui's components in the app's own tree, the native entry
+- [Customizing the screens](docs/customizing.md): the look, a piece of the app's own (components, CallControl, ::part(), <template slot>), the whole view copied (npx @wordplus/realtime-ui add, diff, update, accept, preview), what must keep working
+- [Server reference](docs/server.md): createRealtime()'s options, rules, sending, routes
+- [Browser reference](docs/browser.md): connect(), Realtime, Room, Online, Calls, Call, GroupCall
+- [Errors](docs/errors.md): every refusal's code
+- [Limits](docs/limits.md)
+
+## For agents
+
+- [Skill](skills/wordplus-realtime-apps/SKILL.md): which feature fits, the workflow, templates for Node, Next.js, Laravel, Django and FastAPI, customizing the screens, rules, checks

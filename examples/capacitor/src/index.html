@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>API demo</title>
+    <link rel="stylesheet" href="shop.css">
+    <script type="module" src="app.js"></script>
+</head>
+<body>
+    <header class="shop-bar">
+        <strong>API demo</strong>
+        <span class="shop-me" id="me"></span>
+    </header>
+    <main class="sign-in" id="sign-in">
+        <h1>API demo</h1>
+        <p class="muted">Sign in as Ann, Ben or Cara. Sign in as someone else in a browser, or on another device.</p>
+        <form id="people">
+            <button name="as" value="34"><img class="avatar" src="avatars/ann.svg" alt="" width="28" height="28"> Ann <small>Support</small></button>
+            <button name="as" value="42"><img class="avatar" src="avatars/ben.svg" alt="" width="28" height="28"> Ben <small>Customer</small></button>
+            <button name="as" value="43"><img class="avatar" src="avatars/cara.svg" alt="" width="28" height="28"> Cara <small>Warehouse</small></button>
+        </form>
+    </main>
+    <main class="shop-main" id="shop-root" hidden></main>
+</body>
+</html>

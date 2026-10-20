@@ -1,0 +1,7 @@
+{
+  "appId": "cloud.wordplus.example.shop",
+  "appName": "API demo",
+  "webDir": "www",
+  "android": { "allowMixedContent": true },
+  "server": { "androidScheme": "https" }
+}

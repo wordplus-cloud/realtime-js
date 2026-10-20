@@ -1,0 +1,2526 @@
+openapi: 3.1.0
+info:
+  title: WordPlus Cloud realtime HTTP API
+  version: "1"
+  summary: What your server calls on WordPlus Cloud, and the webhook it gets back.
+  description: |
+    Your server sends events to rooms and users, and asks the pages of a user and waits for their replies. It reads the
+    rooms someone is in, who is in each and its history, who is online, the group calls and live streams going on and
+    who is in them, what your app uses, and the deliveries of its webhook. It takes a user out of everything at once,
+    takes people out of rooms, calls and streams, mutes and ends calls, and moderates the chat of a stream as its
+    moderators do. All with signed HTTPS requests. WordPlus Cloud tells your server what happens with a signed webhook.
+
+    The packages for Node (`@wordplus/realtime`), PHP (`wordplus/realtime-php`) and Python (`wordplus-realtime`) make
+    these requests for you. From any other language, sign them as [signing requests](/api/signing/) shows. Every
+    request carries three headers: `X-WordPlus-Site` (your app key), `X-WordPlus-Timestamp` (unix seconds) and
+    `X-WordPlus-Signature`.
+
+    The examples use a helper that signs and sends a request, `wordplus( method, path, body )`, the same in every
+    language, given in full on [signing requests](/api/signing/).
+  contact:
+    url: https://www.wordplus.cloud/contact
+servers:
+  - url: https://rest.wordplus.cloud
+    description: WordPlus Cloud
+security:
+  - site: []
+    timestamp: []
+    signature: []
+tags:
+  - name: Events
+    description: Send events to rooms and to users, one at a time or in batches.
+  - name: Rooms
+    description: The rooms someone is in, how many are in a room and who, its history, and taking someone out of it.
+  - name: Users
+    description: A user of your app, taking them out of everything at once, and asking their pages.
+  - name: Who is online
+    description: Who of your users is online anywhere in your app.
+  - name: Live streams
+    description: The streams live now, one stream and who is in it, its chat as its moderators keep it, ending it, its reactions, and taking someone out of it.
+  - name: Group calls
+    description: The group calls going on, who is in each and what they send, muting and removing someone, and ending a call.
+  - name: Usage and webhooks
+    description: What your app uses now, the deliveries of its webhook, sending a batch again, and a test event.
+
+paths:
+  /wordplus/realtime/emit:
+    post:
+      tags: [Events]
+      operationId: emit
+      summary: Send an event
+      description: |
+        Sends one event to rooms, to users (every tab and device they have open), or both. Everyone in a room gets it,
+        and a room whose `history` you give keeps it for pages that reconnect.
+
+        The data is any JSON, up to 1 MB. Seal it first to keep it from WordPlus Cloud ([sealing](/api/sealing/)):
+        the packages seal the data of every room and user by default.
+
+        In the packages: `realtime.to( rooms ).toUser( users ).emit( event, data )`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Emit' }
+            examples:
+              order:
+                summary: An order moving on, kept for pages that reconnect
+                value: { rooms: [ 'order:42' ], event: updated, data: { status: shipped }, history: { 'order:42': [ 20, 0.003472222222222222 ] } }
+              user:
+                summary: A notice to one user
+                value: { users: [ '42' ], event: notice, data: { text: 'Your order shipped' } }
+      responses:
+        '200':
+          description: Sent. The ids of the events kept, by room.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sent' }
+              example: { ok: true, ids: { 'order:42': '1791638400000-0' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST /wordplus/realtime/emit '{"rooms":["order:42"],"event":"updated","data":{"status":"shipped"}}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { ids } = await wordplus('POST', '/wordplus/realtime/emit', { rooms: ['order:42'], event: 'updated', data: { status: 'shipped' } });
+        - lang: Python
+          label: Python
+          source: |
+            answer = wordplus("POST", "/wordplus/realtime/emit", {"rooms": ["order:42"], "event": "updated", "data": {"status": "shipped"}})
+        - lang: PHP
+          label: PHP
+          source: |
+            $answer = wordplus('POST', '/wordplus/realtime/emit', ['rooms' => ['order:42'], 'event' => 'updated', 'data' => ['status' => 'shipped']]);
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/emit", map[string]any{"rooms": []string{"order:42"}, "event": "updated", "data": map[string]any{"status": "shipped"}})
+
+  /wordplus/realtime/emit/batch:
+    post:
+      tags: [Events]
+      operationId: emitBatch
+      summary: Send events in a batch
+      description: |
+        Sends up to 100 events in one request, each as Send an event takes it. The answer
+        has the kept ids of each, in their order.
+
+        In the packages: `realtime.batch( events )`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ events ]
+              properties:
+                events:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { $ref: '#/components/schemas/Emit' }
+            example: { events: [ { rooms: [ 'product:7' ], event: price, data: { price: 12 } }, { users: [ '42' ], event: notice, data: { text: 'Price changed' } } ] }
+      responses:
+        '200':
+          description: Sent. The ids of the events kept, by room, for each event in its order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, ids ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  ids: { type: array, items: { $ref: '#/components/schemas/KeptIds' } }
+              example: { ok: true, ids: [ {}, {} ] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST /wordplus/realtime/emit/batch '{"events":[{"rooms":["product:7"],"event":"price","data":{"price":12}},{"users":["42"],"event":"notice","data":{"text":"Price changed"}}]}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('POST', '/wordplus/realtime/emit/batch', { events: [
+                { rooms: ['product:7'], event: 'price', data: { price: 12 } },
+                { users: ['42'], event: 'notice', data: { text: 'Price changed' } },
+            ] });
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("POST", "/wordplus/realtime/emit/batch", {"events": [
+                {"rooms": ["product:7"], "event": "price", "data": {"price": 12}},
+                {"users": ["42"], "event": "notice", "data": {"text": "Price changed"}},
+            ]})
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('POST', '/wordplus/realtime/emit/batch', ['events' => [
+                ['rooms' => ['product:7'], 'event' => 'price', 'data' => ['price' => 12]],
+                ['users' => ['42'], 'event' => 'notice', 'data' => ['text' => 'Price changed']],
+            ]]);
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/emit/batch", map[string]any{"events": []any{
+                map[string]any{"rooms": []string{"product:7"}, "event": "price", "data": map[string]any{"price": 12}},
+                map[string]any{"users": []string{"42"}, "event": "notice", "data": map[string]any{"text": "Price changed"}},
+            }})
+
+  /wordplus/realtime/rooms:
+    get:
+      tags: [Rooms]
+      operationId: listRooms
+      summary: The rooms someone is in
+      description: |
+        The rooms someone is in now, by name, with how many are in each: the members of a presence room, else its
+        connections. With `prefix`, only the rooms whose names start with it. A page has 100 rooms, or `limit` up to 1,000,
+        and `next` while there are more: send it back as `cursor`.
+
+        In the packages: `realtime.listRooms( { prefix, cursor, limit } )`.
+      parameters:
+        - { name: prefix, in: query, schema: { type: string, maxLength: 200 }, description: 'Only the rooms whose names start with it.' }
+        - { name: cursor, in: query, schema: { type: string }, description: 'The `next` of the page before.' }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
+      responses:
+        '200':
+          description: 'The rooms, by name, and how many there are in all.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, count, rooms ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  count: { type: integer, description: The rooms someone is in, all of them. }
+                  rooms:
+                    type: array
+                    items: { $ref: '#/components/schemas/OccupiedRoom' }
+                  next: { type: string, description: 'There are more: send it back as cursor.' }
+              example: { ok: true, count: 2, rooms: [ { name: 'order:42', count: 1, connections: 1 }, { name: 'order:43', count: 2, connections: 3 } ] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/rooms?prefix=order%3A'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { rooms } = await wordplus('GET', '/wordplus/realtime/rooms?prefix=order%3A');
+        - lang: Python
+          label: Python
+          source: |
+            rooms = wordplus("GET", "/wordplus/realtime/rooms?prefix=order%3A")["rooms"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $rooms = wordplus('GET', '/wordplus/realtime/rooms?prefix=order%3A')['rooms'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/rooms?prefix=order%3A", nil)
+
+  /wordplus/realtime/rooms/{name}:
+    get:
+      tags: [Rooms]
+      operationId: room
+      summary: A room and its members
+      description: |
+        How many are in a room: the members of a presence room, else its connections. With `members=1`, the first
+        1,000 members of a presence room too, each with their info as your token gave it (sealed with the room key when
+        the room is sealed).
+
+        In the packages: `realtime.in( room ).count()` and `.members()`.
+      parameters:
+        - $ref: '#/components/parameters/Room'
+        - name: members
+          in: query
+          description: '`1` to list the members.'
+          schema: { type: string, enum: [ '1' ] }
+      responses:
+        '200':
+          description: The room.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, count, connections ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  count: { type: integer, description: The members of a presence room, else its connections. }
+                  connections: { type: integer, description: The connections in the room. }
+                  members:
+                    type: object
+                    description: With `members=1`.
+                    required: [ count, list ]
+                    properties:
+                      count: { type: integer }
+                      list:
+                        type: array
+                        items:
+                          type: object
+                          required: [ id, info ]
+                          properties:
+                            id: { type: string, description: The user id. }
+                            info: { description: 'What your token said of them: a value, or a sealed string.' }
+                      next: { type: string, description: 'Present when there are more than 1,000.' }
+              example: { ok: true, count: 2, connections: 3, members: { count: 2, list: [ { id: '34', info: 'ch:chat:34:42:1:1.AQEB…' }, { id: '42', info: 'ch:chat:34:42:1:1.AgIC…' } ] } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/rooms/chat%3A34%3A42?members=1'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const room = await wordplus('GET', `/wordplus/realtime/rooms/${encodeURIComponent('chat:34:42')}?members=1`);
+        - lang: Python
+          label: Python
+          source: |
+            from urllib.parse import quote
+            room = wordplus("GET", f"/wordplus/realtime/rooms/{quote('chat:34:42', safe='')}?members=1")
+        - lang: PHP
+          label: PHP
+          source: |
+            $room = wordplus('GET', '/wordplus/realtime/rooms/'.rawurlencode('chat:34:42').'?members=1');
+        - lang: Go
+          label: Go
+          source: |
+            room, err := app.Request("GET", "/wordplus/realtime/rooms/"+url.PathEscape("chat:34:42")+"?members=1", nil)
+
+  /wordplus/realtime/rooms/{name}/history:
+    get:
+      tags: [Rooms]
+      operationId: roomHistory
+      summary: The history of a room
+      description: |
+        The events a room kept, oldest first: the newest `limit`, or those before or after the id of an event. A room keeps
+        its events for 5 minutes at most, for pages that reconnect: keep your own records from the webhook.
+
+        In the packages: `realtime.in( room ).history( { before, after, limit } )`.
+      parameters:
+        - $ref: '#/components/parameters/Room'
+        - name: before
+          in: query
+          description: The id of an event. Those before it.
+          schema: { $ref: '#/components/schemas/EventId' }
+        - name: after
+          in: query
+          description: The id of an event. Those after it.
+          schema: { $ref: '#/components/schemas/EventId' }
+        - name: limit
+          in: query
+          description: How many, 50 by default, 100 at most.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: A page of the history.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, events, more ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  events: { type: array, items: { $ref: '#/components/schemas/KeptEvent' } }
+                  more: { type: boolean, description: Whether there are older events. }
+              example: { ok: true, events: [ { id: '1791638400000-0', at: 1791638400000, event: updated, data: 'ch:order:42:1:1.AQEB…' } ], more: false }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/rooms/order%3A42/history?limit=20'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { events, more } = await wordplus('GET', `/wordplus/realtime/rooms/${encodeURIComponent('order:42')}/history?limit=20`);
+        - lang: Python
+          label: Python
+          source: |
+            page = wordplus("GET", f"/wordplus/realtime/rooms/{quote('order:42', safe='')}/history?limit=20")
+        - lang: PHP
+          label: PHP
+          source: |
+            $page = wordplus('GET', '/wordplus/realtime/rooms/'.rawurlencode('order:42').'/history?limit=20');
+        - lang: Go
+          label: Go
+          source: |
+            page, err := app.Request("GET", "/wordplus/realtime/rooms/"+url.PathEscape("order:42")+"/history?limit=20", nil)
+    delete:
+      tags: [Rooms]
+      operationId: forgetHistory
+      summary: Erase the history of a room
+      description: |
+        Erases one kept event by its id, or all of them.
+
+        In the packages: `realtime.in( room ).forget( id )`.
+      parameters:
+        - $ref: '#/components/parameters/Room'
+        - name: id
+          in: query
+          description: The id of one event. All of them without it.
+          schema: { $ref: '#/components/schemas/EventId' }
+      responses:
+        '200':
+          description: Erased.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, deleted ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  deleted: { type: integer, description: How many were erased. }
+              example: { ok: true, deleted: 1 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus DELETE '/wordplus/realtime/rooms/order%3A42/history'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { deleted } = await wordplus('DELETE', `/wordplus/realtime/rooms/${encodeURIComponent('order:42')}/history`);
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("DELETE", f"/wordplus/realtime/rooms/{quote('order:42', safe='')}/history")
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('DELETE', '/wordplus/realtime/rooms/'.rawurlencode('order:42').'/history');
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("DELETE", "/wordplus/realtime/rooms/"+url.PathEscape("order:42")+"/history", nil)
+
+  /wordplus/realtime/rooms/{name}/kick:
+    post:
+      tags: [Rooms]
+      operationId: kick
+      summary: Take someone out of a room
+      description: |
+        Takes every connection of a user out of the room at once, and refuses the room tokens signed for them before
+        now. Move the key of the room on too ([sealing](/api/sealing/#taking-a-key-back)), so what it carries next stays
+        sealed from them.
+
+        In the packages: `realtime.in( room ).kick( user )`.
+      parameters:
+        - $ref: '#/components/parameters/Room'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ user ]
+              properties:
+                user: { $ref: '#/components/schemas/UserId' }
+            example: { user: '43' }
+      responses:
+        '200': { $ref: '#/components/responses/Done' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/rooms/chat%3A34%3A42/kick' '{"user":"43"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('POST', `/wordplus/realtime/rooms/${encodeURIComponent('chat:34:42')}/kick`, { user: '43' });
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("POST", f"/wordplus/realtime/rooms/{quote('chat:34:42', safe='')}/kick", {"user": "43"})
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('POST', '/wordplus/realtime/rooms/'.rawurlencode('chat:34:42').'/kick', ['user' => '43']);
+        - lang: Go
+          label: Go
+          source: |
+            _, err := app.Request("POST", "/wordplus/realtime/rooms/"+url.PathEscape("chat:34:42")+"/kick", map[string]any{"user": "43"})
+
+  /wordplus/realtime/online:
+    get:
+      tags: [Who is online]
+      operationId: online
+      summary: Who is online
+      description: |
+        With `ids`, whether each of those users is online, and when the others were last seen. Without it, a page of
+        the ids online now. Either way, how many are online across your app.
+
+        A user is online while any page or app of theirs is connected, and offline 10 seconds after the last one goes.
+
+        In the packages: `realtime.online.states( ids )`, `.has( id )`, `.count()` and `.list( { cursor, limit } )`.
+      parameters:
+        - name: ids
+          in: query
+          description: Up to 1,000 user ids, comma separated.
+          schema: { type: string }
+          example: '42,34'
+        - name: cursor
+          in: query
+          description: Without `ids`, where the page starts, `0` for the first.
+          schema: { type: string, default: '0' }
+        - name: limit
+          in: query
+          description: Without `ids`, how many, 1,000 at most.
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 1000 }
+      responses:
+        '200':
+          description: Who is online.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, count ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  count: { type: integer, description: How many are online across your app. }
+                  online:
+                    type: array
+                    description: With `ids`, each in their order.
+                    items:
+                      type: object
+                      required: [ id, online ]
+                      properties:
+                        id: { type: string }
+                        online: { type: boolean }
+                        at: { type: integer, description: 'Offline: when they were last seen, in milliseconds.' }
+                  ids: { type: array, items: { type: string }, description: Without `ids`, those online on this page. }
+                  next: { type: string, description: 'Without `ids`, the cursor of the next page, `0` after the last.' }
+              examples:
+                ids:
+                  summary: With ids
+                  value: { ok: true, count: 2, online: [ { id: '42', online: true }, { id: '99', online: false, at: 1791638400000 } ] }
+                page:
+                  summary: A page
+                  value: { ok: true, count: 2, ids: [ '34', '42' ], next: '0' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/online?ids=42,34'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { online, count } = await wordplus('GET', '/wordplus/realtime/online?ids=42,34');
+        - lang: Python
+          label: Python
+          source: |
+            answer = wordplus("GET", "/wordplus/realtime/online?ids=42,34")
+        - lang: PHP
+          label: PHP
+          source: |
+            $answer = wordplus('GET', '/wordplus/realtime/online?ids=42,34');
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/online?ids=42,34", nil)
+
+  /wordplus/realtime/users/{id}:
+    get:
+      tags: [Users]
+      operationId: getUser
+      summary: A user
+      description: |
+        Whether a user of your app is online, since when they were last seen when they are not, and how many of their
+        connections your server vouched for are open now. A user hidden from the online list counts as offline.
+
+        In the packages: `realtime.user( id ).get()`.
+      parameters:
+        - $ref: '#/components/parameters/User'
+      responses:
+        '200':
+          description: 'The user.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, user ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  user: { $ref: '#/components/schemas/UserState' }
+              example: { ok: true, user: { id: '42', online: true, connections: 2 } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/users/42'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { user } = await wordplus('GET', '/wordplus/realtime/users/42');
+        - lang: Python
+          label: Python
+          source: |
+            user = wordplus("GET", "/wordplus/realtime/users/42")["user"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $user = wordplus('GET', '/wordplus/realtime/users/42')['user'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/users/42", nil)
+
+  /wordplus/realtime/users/{id}/disconnect:
+    post:
+      tags: [Users]
+      operationId: disconnectUser
+      summary: Take a user out of everything
+      description: |
+        Takes a user out of everything at once, on every connection: their pages leave every room, the realtime server
+        forgets who they are and stops their calls ringing, and their group calls and live streams take them out (a host
+        stays). Each page then asks your server routes for new tokens and a new identity, and the tokens signed for the user
+        before now are refused, so your rules decide whether they come back: a user you signed out, whose session is gone, or
+        whom you blocked does not. A page hears `signed_out`.
+
+        The connection stays open, so the other plugins and products on it carry on.
+
+        In the packages: `realtime.user( id ).disconnect()`.
+      parameters:
+        - $ref: '#/components/parameters/User'
+      responses:
+        '200': { $ref: '#/components/responses/Done' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/users/42/disconnect'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('POST', '/wordplus/realtime/users/42/disconnect');
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("POST", "/wordplus/realtime/users/42/disconnect")
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('POST', '/wordplus/realtime/users/42/disconnect');
+        - lang: Go
+          label: Go
+          source: |
+            _, err := app.Request("POST", "/wordplus/realtime/users/42/disconnect", nil)
+
+  /wordplus/realtime/users/{id}/ask:
+    post:
+      tags: [Users]
+      operationId: askUser
+      summary: Ask the pages of a user
+      description: |
+        Sends an event to the open pages of a user and waits for their replies. A page answers the events it chose with the
+        browser `rt.answer( event, handler )`, which returns the reply. The answer comes with the first reply, or with
+        `all` once `timeout` is over, with every reply by then. No page answering is no reply.
+
+        Seal `data` with the key of the user to keep it from WordPlus Cloud ([sealing](/api/sealing/)): the pages seal their
+        replies with the same key. The packages do both by default.
+
+        In the packages: `realtime.user( id ).ask( event, data, { timeout, all } )`.
+      parameters:
+        - $ref: '#/components/parameters/User'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ event ]
+              properties:
+                event: { type: string, minLength: 1, maxLength: 200, description: 'The event the pages answer. Not one of the names kept for the rooms.' }
+                data: { description: 'Any JSON, up to 1 MB, or a sealed string.' }
+                timeout: { type: integer, minimum: 1000, maximum: 60000, default: 10000, description: 'How long to wait, in milliseconds.' }
+                all: { type: boolean, default: false, description: 'Wait the whole timeout for every reply, not only the first.' }
+            example: { event: cart, data: { why: checkout }, timeout: 5000 }
+      responses:
+        '200':
+          description: 'The replies, in the order they came: one at most without `all`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, replies ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  replies:
+                    type: array
+                    items:
+                      type: object
+                      required: [ data, at ]
+                      properties:
+                        data: { description: 'As the page replied, up to 64 KB, a sealed string when it sealed it.' }
+                        at: { type: integer, description: When it came, in milliseconds. }
+              example: { ok: true, replies: [ { data: { items: 3 }, at: 1791638400000 } ] }
+        '400':
+          description: '`bad_event`: a name kept for the rooms. `bad_request`: a timeout out of range.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refusal' }
+              example: { ok: false, error: bad_event }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/users/42/ask' '{"event":"cart","data":{"why":"checkout"},"timeout":5000}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { replies } = await wordplus('POST', '/wordplus/realtime/users/42/ask', { event: 'cart', data: { why: 'checkout' }, timeout: 5000 });
+        - lang: Python
+          label: Python
+          source: |
+            replies = wordplus("POST", "/wordplus/realtime/users/42/ask", {"event": "cart", "data": {"why": "checkout"}, "timeout": 5000})["replies"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $replies = wordplus('POST', '/wordplus/realtime/users/42/ask', ['event' => 'cart', 'data' => ['why' => 'checkout'], 'timeout' => 5000])['replies'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/users/42/ask", map[string]any{"event": "cart", "data": map[string]any{"why": "checkout"}, "timeout": 5000})
+
+  /wordplus/realtime/streams:
+    get:
+      tags: [Live streams]
+      operationId: streams
+      summary: The live streams now
+      description: The streams of your app live now, each with when it went live and how many watch.
+      responses:
+        '200':
+          description: The live streams.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, streams ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  streams:
+                    type: array
+                    items:
+                      type: object
+                      required: [ name, started_at, viewers ]
+                      properties:
+                        name: { type: string }
+                        started_at: { type: [ integer, 'null' ], description: In milliseconds. }
+                        viewers: { type: integer }
+              example: { ok: true, streams: [ { name: 'show:mugs', started_at: 1791638400000, viewers: 18 } ] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET /wordplus/realtime/streams
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { streams } = await wordplus('GET', '/wordplus/realtime/streams');
+        - lang: Python
+          label: Python
+          source: |
+            streams = wordplus("GET", "/wordplus/realtime/streams")["streams"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $streams = wordplus('GET', '/wordplus/realtime/streams')['streams'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/streams", nil)
+
+  /wordplus/realtime/streams/{name}:
+    get:
+      tags: [Live streams]
+      operationId: getStream
+      summary: A live stream
+      description: |
+        A live stream as it is now: idle, live or ended, how many watch it, its peak since it went live, its slow mode,
+        whether it takes reactions, and its pinned message.
+
+        In the packages: `realtime.stream( name ).get()`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      responses:
+        '200':
+          description: 'The stream.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, stream ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  stream: { $ref: '#/components/schemas/StreamNow' }
+              example: { ok: true, stream: { name: 'show:mugs', state: live, started_at: 1791638400000, ended_at: null, viewers: 120, peak: 140, slow: 0, reactions: true, pinned: null } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/streams/show%3Amugs'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { stream } = await wordplus('GET', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}`);
+        - lang: Python
+          label: Python
+          source: |
+            stream = wordplus("GET", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}")["stream"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $stream = wordplus('GET', '/wordplus/realtime/streams/'.rawurlencode('show:mugs'))['stream'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs"), nil)
+
+  /wordplus/realtime/streams/{name}/people:
+    get:
+      tags: [Live streams]
+      operationId: streamPeople
+      summary: Who is in a live stream
+      description: |
+        The people signed in who watch a live stream or are on it, hosts first, up to 200, with when a timeout ends for
+        those who have one, and how many watch in all, visitors with them.
+
+        In the packages: `realtime.stream( name ).people()`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      responses:
+        '200':
+          description: 'Who is in it.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, watching, people ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  watching: { type: integer, description: 'Everyone watching, visitors with them.' }
+                  people:
+                    type: array
+                    items: { $ref: '#/components/schemas/StreamPerson' }
+              example: { ok: true, watching: 120, people: [ { user: '1', name: Ann, avatar: null, role: host }, { user: '77', name: Ben, avatar: null, role: viewer, timeout_until: 1791639000000 } ] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/streams/show%3Amugs/people'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { people } = await wordplus('GET', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/people`);
+        - lang: Python
+          label: Python
+          source: |
+            people = wordplus("GET", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/people")["people"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $people = wordplus('GET', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/people')['people'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/people", nil)
+
+  /wordplus/realtime/streams/{name}/chat:
+    get:
+      tags: [Live streams]
+      operationId: streamChat
+      summary: The chat of a live stream
+      description: |
+        The last messages of the chat of a live stream, oldest first: 50, or `limit` up to 200. The chat keeps its last
+        200 messages for a day.
+
+        In the packages: `realtime.stream( name ).chat( { limit } )`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: 'The messages.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, messages ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  messages:
+                    type: array
+                    items: { $ref: '#/components/schemas/StreamMessage' }
+              example: { ok: true, messages: [ { id: '1791638400000-0', from: { user: '77', name: Ben, avatar: null, role: viewer }, text: 'Do you ship to Canada?', at: 1791638400000 } ] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/streams/show%3Amugs/chat'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { messages } = await wordplus('GET', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/chat`);
+        - lang: Python
+          label: Python
+          source: |
+            messages = wordplus("GET", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/chat")["messages"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $messages = wordplus('GET', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/chat')['messages'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/chat", nil)
+    post:
+      tags: [Live streams]
+      operationId: streamSay
+      summary: Write in the chat as your app
+      description: |
+        A message from your app in the chat of a live stream, for everyone watching: with the name and the https picture
+        you give it, shown as a host message, so nobody may ban it. Up to 500 characters.
+
+        In the packages: `realtime.stream( name ).say( text, { name, avatar } )`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ text, name ]
+              properties:
+                text: { type: string, maxLength: 500 }
+                name: { type: string, maxLength: 64 }
+                avatar: { type: string, format: uri, description: 'An https address.' }
+            example: { text: 'Free shipping until midnight', name: 'Mug Shop' }
+      responses:
+        '200':
+          description: 'The message, as everyone watching got it.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, message ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  message: { $ref: '#/components/schemas/StreamMessage' }
+              example: { ok: true, message: { id: '1791638460000-0', from: { user: null, name: 'Mug Shop', avatar: null, role: app }, text: 'Free shipping until midnight', at: 1791638460000 } }
+        '400':
+          description: '`empty`, `too_long`, `bad_name`, `bad_avatar` (not https).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refusal' }
+              example: { ok: false, error: too_long }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/streams/show%3Amugs/chat' '{"text":"Free shipping until midnight","name":"Mug Shop"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { message } = await wordplus('POST', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/chat`, { text: 'Free shipping until midnight', name: 'Mug Shop' });
+        - lang: Python
+          label: Python
+          source: |
+            message = wordplus("POST", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/chat", {"text": "Free shipping until midnight", "name": "Mug Shop"})["message"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $message = wordplus('POST', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/chat', ['text' => 'Free shipping until midnight', 'name' => 'Mug Shop'])['message'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/chat", map[string]any{"text": "Free shipping until midnight", "name": "Mug Shop"})
+    delete:
+      tags: [Live streams]
+      operationId: streamClearChat
+      summary: Clear the chat
+      description: |
+        Empties the chat of a live stream for everyone watching, the pinned message too.
+
+        In the packages: `realtime.stream( name ).clearChat()`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      responses:
+        '200': { $ref: '#/components/responses/Done' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus DELETE '/wordplus/realtime/streams/show%3Amugs/chat'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('DELETE', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/chat`);
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("DELETE", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/chat")
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('DELETE', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/chat');
+        - lang: Go
+          label: Go
+          source: |
+            _, err := app.Request("DELETE", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/chat", nil)
+
+  /wordplus/realtime/streams/{name}/chat/{id}:
+    delete:
+      tags: [Live streams]
+      operationId: streamDeleteMessage
+      summary: Delete a message
+      description: |
+        Deletes a message of the chat for everyone watching, and unpins it when it was pinned.
+
+        In the packages: `realtime.stream( name ).deleteMessage( id )`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+        - $ref: '#/components/parameters/Message'
+      responses:
+        '200':
+          description: 'Whether the message was there.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, deleted ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  deleted: { type: boolean }
+              example: { ok: true, deleted: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus DELETE '/wordplus/realtime/streams/show%3Amugs/chat/1791638400000-0'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { deleted } = await wordplus('DELETE', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/chat/1791638400000-0`);
+        - lang: Python
+          label: Python
+          source: |
+            deleted = wordplus("DELETE", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/chat/1791638400000-0")["deleted"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $deleted = wordplus('DELETE', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/chat/1791638400000-0')['deleted'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("DELETE", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/chat/1791638400000-0", nil)
+
+  /wordplus/realtime/streams/{name}/pin:
+    post:
+      tags: [Live streams]
+      operationId: streamPin
+      summary: Pin a message
+      description: |
+        Pins a message of the chat over it for everyone watching, in place of the one pinned before. `null` unpins it.
+
+        In the packages: `realtime.stream( name ).pin( id )`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ id ]
+              properties:
+                id: { type: [ string, 'null' ], description: 'A message id, or null to unpin.' }
+            example: { id: '1791638400000-0' }
+      responses:
+        '200': { $ref: '#/components/responses/Done' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+        '404': { $ref: '#/components/responses/NotFound' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/streams/show%3Amugs/pin' '{"id":"1791638400000-0"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('POST', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/pin`, { id: '1791638400000-0' });
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("POST", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/pin", {"id": "1791638400000-0"})
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('POST', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/pin', ['id' => '1791638400000-0']);
+        - lang: Go
+          label: Go
+          source: |
+            _, err := app.Request("POST", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/pin", map[string]any{"id": "1791638400000-0"})
+
+  /wordplus/realtime/streams/{name}/slow:
+    post:
+      tags: [Live streams]
+      operationId: streamSlow
+      summary: Slow mode
+      description: |
+        One message every `seconds` for everyone in the chat but its hosts and moderators, up to 300. 0 turns slow mode off.
+
+        In the packages: `realtime.stream( name ).slow( seconds )`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ seconds ]
+              properties:
+                seconds: { type: integer, minimum: 0, maximum: 300 }
+            example: { seconds: 30 }
+      responses:
+        '200':
+          description: 'Slow mode as it is now.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, seconds ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  seconds: { type: integer }
+              example: { ok: true, seconds: 30 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/streams/show%3Amugs/slow' '{"seconds":30}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('POST', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/slow`, { seconds: 30 });
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("POST", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/slow", {"seconds": 30})
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('POST', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/slow', ['seconds' => 30]);
+        - lang: Go
+          label: Go
+          source: |
+            _, err := app.Request("POST", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/slow", map[string]any{"seconds": 30})
+
+  /wordplus/realtime/streams/{name}/end:
+    post:
+      tags: [Live streams]
+      operationId: endStream
+      summary: End a live stream
+      description: Ends a live stream for everyone, as its host ending it does. Your webhook then gets `stream.ended`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      responses:
+        '200':
+          description: Ended, and the stream as it is now.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, stream ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  stream:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      state: { type: string, enum: [ idle, live, ended ] }
+                      started_at: { type: [ integer, 'null' ] }
+                      ended_at: { type: [ integer, 'null' ] }
+              example: { ok: true, stream: { name: 'show:mugs', state: ended, started_at: 1791638400000, ended_at: 1791642000000 } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/streams/show%3Amugs/end'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('POST', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/end`);
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("POST", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/end")
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('POST', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/end');
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/end", nil)
+
+  /wordplus/realtime/streams/{name}/reactions:
+    post:
+      tags: [Live streams]
+      operationId: streamReactions
+      summary: Turn reactions on or off
+      description: Turns the reactions of a live stream on or off, for everyone watching, at once.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ on ]
+              properties:
+                on: { type: boolean }
+            example: { on: false }
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, on ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  on: { type: boolean }
+              example: { ok: true, on: false }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/streams/show%3Amugs/reactions' '{"on":false}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('POST', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/reactions`, { on: false });
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("POST", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/reactions", {"on": False})
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('POST', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/reactions', ['on' => false]);
+        - lang: Go
+          label: Go
+          source: |
+            _, err := app.Request("POST", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/reactions", map[string]any{"on": false})
+
+  /wordplus/realtime/streams/{name}/kick:
+    post:
+      tags: [Live streams]
+      operationId: streamKick
+      summary: Take someone out of a live stream
+      description: Takes a person out of a live stream now. They may come back. The host is never taken out (403 `host`).
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      requestBody: { $ref: '#/components/requestBodies/StreamUser' }
+      responses:
+        '200': { $ref: '#/components/responses/Done' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncludedOrHost' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/streams/show%3Amugs/kick' '{"user":"77"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('POST', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/kick`, { user: '77' });
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("POST", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/kick", {"user": "77"})
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('POST', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/kick', ['user' => '77']);
+        - lang: Go
+          label: Go
+          source: |
+            _, err := app.Request("POST", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/kick", map[string]any{"user": "77"})
+
+  /wordplus/realtime/streams/{name}/ban:
+    post:
+      tags: [Live streams]
+      operationId: streamBan
+      summary: Ban someone from a live stream
+      description: Takes a person out of a live stream and keeps them out. The host is never banned (403 `host`).
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      requestBody: { $ref: '#/components/requestBodies/StreamUser' }
+      responses:
+        '200': { $ref: '#/components/responses/Done' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncludedOrHost' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/streams/show%3Amugs/ban' '{"user":"88"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('POST', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/ban`, { user: '88' });
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("POST", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/ban", {"user": "88"})
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('POST', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/ban', ['user' => '88']);
+        - lang: Go
+          label: Go
+          source: |
+            _, err := app.Request("POST", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/ban", map[string]any{"user": "88"})
+
+  /wordplus/realtime/streams/{name}/unban:
+    post:
+      tags: [Live streams]
+      operationId: streamUnban
+      summary: Lift a ban
+      description: |
+        Lifts the ban of a person from a live stream: they may come back.
+
+        In the packages: `realtime.stream( name ).unban( user )`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      requestBody:
+        { $ref: '#/components/requestBodies/StreamUser' }
+      responses:
+        '200':
+          description: 'Whether there was a ban.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, lifted ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  lifted: { type: boolean }
+              example: { ok: true, lifted: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/streams/show%3Amugs/unban' '{"user":"88"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { lifted } = await wordplus('POST', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/unban`, { user: '88' });
+        - lang: Python
+          label: Python
+          source: |
+            lifted = wordplus("POST", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/unban", {"user": "88"})["lifted"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $lifted = wordplus('POST', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/unban', ['user' => '88'])['lifted'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/unban", map[string]any{"user": "88"})
+
+  /wordplus/realtime/streams/{name}/bans:
+    get:
+      tags: [Live streams]
+      operationId: streamBans
+      summary: The bans of a live stream
+      description: |
+        Everyone banned from a live stream, the latest first. A ban lasts a week unless it is lifted.
+
+        In the packages: `realtime.stream( name ).bans()`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      responses:
+        '200':
+          description: 'The bans.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, bans ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  bans:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user: { type: [ string, 'null' ], description: 'Null for a visitor.' }
+                        name: { type: string }
+                        avatar: { type: [ string, 'null' ] }
+                        at: { type: [ integer, 'null' ], description: When, in milliseconds. }
+              example: { ok: true, bans: [ { user: '88', name: Cara, avatar: null, at: 1791638500000 } ] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/streams/show%3Amugs/bans'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { bans } = await wordplus('GET', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/bans`);
+        - lang: Python
+          label: Python
+          source: |
+            bans = wordplus("GET", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/bans")["bans"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $bans = wordplus('GET', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/bans')['bans'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/bans", nil)
+
+  /wordplus/realtime/streams/{name}/timeout:
+    post:
+      tags: [Live streams]
+      operationId: streamTimeout
+      summary: Time someone out
+      description: |
+        Someone may not write in the chat for `seconds`, from 60 to 86,400, and goes on watching. The host is never timed
+        out (403 `host`).
+
+        In the packages: `realtime.stream( name ).timeout( user, seconds )`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ user, seconds ]
+              properties:
+                user: { type: string, pattern: '^[\w.@-]{1,64}$', description: 'The user id the stream grant named them by (sub).' }
+                seconds: { type: integer, minimum: 60, maximum: 86400 }
+            example: { user: '77', seconds: 600 }
+      responses:
+        '200':
+          description: 'When the timeout ends.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, until ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  until: { type: integer, description: In milliseconds. }
+              example: { ok: true, until: 1791639000000 }
+        '400':
+          description: '`bad_request`, `bad_seconds`: out of range.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refusal' }
+              example: { ok: false, error: bad_seconds }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncludedOrHost' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/streams/show%3Amugs/timeout' '{"user":"77","seconds":600}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { until } = await wordplus('POST', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/timeout`, { user: '77', seconds: 600 });
+        - lang: Python
+          label: Python
+          source: |
+            until = wordplus("POST", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/timeout", {"user": "77", "seconds": 600})["until"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $until = wordplus('POST', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/timeout', ['user' => '77', 'seconds' => 600])['until'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/timeout", map[string]any{"user": "77", "seconds": 600})
+
+  /wordplus/realtime/streams/{name}/untimeout:
+    post:
+      tags: [Live streams]
+      operationId: streamUntimeout
+      summary: Lift a timeout
+      description: |
+        Lifts a timeout before its end: they may write again.
+
+        In the packages: `realtime.stream( name ).untimeout( user )`.
+      parameters:
+        - $ref: '#/components/parameters/Stream'
+      requestBody:
+        { $ref: '#/components/requestBodies/StreamUser' }
+      responses:
+        '200':
+          description: 'Whether there was a timeout.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, lifted ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  lifted: { type: boolean }
+              example: { ok: true, lifted: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/streams/show%3Amugs/untimeout' '{"user":"77"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { lifted } = await wordplus('POST', `/wordplus/realtime/streams/${encodeURIComponent('show:mugs')}/untimeout`, { user: '77' });
+        - lang: Python
+          label: Python
+          source: |
+            lifted = wordplus("POST", f"/wordplus/realtime/streams/{quote('show:mugs', safe='')}/untimeout", {"user": "77"})["lifted"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $lifted = wordplus('POST', '/wordplus/realtime/streams/'.rawurlencode('show:mugs').'/untimeout', ['user' => '77'])['lifted'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/streams/"+url.PathEscape("show:mugs")+"/untimeout", map[string]any{"user": "77"})
+
+  /wordplus/realtime/calls:
+    get:
+      tags: [Group calls]
+      operationId: listCalls
+      summary: The group calls going on
+      description: |
+        The group calls of your app with someone in them now, by name, with how many are in each and since when. A call
+        between two people that became a group call is `call:` and its id. Calls between two people run between their
+        browsers, so they are not here.
+
+        In the packages: `realtime.listCalls()`.
+      responses:
+        '200':
+          description: 'The calls.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, calls ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  calls:
+                    type: array
+                    items: { $ref: '#/components/schemas/LiveCall' }
+              example: { ok: true, calls: [ { name: 'meeting:7', people: 4, started_at: 1791638400000 } ] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/calls'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { calls } = await wordplus('GET', '/wordplus/realtime/calls');
+        - lang: Python
+          label: Python
+          source: |
+            calls = wordplus("GET", "/wordplus/realtime/calls")["calls"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $calls = wordplus('GET', '/wordplus/realtime/calls')['calls'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/calls", nil)
+
+  /wordplus/realtime/calls/{name}:
+    get:
+      tags: [Group calls]
+      operationId: getCall
+      summary: A group call
+      description: |
+        The people in a group call and what each sends now: camera, microphone and screen, each true while it is on and not
+        muted. A call with nobody in it, never or no longer, answers `people` 0, `started_at` null and an empty `list`.
+
+        In the packages: `realtime.call( name ).get()`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      responses:
+        '200':
+          description: 'The call.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, call ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  call: { $ref: '#/components/schemas/CallNow' }
+              examples:
+                going-on:
+                  summary: Going on
+                  value: { ok: true, call: { name: 'meeting:7', people: 2, started_at: 1791638400000, list: [ { user: '42', joined_at: 1791638400000, camera: true, microphone: true, screen: false }, { user: '43', joined_at: 1791638410000, camera: false, microphone: true, screen: false } ] } }
+                nobody-in-it:
+                  summary: Nobody in it
+                  value: { ok: true, call: { name: 'meeting:7', people: 0, started_at: null, list: [] } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/calls/meeting%3A7'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { call } = await wordplus('GET', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}`);
+        - lang: Python
+          label: Python
+          source: |
+            call = wordplus("GET", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}")["call"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $call = wordplus('GET', '/wordplus/realtime/calls/'.rawurlencode('meeting:7'))['call'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7"), nil)
+
+  /wordplus/realtime/calls/{name}/mute:
+    post:
+      tags: [Group calls]
+      operationId: muteInCall
+      summary: Mute someone
+      description: |
+        Turns off the microphone, camera or screen of someone in a group call, as a host does. They may turn it on again: to
+        keep them quiet, remove them, or give them a token that does not publish.
+
+        In the packages: `realtime.call( name ).mute( user, track )`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ user, track ]
+              properties:
+                user: { $ref: '#/components/schemas/UserId' }
+                track: { type: string, enum: [ microphone, camera, screen ] }
+            example: { user: '43', track: microphone }
+      responses:
+        '200':
+          description: 'Whether it was on.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, muted ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  muted: { type: boolean }
+              example: { ok: true, muted: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/calls/meeting%3A7/mute' '{"user":"43","track":"microphone"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { muted } = await wordplus('POST', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}/mute`, { user: '43', track: 'microphone' });
+        - lang: Python
+          label: Python
+          source: |
+            muted = wordplus("POST", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}/mute", {"user": "43", "track": "microphone"})["muted"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $muted = wordplus('POST', '/wordplus/realtime/calls/'.rawurlencode('meeting:7').'/mute', ['user' => '43', 'track' => 'microphone'])['muted'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/mute", map[string]any{"user": "43", "track": "microphone"})
+
+  /wordplus/realtime/calls/{name}/remove:
+    post:
+      tags: [Group calls]
+      operationId: removeFromCall
+      summary: Remove someone
+      description: |
+        Takes someone out of a group call now. The call and room tokens signed for them before do not take them back in: a
+        token your server signs after does.
+
+        In the packages: `realtime.call( name ).remove( user )`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ user ]
+              properties:
+                user: { $ref: '#/components/schemas/UserId' }
+            example: { user: '43' }
+      responses:
+        '200':
+          description: 'Whether they were in it.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, removed ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  removed: { type: boolean }
+              example: { ok: true, removed: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/calls/meeting%3A7/remove' '{"user":"43"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { removed } = await wordplus('POST', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}/remove`, { user: '43' });
+        - lang: Python
+          label: Python
+          source: |
+            removed = wordplus("POST", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}/remove", {"user": "43"})["removed"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $removed = wordplus('POST', '/wordplus/realtime/calls/'.rawurlencode('meeting:7').'/remove', ['user' => '43'])['removed'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/remove", map[string]any{"user": "43"})
+
+  /wordplus/realtime/calls/{name}/permit:
+    post:
+      tags: [Group calls]
+      operationId: permitInCall
+      summary: Change what someone may do
+      description: |
+        Changes what someone may do in a group call while it runs: `publish` makes a listener a speaker, or a speaker a
+        listener again, which takes down what they send. `subscribe` stops or starts what they get of the others. At least
+        one of the two.
+
+        It is theirs at once when they are in the call, and their page hears `permissions`. The call and room tokens
+        signed for them before follow it too, so an older token cannot undo it. A token your server signs after follows
+        your rule, so keep the change where the rule reads it.
+
+        In the packages: `realtime.call( name ).permit( user, { publish, subscribe } )`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ user ]
+              properties:
+                user: { $ref: '#/components/schemas/UserId' }
+                publish: { type: boolean, description: 'May send their camera, microphone and screen.' }
+                subscribe: { type: boolean, description: 'Gets those of the others.' }
+            example: { user: '43', publish: true }
+      responses:
+        '200':
+          description: 'Whether they were in it.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, changed ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  changed: { type: boolean }
+              example: { ok: true, changed: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/calls/class%3A7/permit' '{"user":"43","publish":true}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { changed } = await wordplus('POST', `/wordplus/realtime/calls/${encodeURIComponent('class:7')}/permit`, { user: '43', publish: true });
+        - lang: Python
+          label: Python
+          source: |
+            changed = wordplus("POST", f"/wordplus/realtime/calls/{quote('class:7', safe='')}/permit", {"user": "43", "publish": True})["changed"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $changed = wordplus('POST', '/wordplus/realtime/calls/'.rawurlencode('class:7').'/permit', ['user' => '43', 'publish' => true])['changed'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("class:7")+"/permit", map[string]any{"user": "43", "publish": true})
+
+  /wordplus/realtime/calls/{name}/end:
+    post:
+      tags: [Group calls]
+      operationId: endCall
+      summary: End a call
+      description: |
+        Ends a group call for everyone in it. The tokens signed before do not open it again.
+
+        In the packages: `realtime.call( name ).end()`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      responses:
+        '200': { $ref: '#/components/responses/Done' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/calls/meeting%3A7/end'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('POST', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}/end`);
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("POST", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}/end")
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('POST', '/wordplus/realtime/calls/'.rawurlencode('meeting:7').'/end');
+        - lang: Go
+          label: Go
+          source: |
+            _, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/end", nil)
+
+  /wordplus/realtime/usage:
+    get:
+      tags: [Usage and webhooks]
+      operationId: usage
+      summary: What your app uses
+      description: |
+        The connections open now, against the connections of your plan for an app (`limit`, null on WordPress), and the
+        credits of your account, a credit a minute: those of your plan left this month, those you bought, how far into the
+        allowance of next month it borrowed, the allowance itself, and whether new viewers and people above the unmetered
+        floor get in (`admit`).
+
+        In the packages: `realtime.usage()`.
+      responses:
+        '200':
+          description: 'What the app uses.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, connections, credits ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  connections:
+                    type: object
+                    properties:
+                      now: { type: integer }
+                      limit: { type: [ integer, 'null' ] }
+                  credits:
+                    type: [ object, 'null' ]
+                    properties:
+                      plan: { type: integer }
+                      bought: { type: integer }
+                      borrowed: { type: integer }
+                      allowance: { type: integer }
+                      admit: { type: boolean }
+                      buy_url: { type: string, format: uri }
+              example: { ok: true, connections: { now: 312, limit: 1000 }, credits: { plan: 4200, bought: 50000, borrowed: 0, allowance: 5000, admit: true } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/usage'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { connections } = await wordplus('GET', '/wordplus/realtime/usage');
+        - lang: Python
+          label: Python
+          source: |
+            connections = wordplus("GET", "/wordplus/realtime/usage")["connections"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $connections = wordplus('GET', '/wordplus/realtime/usage')['connections'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/usage", nil)
+
+  /wordplus/realtime/webhooks:
+    get:
+      tags: [Usage and webhooks]
+      operationId: webhookDeliveries
+      summary: The deliveries of your webhook
+      description: |
+        The last 100 tries of your webhook in the last three days, the newest first. Each batch has its id and each try its
+        HTTP status (0 when nothing answered, with `error`), when it is tried again (`next_at`), and whether it may be
+        sent again now (`resendable`).
+
+        In the packages: `realtime.webhooks.deliveries()`.
+      responses:
+        '200':
+          description: 'The deliveries.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, deliveries ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  deliveries:
+                    type: array
+                    items: { $ref: '#/components/schemas/WebhookDelivery' }
+              example: { ok: true, deliveries: [ { id: 7f9c2ba4-e88f-4c1b-9a2d-5b3e6f1a0c8d, at: 1791638400000, events: 3, types: [ member.joined ], attempt: 1, status: 503, ms: 120, next_at: 1791638430000, resendable: true } ] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/webhooks'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { deliveries } = await wordplus('GET', '/wordplus/realtime/webhooks');
+        - lang: Python
+          label: Python
+          source: |
+            deliveries = wordplus("GET", "/wordplus/realtime/webhooks")["deliveries"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $deliveries = wordplus('GET', '/wordplus/realtime/webhooks')['deliveries'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/webhooks", nil)
+
+  /wordplus/realtime/webhooks/{id}/resend:
+    post:
+      tags: [Usage and webhooks]
+      operationId: resendWebhook
+      summary: Send a batch again
+      description: |
+        Sends a batch your server did not take again now, the same events with the same ids. A batch is kept while it is
+        tried again, and three days after the tries end.
+
+        In the packages: `realtime.webhooks.resend( id )`.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid }, description: 'The id of the batch, from its delivery.' }
+      responses:
+        '200': { $ref: '#/components/responses/WebhookOutcome' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+        '404': { $ref: '#/components/responses/NotFound' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/webhooks/7f9c2ba4-e88f-4c1b-9a2d-5b3e6f1a0c8d/resend'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { delivered } = await wordplus('POST', '/wordplus/realtime/webhooks/7f9c2ba4-e88f-4c1b-9a2d-5b3e6f1a0c8d/resend');
+        - lang: Python
+          label: Python
+          source: |
+            delivered = wordplus("POST", "/wordplus/realtime/webhooks/7f9c2ba4-e88f-4c1b-9a2d-5b3e6f1a0c8d/resend")["delivered"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $delivered = wordplus('POST', '/wordplus/realtime/webhooks/7f9c2ba4-e88f-4c1b-9a2d-5b3e6f1a0c8d/resend')['delivered'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/webhooks/7f9c2ba4-e88f-4c1b-9a2d-5b3e6f1a0c8d/resend", nil)
+
+  /wordplus/realtime/webhooks/test:
+    post:
+      tags: [Usage and webhooks]
+      operationId: testWebhook
+      summary: Send a test event
+      description: |
+        Sends one event of type `webhook.test` to your webhook now, once, to see your server take it and check its signature.
+
+        In the packages: `realtime.webhooks.test()`.
+      responses:
+        '200': { $ref: '#/components/responses/WebhookOutcome' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+        '404':
+          description: '`no_webhook`: your app has no webhook address.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refusal' }
+              example: { ok: false, error: no_webhook }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/webhooks/test'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { delivered } = await wordplus('POST', '/wordplus/realtime/webhooks/test');
+        - lang: Python
+          label: Python
+          source: |
+            delivered = wordplus("POST", "/wordplus/realtime/webhooks/test")["delivered"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $delivered = wordplus('POST', '/wordplus/realtime/webhooks/test')['delivered'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/webhooks/test", nil)
+
+webhooks:
+  events:
+    post:
+      tags: [Events]
+      operationId: webhook
+      summary: The webhook your server gets
+      description: |
+        WordPlus Cloud posts what happens in your app to the webhook address on your app page in your WordPlus Cloud
+        account, in batches, signed as a request to the API is, with a key of its own
+        ([webhooks](/api/webhooks/)). Check the signature against the body as it came, then answer 2xx. Anything else is
+        tried again, later each time, for 24 hours: drop a repeat by its `id`.
+      security: []
+      parameters:
+        - { name: X-WordPlus-Site, in: header, required: true, schema: { type: string }, description: Your app key. }
+        - { name: X-WordPlus-Timestamp, in: header, required: true, schema: { type: string }, description: Unix seconds. }
+        - { name: X-WordPlus-Signature, in: header, required: true, schema: { type: string }, description: 'Hex HMAC-SHA256 under the webhook key.' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ events ]
+              properties:
+                events: { type: array, items: { $ref: '#/components/schemas/WebhookEvent' } }
+            example:
+              events:
+                - { id: 0b6f1c9e-8f5d-4c38-9d2b-6a1e2f3c4d5e, at: 1791638400000, type: room.occupied, room: 'order:42' }
+                - { id: 7c9e6679-7425-40de-944b-e07fc1f90ae7, at: 1791638401000, type: emit, room: 'chat:34:42', event: message, data: 'ch:chat:34:42:1:1.AQEB…', from: '34', event_id: '1791638401000-0' }
+      responses:
+        '204': { description: Taken. Any 2xx is. }
+        default: { description: 'Not taken: any other answer, or none within 10 seconds. The batch is sent again 30 seconds later, then after 2, 10 and 30 minutes, and 1, 2, 4 and 8 hours, for 24 hours at most.' }
+      x-codeSamples:
+        - lang: JavaScript
+          label: Node
+          source: |
+            import { createServer } from 'node:http';
+            import { webhookEvents } from './wordplus.mjs';
+
+            createServer((req, res) => {
+                let raw = '';
+                req.on('data', (chunk) => (raw += chunk));
+                req.on('end', async () => {
+                    try {
+                        for (const event of webhookEvents(req.headers, req.url, raw)) await handle(event);
+                        res.writeHead(204).end();
+                    } catch (error) {
+                        res.writeHead(401).end();
+                    }
+                });
+            }).listen(8080);
+        - lang: Python
+          label: Python
+          source: |
+            from wordplus import webhook_events
+
+            @app.post("/api/realtime/webhook")
+            def realtime_webhook():
+                headers = {name.lower(): value for name, value in request.headers.items()}
+                try:
+                    events = webhook_events(headers, request.full_path.rstrip("?"), request.get_data())
+                except ValueError:
+                    return "", 401
+                for event in events:
+                    handle(event)
+                return "", 204
+        - lang: PHP
+          label: PHP
+          source: |
+            require 'wordplus.php';
+
+            $headers = array_change_key_case(getallheaders(), CASE_LOWER);
+            try {
+                $events = wordplus_webhook_events($headers, $_SERVER['REQUEST_URI'], file_get_contents('php://input'));
+            } catch (RuntimeException $e) {
+                http_response_code(401);
+                exit;
+            }
+            foreach ($events as $event) {
+                handle($event);
+            }
+            http_response_code(204);
+        - lang: Go
+          label: Go
+          source: |
+            http.HandleFunc("/api/realtime/webhook", func(w http.ResponseWriter, r *http.Request) {
+                raw, _ := io.ReadAll(r.Body)
+                events, err := app.Webhook(r.Header, r.URL.RequestURI(), raw)
+                if err != nil {
+                    w.WriteHeader(401)
+                    return
+                }
+                for _, event := range events {
+                    handle(event)
+                }
+                w.WriteHeader(204)
+            })
+
+components:
+  securitySchemes:
+    site:
+      type: apiKey
+      in: header
+      name: X-WordPlus-Site
+      description: Your app key, `WORDPLUS_SITE`.
+    timestamp:
+      type: apiKey
+      in: header
+      name: X-WordPlus-Timestamp
+      description: The time of the request in unix seconds, within 5 minutes of the server clock.
+    signature:
+      type: apiKey
+      in: header
+      name: X-WordPlus-Signature
+      description: |
+        Hex HMAC-SHA256, under the publish key `HMAC-SHA256(secret, "wordplus-realtime publish v1")`, of
+        `"{timestamp}\n{METHOD}\n{path with query, as sent}\n{sha256 hex of the body}"` ([signing requests](/api/signing/)).
+
+  parameters:
+    Room:
+      name: name
+      in: path
+      required: true
+      description: 'The room name, percent-encoded: `order:42` is `order%3A42`.'
+      schema: { $ref: '#/components/schemas/RoomName' }
+    Stream:
+      name: name
+      in: path
+      required: true
+      description: 'The stream name, percent-encoded: `show:mugs` is `show%3Amugs`.'
+      schema: { type: string, pattern: '^[A-Za-z0-9\-=@,.;:]{1,128}$' }
+    User:
+      name: id
+      in: path
+      required: true
+      description: 'The user id, percent-encoded.'
+      schema: { $ref: '#/components/schemas/UserId' }
+    Call:
+      name: name
+      in: path
+      required: true
+      description: 'The group call name, percent-encoded: `meeting:7` is `meeting%3A7`.'
+      schema: { $ref: '#/components/schemas/RoomName' }
+    Message:
+      name: id
+      in: path
+      required: true
+      description: 'The id of a chat message.'
+      schema: { type: string, pattern: '^\d{1,20}-\d{1,20}$' }
+
+  requestBodies:
+    StreamUser:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [ user ]
+            properties:
+              user: { type: string, pattern: '^[\w.@-]{1,64}$', description: 'The user id the stream grant named them by (`sub`).' }
+          example: { user: '77' }
+
+  responses:
+    Done:
+      description: Done.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [ ok ]
+            properties:
+              ok: { type: boolean, const: true }
+          example: { ok: true }
+    BadRequest:
+      description: '`bad_request`, `bad_room`: the request is not one the API takes. `reserved`: an event name kept for the room itself.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Refusal' }
+          example: { ok: false, error: bad_request }
+    Unauthorized:
+      description: '`missing_signature`, `stale_signature` (a clock off by more than 5 minutes), `unknown_site`, `bad_signature` (a wrong secret, or a body or path other than the one signed).'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Refusal' }
+          example: { ok: false, error: bad_signature }
+    NotIncluded:
+      description: '`not_included`: your plan does not include it.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Refusal' }
+          example: { ok: false, error: not_included }
+    NotIncludedOrHost:
+      description: '`not_included`: your plan does not include live streams. `host`: the host is never taken out.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Refusal' }
+          example: { ok: false, error: host }
+    TooLarge:
+      description: '`too_large`: data over 1 MB. `too_many`: over 1,000 rooms or users in an event, or 100 events in a batch.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Refusal' }
+          example: { ok: false, error: too_large }
+    NotFound:
+      description: '`not_found`: nothing by that name or id now.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Refusal' }
+          example: { ok: false, error: not_found }
+    WebhookOutcome:
+      description: 'What the webhook did with it: taken with a 2xx, or not, with its HTTP status (0 when nothing answered) and `error` (`timeout`, `unreachable`, `not_public`).'
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [ ok, delivered, status ]
+            properties:
+              ok: { type: boolean, const: true }
+              delivered: { type: boolean }
+              status: { type: integer }
+              error: { type: string }
+          example: { ok: true, delivered: true, status: 204 }
+
+  schemas:
+    RoomName:
+      type: string
+      pattern: '^[A-Za-z0-9_\-=@,.;:]{1,200}$'
+      description: 'Up to 200 of `A-Z a-z 0-9 _ - = @ , . ; :`.'
+    UserId:
+      type: string
+      description: A user id, up to 64 printable characters. An integer is taken as its digits, so `42` and `"42"` are one user.
+    EventId:
+      type: string
+      pattern: '^\d{1,16}-\d{1,20}$'
+    Emit:
+      type: object
+      required: [ event ]
+      description: One event. `rooms`, `users` or both, one at least.
+      properties:
+        rooms:
+          type: array
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/RoomName' }
+        users:
+          type: array
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/UserId' }
+        event:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: 'Any name but those kept for the room itself: `joined`, `join`, `leave`, `count`, `error`, `kicked`, `connect`, `disconnect`, `connect_error`, `state`, `online`.'
+        data:
+          description: Any JSON, up to 1 MB. A sealed string to keep it from WordPlus Cloud.
+        except:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,64}$'
+          description: A tab that does not get it back, the browser `rt.tab` of the page whose action made the event.
+        history:
+          type: object
+          description: 'For each of `rooms` that keeps history, `[ last, days ]`: how many of its events it keeps, up to 1,000, for how long, up to 5 minutes (0.003472222222222222 of a day).'
+          additionalProperties:
+            type: array
+            prefixItems:
+              - { type: integer, minimum: 1, maximum: 1000 }
+              - { type: number }
+            minItems: 2
+            maxItems: 2
+    KeptIds:
+      type: object
+      additionalProperties: { $ref: '#/components/schemas/EventId' }
+      description: The id of the kept event, by room, for the rooms that keep history.
+    Sent:
+      type: object
+      required: [ ok, ids ]
+      properties:
+        ok: { type: boolean, const: true }
+        ids: { $ref: '#/components/schemas/KeptIds' }
+    KeptEvent:
+      type: object
+      required: [ id, at, event, data ]
+      properties:
+        id: { $ref: '#/components/schemas/EventId' }
+        at: { type: integer, description: When, in milliseconds. }
+        event: { type: string }
+        data: { description: As it was sent. }
+        from: { type: string, description: 'The user a page sent it as. None for your server.' }
+    Refusal:
+      type: object
+      required: [ ok, error ]
+      properties:
+        ok: { type: boolean, const: false }
+        error: { type: string }
+    OccupiedRoom:
+      type: object
+      required: [ name, count, connections ]
+      properties:
+        name: { $ref: '#/components/schemas/RoomName' }
+        count: { type: integer, description: 'The members of a presence room, else its connections.' }
+        connections: { type: integer }
+    UserState:
+      type: object
+      required: [ id, online, connections ]
+      properties:
+        id: { $ref: '#/components/schemas/UserId' }
+        online: { type: boolean }
+        at: { type: integer, description: 'When they were last seen, in milliseconds, while offline.' }
+        connections: { type: integer, description: 'Their connections your server vouched for, open now.' }
+    StreamMessage:
+      type: object
+      required: [ id, from, text, at ]
+      properties:
+        id: { type: string }
+        from:
+          type: object
+          properties:
+            user: { type: [ string, 'null' ], description: 'Null for a visitor and for your app.' }
+            name: { type: string }
+            avatar: { type: [ string, 'null' ] }
+            role: { type: string, enum: [ host, guest, viewer, app ] }
+        text: { type: string }
+        at: { type: integer, description: When, in milliseconds. }
+    StreamNow:
+      type: object
+      required: [ name, state, viewers ]
+      properties:
+        name: { type: string }
+        state: { type: string, enum: [ idle, live, ended ] }
+        started_at: { type: [ integer, 'null' ] }
+        ended_at: { type: [ integer, 'null' ] }
+        viewers: { type: integer, description: Watching now. }
+        peak: { type: integer, description: The most watching at once since it went live. }
+        slow: { type: integer, description: 'Slow mode, in seconds. 0 for off.' }
+        reactions: { type: boolean }
+        pinned: { oneOf: [ { $ref: '#/components/schemas/StreamMessage' }, { type: 'null' } ] }
+    StreamPerson:
+      type: object
+      required: [ user, name, role ]
+      properties:
+        user: { type: [ string, 'null' ] }
+        name: { type: string }
+        avatar: { type: [ string, 'null' ] }
+        role: { type: string, enum: [ host, guest, viewer ] }
+        timeout_until: { type: integer, description: 'When their timeout ends, in milliseconds, while they have one.' }
+    LiveCall:
+      type: object
+      required: [ name, people, started_at ]
+      properties:
+        name: { $ref: '#/components/schemas/RoomName' }
+        people: { type: integer }
+        started_at: { type: integer, description: In milliseconds. }
+    CallNow:
+      type: object
+      required: [ name, people, started_at, list ]
+      properties:
+        name: { $ref: '#/components/schemas/RoomName' }
+        people: { type: integer }
+        started_at: { type: [ integer, 'null' ], description: 'In milliseconds, null with nobody in it.' }
+        list:
+          type: array
+          items: { $ref: '#/components/schemas/CallParticipant' }
+    CallParticipant:
+      type: object
+      required: [ user, joined_at, camera, microphone, screen ]
+      properties:
+        user: { type: [ string, 'null' ] }
+        joined_at: { type: integer, description: In milliseconds. }
+        camera: { type: boolean, description: 'On and not muted.' }
+        microphone: { type: boolean }
+        screen: { type: boolean }
+    WebhookDelivery:
+      type: object
+      required: [ id, at, events, types, attempt, status, ms, resendable ]
+      properties:
+        id: { type: string, format: uuid, description: 'The batch. Every try of a batch has its id.' }
+        at: { type: integer, description: When it was tried, in milliseconds. }
+        events: { type: integer }
+        types: { type: array, items: { type: string } }
+        attempt: { type: integer, description: 'Its try, from 1. 0 for a resend.' }
+        status: { type: integer, description: 'The HTTP status, 0 when nothing answered.' }
+        error: { type: string, enum: [ timeout, unreachable, not_public ] }
+        ms: { type: integer, description: How long it took. }
+        next_at: { type: integer, description: When it is tried again. }
+        gave_up: { type: boolean, const: true }
+        resent: { type: boolean, const: true }
+        resendable: { type: boolean }
+    WebhookEvent:
+      type: object
+      required: [ id, at, type ]
+      description: |
+        One thing that happened, by `type`:
+
+        - `room.occupied`, `room.vacated`: `room`. The first one in, the last one out.
+        - `member.joined`, `member.left`: `room`, `user`. In a presence room.
+        - `user.online`, `user.offline`: `user`.
+        - `stream.live`, `stream.ended`: `stream`, `started_at`, `ended_at` (milliseconds).
+        - `call.ended`: `call`, `call_id`, `from`, `to`, `media`, `started_at`, `answered_at`, `ended_at`, `seconds`, `reason`.
+          A call between two people ended, `seconds` the time talked from the answer, 0 for one never answered.
+        - `group.joined`, `group.left`: `call`, `user`, `media`, `joined_at`, and on leaving `left_at` and `seconds`.
+        - `stream.joined`, `stream.left`: `stream`, `user`, `role`, `watch`, `joined_at`, and on leaving `left_at` and
+          `seconds`. A signed-in person only, while the stream is live: joined as they open it live or it goes live with
+          them on it, left as they leave or it ends, `seconds` the live time alone.
+        - `emit`: `room`, `event`, `data`, `from`, `event_id`. An event a page sent to a room whose token names it in `w`
+          (the room rule `webhook`). `event_id` is the id the pages saw.
+        - `webhook.test`: nothing more. Sent once when your server asks for it.
+      properties:
+        id: { type: string, description: The id of this webhook event, to drop a repeat. }
+        at: { type: integer, description: When, in milliseconds. }
+        type:
+          type: string
+          enum: [ room.occupied, room.vacated, member.joined, member.left, user.online, user.offline, stream.live, stream.ended, call.ended, group.joined, group.left, stream.joined, stream.left, emit, webhook.test ]
+        room: { type: string }
+        user: { type: [ string, integer ], description: A user id. In what people used, as your rules got it, an id of digits a number. }
+        stream: { type: string }
+        started_at: { type: [ integer, 'null' ] }
+        ended_at: { type: [ integer, 'null' ] }
+        call: { type: string, description: The name of the call, as your rules gave it. }
+        call_id: { type: string }
+        media: { type: [ string, 'null' ], enum: [ audio, video, null ] }
+        answered_at: { type: [ integer, 'null' ] }
+        joined_at: { type: [ integer, 'null' ] }
+        left_at: { type: integer }
+        seconds: { type: [ integer, 'null' ], description: How long, once it is over. }
+        reason: { type: string }
+        role: { type: string }
+        watch: { type: string }
+        event: { type: string }
+        data: { description: As the page sent it, a sealed string in a sealed room. }
+        from: { type: [ string, integer ] }
+        to: { type: [ string, integer ] }
+        event_id: { $ref: '#/components/schemas/EventId' }

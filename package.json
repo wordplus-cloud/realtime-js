@@ -1,0 +1,125 @@
+{
+  "name": "@wordplus/realtime",
+  "version": "1.0.1",
+  "description": "WordPlus Cloud's realtime SDK for sites and apps outside WordPress: rooms, presence and events, calls between two people that ring in the browser, group calls and a drop-in call screen, sealed end to end. The browser client, a server part for Node and every edge runtime, React hooks and React Native.",
+  "keywords": [
+    "realtime",
+    "websocket",
+    "rooms",
+    "presence",
+    "webrtc",
+    "video calls",
+    "group calls",
+    "end-to-end encryption",
+    "nextjs",
+    "react",
+    "react-native"
+  ],
+  "license": "MIT",
+  "author": "WordPlus",
+  "homepage": "https://docs.wordplus.cloud/apps/getting-started/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wordplus-cloud/realtime-js.git"
+  },
+  "bugs": {
+    "url": "https://www.wordplus.cloud/contact"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/browser.js",
+  "types": "./dist/browser.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "default": "./dist/react.js"
+    },
+    "./native": {
+      "types": "./dist/native.d.ts",
+      "default": "./dist/native.js"
+    },
+    "./echo": {
+      "types": "./dist/echo.d.ts",
+      "default": "./dist/echo.js"
+    },
+    "./assets/*": "./assets/*"
+  },
+  "typesVersions": {
+    "*": {
+      "server": [
+        "./dist/server/index.d.ts"
+      ],
+      "react": [
+        "./dist/react.d.ts"
+      ],
+      "native": [
+        "./dist/native.d.ts"
+      ],
+      "echo": [
+        "./dist/echo.d.ts"
+      ]
+    }
+  },
+  "bin": {
+    "wordplus-realtime": "bin/wordplus-realtime.mjs"
+  },
+  "files": [
+    "dist",
+    "vendor",
+    "assets",
+    "bin",
+    "docs",
+    "skills",
+    "spec",
+    "README.md",
+    "THIRD-PARTY-NOTICES.md",
+    "AGENTS.md",
+    "llms.txt"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "node scripts/files.mjs && rm -rf dist && tsc -p tsconfig.json",
+    "typecheck": "node scripts/files.mjs && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "client": "node scripts/client.mjs",
+    "vectors": "php scripts/vectors.php > spec/vectors.json",
+    "propagate": "node scripts/propagate.mjs",
+    "hooks": "git config core.hooksPath .githooks"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "socket.io-client": "^4.8.0"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "@types/react": "18.3.12",
+    "esbuild": "0.28.2",
+    "laravel-echo": "2.5.0",
+    "react": "18.3.1",
+    "react-test-renderer": "18.3.1",
+    "typescript": "5.9.2",
+    "vite": "8.3.1",
+    "vitest": "5.0.2"
+  }
+}
