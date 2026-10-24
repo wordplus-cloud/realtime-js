@@ -1,6 +1,6 @@
 # Use cases
 
-What people build on WordPlus Cloud, each on a page of its own: the rules of your server in Node, PHP, Python and WordPress, the code of the page, and what changes for a screen of your own. They run on the same four building blocks ([what you can build](../overview.md)), so one app mixes them freely: a shop with live orders, a chat and a call button, or a school with classes, office hours and a live stream.
+What people build on WordPlus Cloud, each on a page of its own: the rules of your server in Node, PHP, Python and WordPress, the code of the page, and what changes for a screen of your own. They run on the same four building blocks, rooms and their events, presence, calls and live streams ([what you can build](../overview.md)), so one app mixes them freely: a shop with live orders, a chat and a call button, or a school with classes, office hours and a live stream.
 
 **Start with a tutorial.** Three of them build a small app from an empty folder, every file in full, and you run it in two or three browser windows at the end:
 

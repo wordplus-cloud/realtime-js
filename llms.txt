@@ -1,10 +1,10 @@
 # @wordplus/realtime
 
-> WordPlus Cloud's realtime SDK for sites and apps outside WordPress: rooms with emit, emitWithAck and volatile, presence and who is online, history, webhooks, calls between two people that ring in the browser, group calls, and Better Messages' ready-made chat, online list and call screen, sealed end to end. The app's server (this package's ./server for Node, wordplus/realtime-php for PHP and Laravel, wordplus-realtime for Python) declares rooms and calls by pattern and decides who may join them; the browser part (this package, ./react, ./native) connects to WordPlus Cloud, joins rooms and opens what arrives.
+> WordPlus Cloud's realtime SDK for sites and apps outside WordPress: rooms with emit, emitWithAck and volatile, presence and who is online, history, webhooks, calls between two people that ring in the browser, group calls, and the ready-made chat, online list and call screen of Better Messages, sealed end to end. The app's server (this package's ./server for Node, wordplus/realtime-php for PHP and Laravel, wordplus-realtime for Python) declares rooms and calls by pattern and decides who may join them. The browser part (this package, ./react, ./native) connects to WordPlus Cloud, joins rooms and opens what arrives.
 
 ## Docs
 
-All of them, with the PHP and Python packages' own pages, on the web: https://docs.wordplus.cloud/llms.txt. The server's code is shown for Node, PHP and Python alike.
+All of them, with the pages of the PHP and Python packages, on the web: https://docs.wordplus.cloud/llms.txt. The server's code is shown for Node, PHP and Python alike.
 
 - [Getting started](docs/getting-started.md): the app in WordPlus Cloud, its key, secret and local key, the server's routes (Next.js, Express, Hono, Laravel, plain PHP, Django, FastAPI, Flask), connect() in the browser, a first room
 - [Why WordPlus Cloud](docs/why.md): what the cloud runs and adds beside a framework's own websockets

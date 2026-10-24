@@ -282,6 +282,7 @@ Your `groupCalls()` rule, each time someone joins:
 | `false` | are refused with `forbidden` |
 | `true` | join, send their camera, microphone and screen, and see and hear everyone |
 | `{ publish: false }` | join as a listener: they see and hear, and send nothing |
+| `{ admin: true }` | join as its host: they may mute the others, let them speak or make them listeners, and take them out |
 | `{ hidden: true }` | join unseen, listed to nobody |
 
 ### Running it
@@ -338,7 +339,9 @@ wordplus_realtime()->list_calls();
 
 ### Buttons for the host
 
-A page cannot mute or remove someone else itself. The buttons of the host call a route of yours, which checks who asks and does it:
+The ready-made call screen has them already, for the host your rule answered `{ admin: true }`: Mute Microphone, Block and Allow Broadcast, and Kick User on the tile of each of the others. Each goes to your calls route, which asks your rule again and acts only for a host, so there is nothing to add. On a call screen of your own, `group.moderate( act, user )` does the same ([group calls](../calls.md)).
+
+Buttons of your own elsewhere, such as a host panel beside the call, call a route of yours, which checks who asks and does it:
 
 **Node**
 

@@ -50,6 +50,16 @@ await rt.callScreen();   // the ring and the call window, on this page
 
 ![Ann has answered: each browser shows the other person camera, their own in a corner, and the call controls. The cameras are illustrations](https://docs.wordplus.cloud/img/apps/calls-connected.webp)
 
+## The call in the page
+
+The call screen opens a call in a window in the corner, over the page. To show it in the page itself, above a chat or in place of a picture, put a `<call-spot>` where it goes, naming the calls it takes:
+
+```html
+<call-spot call="support:{a}:{b}" style="height: 480px"></call-spot>
+```
+
+A call shows there as it starts, or as soon as a page with the spot opens. On another page it goes on in the window in the corner, its camera, microphone and time as they were, and comes back when the page with the spot opens again. With no call, the spot takes no place, or shows what you put inside it ([`<call-spot>`](../elements.md#call-spot)).
+
 ## Adding people
 
 Once a call is up, either side may ring someone else in, and it goes on as a group call. Say whom the call screen offers:

@@ -1,0 +1,17 @@
+{
+    "about": "Ready-made people to try the site with: npm run seed. The sign-up and sign-in pages offer them in one click when SPARK_DEMO=1.",
+    "password": "spark-demo-people",
+    "people": [
+        { "key": "mia", "name": "Mia", "birthday": "1997-03-14", "gender": "woman", "seeking": "men", "city": "Lisbon", "about": "Coffee first, then a long walk by the river. I teach piano." },
+        { "key": "leo", "name": "Leo", "birthday": "1995-07-02", "gender": "man", "seeking": "women", "city": "Lisbon", "about": "Cook, cyclist, terrible at karaoke. Tell me your favourite film." },
+        { "key": "ava", "name": "Ava", "birthday": "1999-01-22", "gender": "woman", "seeking": "everyone", "city": "Porto", "about": "Architect. Weekend trips by train and too many plants." },
+        { "key": "noah", "name": "Noah", "birthday": "1993-11-08", "gender": "man", "seeking": "women", "city": "Lisbon", "about": "Doctor on night shifts, so video dates suit me well." },
+        { "key": "zoe", "name": "Zoe", "birthday": "2000-05-30", "gender": "woman", "seeking": "men", "city": "Lisbon", "about": "Climbing on Saturdays, books on Sundays." },
+        { "key": "omar", "name": "Omar", "birthday": "1992-02-19", "gender": "man", "seeking": "women", "city": "Porto", "about": "Engineer who bakes bread on weekends. Ask me about sourdough." },
+        { "key": "lena", "name": "Lena", "birthday": "1995-10-03", "gender": "woman", "seeking": "men", "city": "Lisbon", "about": "Translator, four languages and counting. Looking for someone to explore new places with." },
+        { "key": "lucas", "name": "Lucas", "birthday": "1998-06-11", "gender": "man", "seeking": "women", "city": "Lisbon", "about": "Surfing at dawn, design studio by day." },
+        { "key": "nora", "name": "Nora", "birthday": "1997-08-25", "gender": "woman", "seeking": "men", "city": "Porto", "about": "Nurse, runner and a big fan of live music." },
+        { "key": "ethan", "name": "Ethan", "birthday": "1996-12-07", "gender": "man", "seeking": "women", "city": "Lisbon", "about": "Software developer and amateur chef. Board games night, anyone?" },
+        { "key": "sam", "name": "Sam", "birthday": "1996-09-17", "gender": "nonbinary", "seeking": "everyone", "city": "Lisbon", "about": "Photographer. I know every good bakery in town." }
+    ]
+}

@@ -1844,8 +1844,8 @@ const STREAM_ROLES = ['host', 'guest', 'viewer'];
 const STREAM_TTL = 600;
 
 /**
- * Easy Stream's grant: an HS256 JWT keyed with HMAC(secret, "easy-stream grant v1"), its claims in the protocol's order
- * (CLAIM_ORDER) and none left undefined, so every language signs the same claims to the same token
+ * A live stream's grant: an HS256 JWT keyed with HMAC(secret, GRANT_KEY_LABEL), "live-stream grant v1", its claims in
+ * the protocol's order (CLAIM_ORDER) and none left undefined, so every language signs the same claims to the same token
  * (spec/stream-grants.json, Easy Stream's own vectors).
  */
 export async function streamGrant(claims: Record<string, unknown>, key: Uint8Array): Promise<string> {

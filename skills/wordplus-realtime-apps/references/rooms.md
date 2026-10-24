@@ -19,6 +19,7 @@ realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => {
     return order !== null && order.userId === user;
 } );
 
+// A chat of two, named after them: chat:34:42 lets in users 34 and 42 alone.
 realtime.room( 'chat:{a}:{b}', { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] },
     ( user, { a, b } ) => [ a, b ].includes( String( user ) ) );
 
@@ -55,6 +56,41 @@ realtime.room("product:{id}", public=True, count=True)
 - **For one user**, the answer may narrow the room: `{ emit: [ 'typing' ] }` lets them send only that, `{ readOnly: true }` nothing.
 - In Node the rule may be async. In PHP and Python it is a plain function, which may query your database the usual way.
 - **When it runs:** the browser asks for every room it joins in the same moment in one request, and keeps each token until 10 minutes before it expires, across reconnects and moves: your rule runs when a page first joins and when its token is renewed (6 hours by default).
+
+## Two people, or a group
+
+A chat's room can be named two ways, and its rule follows the name:
+
+- **After its two people,** `chat:{a}:{b}`, with their ids, the smaller first, so both of them name the same room: `chat:34:42`. The rule reads the two from the name and needs no table. This suits a conversation that is only ever those two, such as a customer and the agent helping them.
+- **By a number of its own,** `chat:{id}`, with its members in your database: `chat:7`. The rule asks whether the one asking is a member. Two people or a hundred, it is the same rule, and someone may join the chat later. The [dating site](nextjs/dating-site.md) names every chat this way.
+
+A numbered chat's rule, with `isMemberOf` your own lookup in your database:
+
+**Node**
+
+```ts
+// chat:7 lets in the members of chat 7, however many.
+realtime.room( 'chat:{id}', { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] },
+    async ( user, { id } ) => user !== null && ( await isMemberOf( id, user ) ) );
+```
+
+**PHP**
+
+```php
+// chat:7 lets in the members of chat 7, however many.
+$realtime->room( 'chat:{id}', fn ( $user, array $p ) => null !== $user && is_member_of( $p['id'], $user ),
+    [ 'presence' => true, 'history' => 50, 'emit' => [ 'message', 'typing', 'read' ], 'webhook' => [ 'message' ] ] );
+```
+
+**Python**
+
+```python
+# chat:7 lets in the members of chat 7, however many.
+realtime.room("chat:{id}", lambda user, p: user is not None and is_member_of(p["id"], user),
+              presence=True, history=50, emit=["message", "typing", "read"], webhook=["message"])
+```
+
+A call in such a chat takes the name of its room, and its rule asks the same of both people ([calls](calls.md#a-call-in-a-chat)).
 
 ## What a room keeps and allows
 

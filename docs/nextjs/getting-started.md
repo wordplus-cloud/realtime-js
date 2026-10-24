@@ -72,6 +72,7 @@ export const POST = realtime.route;
 - **The pattern of a room** names its parts: `order:{id}` matches `order:1042`, and the rule gets `{ id: '1042' }`.
 - **The route folder is a catch-all,** `[...path]`: the browser files are in folders under `/api/realtime/files/`, which a one-segment `[action]` folder never reaches. A file that does not load says so in the console.
 - **The routes** take JSON POSTs, and GETs for the browser files alone. If your middleware guards `/api`, let `/api/realtime/*` through with the session.
+- **Joining and calling as routes of your own:** `app/api/realtime/auth/route.ts` and `app/api/realtime/calls/route.ts` answer before the catch-all does, with `realtime.authorize( rooms, user )` and `realtime.authorizeCall( ask, user )`, so your code shows where the rules run. The [dating site](dating-site.md#your-server-and-wordplus-cloud) does that.
 
 ## 4. The page
 
@@ -168,4 +169,5 @@ Everyone in the room gets `{ status }`, sealed with the room key on the way, and
 - [Encryption and your users](encryption.md)
 - [Customizing the screens](customizing.md): their look, a piece of your own, or their whole code
 - [Deploying](deploying.md) (Vercel, or any Node host), and [the example app](example.md)
+- [Build a dating site](dating-site.md): a whole site, with who is online, chat and video dates in the chat
 - The [React reference](../react.md), the [server reference](../server.md), [errors](../errors.md) and [limits](../limits.md)

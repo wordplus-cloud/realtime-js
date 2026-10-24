@@ -82,6 +82,8 @@ wordplus_realtime()->room( 'group:{id}', function ( $user_id, array $p ) {
 - **`webhook`** names what your server gets too, to keep.
 - **`history`** carries the last 50 for 5 minutes, for a page that reconnects. Your database keeps the rest.
 
+**Named after the two, or numbered.** A room named after its two people needs no table: the rule reads them from the name, and suits a conversation that is only ever those two. A conversation of two can also take a number and its members in your database, as a group does. Then one room, `chat:{id}`, and one rule, "is a member", serve two people and a hundred, and someone may join later. The [dating site](../nextjs/dating-site.md) does that ([two people, or a group](../rooms.md#two-people-or-a-group)).
+
 ## Keeping the conversation
 
 Your server saves each message by its `event_id`, the id the pages saw, so a webhook delivered twice saves it once:
@@ -119,7 +121,9 @@ wordplus_realtime()->on( 'reaction', function ( array $e ) {
 } );
 ```
 
-And a route of yours gives a conversation back, the newest 50 messages, or the 50 before `?before=<id>`, as `{ messages: [ { id, from, text, at, reactions } ], more }`, only to the people in it ([events from the page](../events.md#keeping-the-conversation)).
+Your app also needs a route that gives a conversation back, for the chat to show as it opens and as the reader scrolls up. It answers the newest 50 messages, or with `?before=<id>` the 50 before that one, as `{ messages: [ { id, from, text, at, reactions } ], more }`, and only to the people in the conversation ([events from the page](../events.md#keeping-the-conversation)).
+
+**On localhost no webhook reaches your server,** as a webhook needs an address on the internet, so nothing is kept this way while you build there. The page can tell your server of each message it sent instead ([without a webhook](#without-a-webhook-as-on-localhost)), or a tunnel gives your computer an address ([while you develop](../sending.md#while-you-develop)).
 
 ## The page, ready-made
 

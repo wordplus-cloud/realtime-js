@@ -15,7 +15,7 @@
  */
 'use client';
 
-import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
 import { connect, type BrowserConfig, type Calls, type ConnectOptions, type EventMeta, type Incoming, type Member, type Realtime, type Room, type Stream, type StreamSnapshot } from './browser.js';
 
 const RealtimeContext = createContext<Realtime | null>(null);
@@ -316,6 +316,17 @@ export function GroupCallButton({ name, type = 'video', title, children }: { nam
 }
 
 /**
+ * A place in the page for a call: the calls `call` names (`match:34:42`, a pattern as your rules write them,
+ * `match:{a}:{b}`, or every call when left out) show here in place of the window in the corner. A call moves in when it
+ * starts, or once the spot is on the page, and goes on in the window when the spot leaves. `children` show while no
+ * call is here, and with none the spot is hidden until one comes. Its `data-call` holds the call's name while one is
+ * here. Needs <CallScreen /> on the page.
+ */
+export function CallSpot({ call, className, style, children }: { call?: string; className?: string; style?: CSSProperties; children?: ReactNode }) {
+    return createElement(useTag('call-spot'), { call, className, style }, children);
+}
+
+/**
  * A live stream in Easy Stream's player, its chat beside it, and the studio for its host, who goes live there: the
  * `<live-stream>` element, whose script rt.streamScreen() loads on the page's first one. `view` puts one part here
  * instead (`player`, `chat`, `details`, `studio`): the parts of one stream share its join, wherever they are.
@@ -402,9 +413,12 @@ export interface SentMessage {
  * your route for it (asked with the page's cookies, `?before=<id>` for an older page), or `load` asks it your own way.
  * The room's history, 5 minutes long, fills in only what your server hasn't saved yet. It fills the height it is given.
  * `onSent` hears each message the room took, for your server to keep it and tell the other person where no webhook
- * reaches it. Needs <CallScreen /> or <RealtimeUi /> on the page.
+ * reaches it. In a chat between two, `to` is the other person, on top with their calls (`name` and `avatar` theirs,
+ * where the page has them), and `call` the call that shows in the chat while it is on: `true` for the call named as the
+ * room, or its name. `startCall` calls them as the chat opens, once. Needs <CallScreen /> or <RealtimeUi /> on the
+ * page, <CallScreen /> for the calls.
  */
-export function Chat({ room, placeholder, reactions, maxLength, messages, load, onSent }: { room: string; placeholder?: string; reactions?: string[]; maxLength?: number; messages?: string; load?: ChatLoader; onSent?: (message: SentMessage) => void }) {
+export function Chat({ room, placeholder, reactions, maxLength, messages, load, onSent, to, name, avatar, call, startCall }: { room: string; placeholder?: string; reactions?: string[]; maxLength?: number; messages?: string; load?: ChatLoader; onSent?: (message: SentMessage) => void; to?: number | string; name?: string; avatar?: string; call?: boolean | string; startCall?: 'video' | 'audio' }) {
     const element = useRef<(HTMLElement & { load?: ChatLoader }) | null>(null);
     // The page's onSent as it gives it now: an inline function is another one at every render.
     const sent = useRef(onSent);
@@ -422,7 +436,10 @@ export function Chat({ room, placeholder, reactions, maxLength, messages, load, 
         node.addEventListener('sent', heard);
         return () => node.removeEventListener('sent', heard);
     }, []);
-    return createElement(useTag('chat-room'), { ref, room, messages, placeholder, reactions: reactions?.join(' '), 'max-length': maxLength ? String(maxLength) : undefined });
+    return createElement(useTag('chat-room'), {
+        ref, room, messages, placeholder, reactions: reactions?.join(' '), 'max-length': maxLength ? String(maxLength) : undefined,
+        to: to === undefined ? undefined : String(to), name, avatar, call: call === true ? 'true' : call || undefined, 'start-call': startCall,
+    });
 }
 
 /**

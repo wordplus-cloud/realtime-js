@@ -2,14 +2,14 @@
 
 WordPlus Cloud's realtime SDK for sites and apps outside WordPress:
 
-- **Rooms:** pages join them and send events with acks (`emit`, `emitWithAck`, `volatile`); your server declares them by pattern, says who may join, and sends to them and to users.
+- **Rooms:** pages join them and send events with acks (`emit`, `emitWithAck`, `volatile`). Your server declares them by pattern, says who may join, and sends to them and to users.
 - **Presence and who is online:** a room's members and count, and any user's status across your app.
 - **History:** a room keeps its events, so a page that reconnects gets what it missed, and a chat pages back.
 - **Webhooks:** your server hears what pages sent, and who came and went.
 - **Calls between two people:** they ring in every tab and device the callee has open, and run directly between the two, through TURN when a network needs it, or in a room on WordPlus Cloud's media servers. Either side may add people, and it goes on as a group call.
 - **Group calls** on WordPlus Cloud's media servers.
-- **Ready-made parts, all optional:** Better Messages' chat, its list of who is online and its call screen, as elements and React components.
-- **Sealed end to end:** what goes to a room, its history, members' info, what goes to a user and your users' names travel through WordPlus Cloud encrypted with keys only your server hands out.
+- **Ready-made parts, all optional:** the chat, the list of who is online and the call screen of Better Messages, as elements and React components.
+- **Sealed end to end:** what goes to a room, its history, each member's info, what goes to a user and the names of your users travel through WordPlus Cloud encrypted with keys only your server hands out.
 
 The browser connects straight to a realtime server, moves to another without a drop when one restarts, and a user's tabs share one connection. Your server decides who may join, call and see what, and signs it.
 
@@ -132,7 +132,7 @@ import { connect } from '@wordplus/realtime/native';
 const rt = await connect( { app: 's1500000007', endpoint: 'https://app.example.com/api/realtime', headers: { Authorization: 'Bearer ' + token } } );
 ```
 
-Rooms, presence, events, who is online and the directory; calls in React Native come later. Apps in Capacitor or Ionic are pages: use the browser package, with `capacitor://localhost` among the app's addresses.
+Rooms, presence, events, who is online and the directory. Calls in React Native come later. Apps in Capacitor or Ionic are pages: use the browser package, with `capacitor://localhost` among the app's addresses.
 
 ## Examples
 
@@ -152,8 +152,8 @@ On the web, with Node, PHP and Python side by side: [docs.wordplus.cloud/apps](h
 
 - **Calls and the directory take integer user ids**, as the realtime server's relay does today. Rooms and presence take any id.
 - **WordPlus Cloud's apps are granted by hand** until their plan is out.
-- **A mirror:** every version is also at packages.wordplus.cloud (`npm install https://packages.wordplus.cloud/npm/wordplus-realtime-<version>.tgz`; the versions are in `https://packages.wordplus.cloud/npm/index.json`).
+- **A mirror:** every version is also at packages.wordplus.cloud (`npm install https://packages.wordplus.cloud/npm/wordplus-realtime-<version>.tgz`, with the versions listed in `https://packages.wordplus.cloud/npm/index.json`).
 
 ## Licence
 
-MIT. Two of the files it ships carry others' code under their own licences (`THIRD-PARTY-NOTICES.md`).
+MIT. Two of the files it ships carry code by others under their own licences (`THIRD-PARTY-NOTICES.md`).

@@ -895,17 +895,17 @@ describe('live streams (streams())', () => {
         }, { stage: false, reactions: true, chat: (params) => ({ offline: params.id === '42' ? 'open' : 'closed', links: false }) });
 
         const host = await realtime.authorizeCall({ stream: 'show:42' }, 1);
-        const claims = await claimsOf(host.token!, 'easy-stream grant v1');
+        const claims = await claimsOf(host.token!, 'live-stream grant v1');
         expect(Object.keys(claims)).toEqual(['iss', 'aud', 'str', 'role', 'sub', 'name', 'avatar', 'q', 'stage', 'offline', 'links', 'reactions', 'iat', 'exp']);
-        expect(claims).toMatchObject({ iss: V.site, aud: 'easy-stream', str: 'show:42', role: 'host', sub: '1', name: 'User 1', avatar: 'https://example.com/1.png', q: '720p', stage: false, offline: 'open', links: false, reactions: true });
+        expect(claims).toMatchObject({ iss: V.site, aud: 'live-stream', str: 'show:42', role: 'host', sub: '1', name: 'User 1', avatar: 'https://example.com/1.png', q: '720p', stage: false, offline: 'open', links: false, reactions: true });
         expect(claims.exp - claims.iat).toBe(600);
         expect(host.exp).toBe(claims.exp);
 
         // The rule's own info, its picture only when https; a visitor, as a viewer with no name.
-        const ben = await claimsOf((await realtime.authorizeCall({ stream: 'show:7' }, 34)).token!, 'easy-stream grant v1');
+        const ben = await claimsOf((await realtime.authorizeCall({ stream: 'show:7' }, 34)).token!, 'live-stream grant v1');
         expect(ben).toMatchObject({ role: 'viewer', sub: '34', name: 'Ben', chat: 'read', offline: 'closed' });
         expect(ben.avatar).toBeUndefined();
-        const visitor = await claimsOf((await realtime.authorizeCall({ stream: 'show:7' }, null)).token!, 'easy-stream grant v1');
+        const visitor = await claimsOf((await realtime.authorizeCall({ stream: 'show:7' }, null)).token!, 'live-stream grant v1');
         expect(visitor.role).toBe('viewer');
         expect(visitor.sub).toBeUndefined();
 

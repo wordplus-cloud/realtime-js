@@ -74,15 +74,16 @@ The call screen, the chat and the list of who is online from Better Messages, as
 | `<CallScreen rt lang? strings? add? />` | the call window and the ring ([calls](calls.md#the-call-screen)). It takes no place in your layout |
 | `<CallButton rt to call type name avatar className>` | calls `to` about `call`: `{pair}` in it is the two ids in order, `{me}` that of the user, `{id}` that of `to` |
 | `<GroupCallButton rt room type title className>` | joins the group call `room` |
-| `<Chat rt room messages load placeholder reactions maxLength onSent />` | the conversation on a room: your server messages paged back (`messages`, your route, or `load( before )`), typing, reactions, read ticks and the composer ([events](events.md#ready-made-the-chat)). `onSent( { id, room, text, at } )` hears each message the room took, for your server to keep it and tell the other person ([chat](use-cases/chat.md#telling-the-other-person)). It fills the height it is given |
+| `<CallSpot rt call className style>` | a place in the page for the calls `call` names (a name, a pattern such as `support:{a}:{b}`, or every call without it), in place of the window in the corner. A call moves in and out as the spot comes and goes, and goes on throughout. Its children show while no call is there ([the call in the page](nextjs/calls.md#the-call-in-the-page)) |
+| `<Chat rt room messages load placeholder reactions maxLength onSent to name avatar call startCall />` | the conversation on a room: your server messages paged back (`messages`, your route, or `load( before )`), typing, reactions, read ticks and the composer ([events](events.md#ready-made-the-chat)). `onSent( { id, room, text, at } )` hears each message the room took, for your server to keep it and tell the other person ([chat](use-cases/chat.md#telling-the-other-person)). In a chat between two, `to` puts the other person on its top bar, by the `name` and `avatar` your page gives, `call` shows their call in the chat, beside the messages, and `startCall="video"` calls them as the chat opens ([the call in its chat](nextjs/calls.md#the-call-in-its-chat)). It fills the height it is given |
 | `<OnlineList rt room title call type actions />` | who is in a presence room, each the user may call with a call button where `call` names the call, as `CallButton` takes it, `type` `video`, `audio` or `audio video` ([presence](presence.md#ready-made)). The list asks your calls route who that is, once for all its members. `actions={ ( member ) => … }` draws your own buttons on each row instead |
 | `<Typing rt room event? />` | who is typing in a room, by name |
 | `<OnlineCount rt room />` | how many are in a room |
 
 - **Their stylesheets** are `@wordplus/realtime-ui/calls.css`, `presence.css` and `chat.css`, imported once, as above.
 - **A live stream** is `StreamView` from `@wordplus/realtime-ui/streams`, with `@wordplus/realtime-ui/streams.css`, drawing the stream of `useStream( name )`: `{ stream && <StreamView stream={ stream } title="The new mugs" /> }` ([live streams](streams.md#drawn-ready)).
-- **The hooks under them** are yours too, from the same entry: `useRoom( rt, name )`, `useOnline( rt, ids )`, `useProfiles( rt, ids )`, `useTyping( rt, room )` and `useChat()`.
-- **The look** is the Better Messages classes (`bm-…`) and design tokens. Set the tokens on the page, such as `--bm-color-accent: 37, 99, 235` (red, green and blue), `--bm-messenger-font` and `--bm-radius-card`, or style the classes ([customizing](customizing.md)). Light and dark follow the system, and `bm-messages-light` or `bm-messages-dark` on `<body>` keeps one. The buttons have a look of their own, which `className` adds to.
+- **The hooks under them** are yours too, from the same entry: `useRoom( rt, name )`, `useOnline( rt, ids )`, `useProfiles( rt, ids )`, `useTyping( rt, room )`, `useChat()`, and for a chat that holds its call `useChatCall()`, `useChatPeer()` and `useStartCall()`.
+- **The look** is the Better Messages classes (`bm-…`) and design tokens. Set the tokens on the page, such as `--bm-color-accent: 37, 99, 235` (red, green and blue), `--bm-messenger-font` and `--bm-radius-card`, or style the classes ([customizing](customizing.md)). Light and dark follow the system, and `bm-messages-light` or `bm-messages-dark` on `<body>` keeps one. The buttons have a look of their own, which your classes change, Tailwind's included.
 - **Names and pictures** come from your [directory](encryption.md#your-users).
 - **They render on the server too,** for the first paint of a Next.js page, and draw a call only once the browser has one.
 
@@ -96,8 +97,9 @@ The call screen, the chat and the list of who is online from Better Messages, as
 |---|---|
 | `<CallScreen strings? />` | the call window and the ring |
 | `<CallButton to call type name avatar>`, `<GroupCallButton name type title>` | the call buttons |
+| `<CallSpot call className style>` | a place in the page for a call, as above, the `<call-spot>` element |
 | `<RealtimeUi strings? />` | the parts below without the call screen, for a page with no calls |
-| `<Chat room messages load placeholder reactions maxLength onSent />`, `<OnlineList room title call type />`, `<Typing room event? />`, `<OnlineCount room />` | as above. They need `<CallScreen />` or `<RealtimeUi />` somewhere on the page |
+| `<Chat room messages load placeholder reactions maxLength onSent to name avatar call startCall />`, `<OnlineList room title call type />`, `<Typing room event? />`, `<OnlineCount room />` | as above. They need `<CallScreen />` or `<RealtimeUi />` somewhere on the page, and a chat with its `call` needs `<CallScreen />` |
 | `<LiveStream name view title cover url loginUrl chat height sticky />` | a live stream drawn ready: the player, the chat beside it, and the studio where its host goes live, or one of its parts (`view`) ([live streams](streams.md#drawn-ready)). It loads its own script |
 
 Use these or the screens of `@wordplus/realtime-ui/react` on a page, not both, so that one call screen rings.

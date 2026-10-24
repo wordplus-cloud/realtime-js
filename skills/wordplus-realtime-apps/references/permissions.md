@@ -54,6 +54,8 @@ realtime.room("chat:{a}:{b}", may_read_chat, presence=True, history=50, emit=["m
 realtime.room("product:{id}", public=True, count=True)
 ```
 
+The chat here is named after its two people. A chat that may hold more, or that you number anyway, lets in its members instead ([two people, or a group](rooms.md#two-people-or-a-group)).
+
 The answer of a room rule:
 
 | Answer | |

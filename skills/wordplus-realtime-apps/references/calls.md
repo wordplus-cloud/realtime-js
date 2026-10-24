@@ -49,6 +49,41 @@ realtime.group_calls("staff:{id}", lambda user: is_staff(user))
 - **`side.role`** (`$side['role']`, `side["role"]`), the fifth argument, says which: `caller` or `callee`. A rule that says yes to every callee and checks only callers lets people answer calls they may not place, such as members on a paid plan who call and the others who answer: `( user, withUser, p, call, side ) => side.role === 'callee' || isPro( user )`.
 - **Answer** `false` for no, `true` for yes, or an object: `info` (what the others see of `user`: your profile name and avatar by default), and in a group call `publish` and `subscribe` (true unless said), `admin` and `hidden` (false unless said). `admin` is the room admin right on the media server alone: no page and no call screen of the SDK mutes, lets speak or removes others with it. Your server does, from a route of yours that checks who asks ([from your server](#from-your-server)).
 
+### A call in a chat
+
+A chat's call buttons call by the name of its room, so a call in a numbered chat, `chat:{id}` ([two people, or a group](rooms.md#two-people-or-a-group)), is let through when both people are members of it. `isMemberOf` is your own lookup:
+
+**Node**
+
+```ts
+realtime.calls( 'chat:{id}', async ( user, withUser, { id } ) => {
+    const userIsMember = await isMemberOf( id, user );
+    const otherIsMember = await isMemberOf( id, withUser );
+    return userIsMember && otherIsMember;
+} );
+```
+
+**PHP**
+
+```php
+$realtime->calls( 'chat:{id}', function ( $user, $with, array $p ) {
+    $user_is_member  = is_member_of( $p['id'], $user );
+    $other_is_member = is_member_of( $p['id'], $with );
+    return $user_is_member && $other_is_member;
+} );
+```
+
+**Python**
+
+```python
+def may_call_in_chat(user, with_user, p):
+    user_is_member = is_member_of(p["id"], user)
+    other_is_member = is_member_of(p["id"], with_user)
+    return user_is_member and other_is_member
+
+realtime.calls("chat:{id}", may_call_in_chat)
+```
+
 ## Calling
 
 ```ts
@@ -280,7 +315,8 @@ await rt.callScreen();   // the call window and the ring, on this page
 - A call rings only on pages that start the screen (or your own calls code): start it on every page a person may be called on.
 - **Its words** come in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew, by the page `<html lang>` or `rt.callScreen( { lang: 'de' } )`. `strings` changes any of them by its English text (`{ 'Add Person': 'Invite' }`), a plural as a list of its forms.
 - **Its look** is that of Better Messages, in a shadow root: your styles do not reach in, and its colours are CSS custom properties a page sets.
-- In React: `<CallScreen rt={ rt } />`, `<CallButton>` and `<GroupCallButton>` of `@wordplus/realtime-ui/react`, in your own tree ([React](react.md#ready-made-screens)).
+- **In the page, not in the corner:** `<call-spot call="support:{a}:{b}"></call-spot>` shows the calls it names where you put it, and a call goes on in the corner window on any other page ([`<call-spot>`](elements.md#call-spot)).
+- In React: `<CallScreen rt={ rt } />`, `<CallButton>`, `<GroupCallButton>` and `<CallSpot>` of `@wordplus/realtime-ui/react`, in your own tree ([React](react.md#ready-made-screens)).
 
 ![Ben has pressed a video call button: his browser shows the call window calling Ann, over his own camera, and the browser of Ann rings, with buttons to answer and decline](https://docs.wordplus.cloud/img/apps/calls-ringing.webp)
 

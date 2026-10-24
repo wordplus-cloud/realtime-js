@@ -19,8 +19,9 @@ await rt.streamScreen();   // <live-stream> and <stream-studio>
 | [`<online-list>`](#online-list) | who is in a presence room, with call buttons |
 | [`<online-count>`](#online-count) | how many are in a room |
 | [`<typing-line>`](#typing-line) | who is typing in a room |
-| [`<chat-room>`](#chat-room) | a conversation on a room |
+| [`<chat-room>`](#chat-room) | a conversation on a room, and with `call`, its call in it |
 | [`<call-screen>`](#call-screen) | where the call screen draws, with its templates |
+| [`<call-spot>`](#call-spot) | a place in the page for a call, in place of the window in the corner |
 | [`<live-stream>`](#live-stream) | a live stream, or one of its parts |
 | [`<stream-studio>`](#stream-studio) | the studio of a live stream, for its host |
 
@@ -120,6 +121,10 @@ How many are in a room that counts (`count` or `presence`), and nothing while it
 | `placeholder` | the words in the empty composer |
 | `reactions` | the reactions to pick from, emoji (`👍 ❤️`) or their code points (`1f44d 2764`), apart by spaces. Empty for none. 👍 ❤️ 😂 😮 😢 🙏 by default |
 | `max-length` | the most characters of a message |
+| `to` | in a chat between two, the other person: on the chat's top bar, with whether they are online |
+| `name`, `avatar` | the name and picture of `to`, as your page has them: on the bar, on their messages and in their call. Without them, your directory's, which has a person only for a day after they were last online |
+| `call` | the call of the conversation, shown in the chat while it is on. `call` alone is the call named as the room, which your `calls()` rule decides, and a value names another (`date:{pair}`). With `to`, the bar has a video and an audio call button |
+| `start-call` | `video` or `audio`: calls `to` as the chat opens, once, for a page that a Video button elsewhere links to, so the call starts in the chat |
 
 | Property | |
 |---|---|
@@ -138,7 +143,13 @@ It fills the height the page gives it. With neither `messages` nor `load`, it sh
 | `read` | `{ id }`, the newest message seen, volatile |
 | `reaction` | `{ id, key }`, `key` empty to take it back, with an ack |
 
-Templates: `message`, `empty-conversation`. Parts: `message`, `composer`, `empty-conversation`.
+Templates: `message`, `empty-conversation`. Parts: `message`, `composer`, `empty-conversation`, `chat-header`.
+
+**Its call:** with `call`, the call shows beside the messages where the chat is 600px wide or more, and takes the whole chat where it is narrower, Show Chat putting the messages under it. Show Chat and Hide Chat are in the call controls. The call moves in as the page with the chat opens and goes on elsewhere as it closes, as in a [`<call-spot>`](#call-spot), and the chat wins over a spot for every call. `<CallScreen />` or `rt.callScreen()` runs it.
+
+```html
+<chat-room room="chat:34:42" to="42" name="Ben" avatar="/photos/42.jpg" call messages="/api/chat/34/42/messages" style="height: 560px"></chat-room>
+```
 
 ## `<call-screen>`
 
@@ -156,6 +167,26 @@ The call screen draws by itself, in an element of its own at the end of the page
 
 - **Templates:** `ring-card`, `call-status`, and `control`, a button of yours in the call controls. When it is pressed, the page hears `realtime-control`, with `detail.control` its name.
 - **Parts:** `ring-card`, `call-window`, `call-status`, `video-tile`, `self-view`, `call-controls`, `grid-tile`.
+
+## `<call-spot>`
+
+A call shows in a window in the corner, over the page. A `<call-spot>` shows the calls it names in the page itself, where you put it:
+
+```html
+<call-spot call="support:{a}:{b}" style="height: 480px">
+    <img src="/agent.jpg" alt="Your support agent">
+</call-spot>
+```
+
+| Attribute | |
+|---|---|
+| `call` | the calls it shows: the name of a call (`support:34:42`), a pattern as your rules write them (`support:{a}:{b}`), or a group call (`meeting:daily`). Without it, every call. Where two spots on a page take the same call, the one that names it most closely wins: its name, then a pattern, then every call |
+
+- **It moves, and goes on:** a call shows in the spot as it starts, or as soon as a page with the spot opens. On another page it goes on in the window, and comes back when the page with the spot opens again, its camera, microphone and time as they were.
+- **Its size** is the one your page gives it, 360px high when you give none, and the call fills it.
+- **What is inside** shows while no call is there. With nothing inside, the spot takes no place until a call comes.
+- **`data-call`** holds the name of the call while one is in it, for your CSS: `call-spot[data-call] { … }`.
+- **The ring** still shows in the corner, on any page.
 
 ## `<live-stream>`
 

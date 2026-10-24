@@ -79,6 +79,7 @@ realtime.on("message", lambda e: save_message(e["event_id"], e["room"], e["from"
 ```
 
 - **Check there anything that matters:** the events do not go through your server before they are sent on.
+- **On localhost** no webhook reaches your server, as a webhook needs an address on the internet. While you build there, the ready-made chat tells your server of each message it sent with its `sent` event, for a route of yours to keep by the same id ([without a webhook](use-cases/chat.md#without-a-webhook-as-on-localhost)). Or a tunnel gives your computer an address ([while you develop](sending.md#while-you-develop)).
 - **A route of yours** gives a page the conversation back: the newest 50 messages, or with `?before=<id>` the 50 before that one, oldest first, as `{ messages: [ { id, from, text, at, reactions } ], more }`. `at` is in milliseconds, and `reactions` maps each reaction to who chose it. Only the two people in the chat may read it.
 - **A reaction** comes as `{ id, key }`: the one reaction of the user to message `id`, an empty `key` taking it back.
 - **A gap:** a page back after the 5 minutes a room keeps its events, or after more came than it keeps, gets what the room still had, then `error` on the room with `{ code: 'gap' }`, still joined. Some events are lost to it, so ask your route for the newest page again: `chat.on( 'error', ( e ) => e.code === 'gap' && reload() )`.

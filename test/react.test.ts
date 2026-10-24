@@ -1,7 +1,7 @@
 import { createElement, Fragment } from 'react';
 import { act, create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
-import { CallButton, Chat, GroupCallButton, LiveStream, OnlineCount, OnlineList, Typing } from '../src/react.js';
+import { CallButton, CallSpot, Chat, GroupCallButton, LiveStream, OnlineCount, OnlineList, Typing } from '../src/react.js';
 
 // The React components that stand for @wordplus/realtime-ui's elements render those elements, their props as the
 // elements' attributes. The elements themselves are tested in realtime-ui.
@@ -19,6 +19,16 @@ describe('the elements, as React renders them', () => {
         ]);
     });
 
+    it('a call in the page is <call-spot>, its children shown until a call comes', () => {
+        expect(rendered(
+            createElement(CallSpot, { call: 'match:{a}:{b}', className: 'date', style: { height: 420 } }, 'The chat'),
+            createElement(CallSpot, {}),
+        )).toMatchObject([
+            { type: 'call-spot', props: { call: 'match:{a}:{b}', className: 'date', style: { height: 420 } }, children: ['The chat'] },
+            { type: 'call-spot', props: {} },
+        ]);
+    });
+
     it('the conversation and the people on a room are <chat-room>, <online-list>, <typing-line> and <online-count>', () => {
         expect(rendered(
             createElement(Chat, { room: 'chat:34:42', placeholder: 'Write a message', reactions: ['1f44d', '2764'], maxLength: 2000 }),
@@ -31,6 +41,18 @@ describe('the elements, as React renders them', () => {
             { type: 'typing-line', props: { room: 'chat:34:42' } },
             { type: 'online-count', props: { room: 'shop' } },
         ]);
+    });
+
+    it('a chat between two with its call is <chat-room to call>', () => {
+        const [own, named, none] = rendered(
+            createElement(Chat, { room: 'chat:34:42', to: 42, name: 'Ben', avatar: '/ben.jpg', call: true, startCall: 'video' }),
+            createElement(Chat, { room: 'chat:34:42', to: '42', call: 'date:{pair}' }),
+            createElement(Chat, { room: 'chat:34:42' }),
+        ) as Array<{ props: Record<string, unknown> }>;
+        expect(own.props).toMatchObject({ to: '42', name: 'Ben', avatar: '/ben.jpg', call: 'true', 'start-call': 'video' });
+        expect(named.props).toMatchObject({ to: '42', call: 'date:{pair}' });
+        expect(none.props.to).toBeUndefined();
+        expect(none.props.call).toBeUndefined();
     });
 
     it('a live stream is <live-stream>, in one piece or one of its parts', () => {
