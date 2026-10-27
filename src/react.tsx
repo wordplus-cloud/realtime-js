@@ -33,7 +33,7 @@ export interface RealtimeProviderProps {
 /** Connects once for everything inside it, and closes when it goes. */
 export function RealtimeProvider({ options, onError, children }: RealtimeProviderProps) {
     const [realtime, setRealtime] = useState<Realtime | null>(null);
-    const key = JSON.stringify(options);
+    const key = connectionKey(options);
     const onErrorRef = useRef(onError);
     onErrorRef.current = onError;
 
@@ -60,6 +60,25 @@ export function RealtimeProvider({ options, onError, children }: RealtimeProvide
     }, [key]);
 
     return createElement(RealtimeContext.Provider, { value: realtime }, createElement(PrefixContext.Provider, { value: options.screen?.prefix ?? '' }, children));
+}
+
+/**
+ * What the connection rests on: the options, with the user's identity as who they are and their profile, not its
+ * token. config() signs that token anew on every request, so a server layout drawn again (router.refresh(), a server
+ * action) handed the provider other options each time, and it connected again, ending the call on the screen and
+ * losing what was sent meanwhile (Team Space, 2026-10-27). The connection renews its token itself as it runs out.
+ */
+function connectionKey(options: ConnectOptions | BrowserConfig): string {
+    const token = options.keys?.identity?.token;
+    if (!token) return JSON.stringify(options);
+    const { identity, ...keys } = options.keys!;
+    let claims: { sub?: unknown; pdh?: unknown; hid?: unknown } = {};
+    try {
+        claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    } catch {
+        return JSON.stringify(options); // not a token we read: as it is
+    }
+    return JSON.stringify({ ...options, keys: { ...keys, identity: { sub: claims.sub, pdh: claims.pdh, hid: claims.hid } } });
 }
 
 /** An element's name with the page's prefix: `chat-room`, or `shop-chat-room` for `screen: { prefix: 'shop' }`. */
@@ -320,30 +339,44 @@ export function GroupCallButton({ name, type = 'video', title, children }: { nam
  * `match:{a}:{b}`, or every call when left out) show here in place of the window in the corner. A call moves in when it
  * starts, or once the spot is on the page, and goes on in the window when the spot leaves. `children` show while no
  * call is here, and with none the spot is hidden until one comes. Its `data-call` holds the call's name while one is
- * here. Needs <CallScreen /> on the page.
+ * here. With `join` (`video` or `audio`), the group call `call` names is joined as the spot comes onto the page, as its
+ * GroupCallButton would: once, so someone who leaves it isn't brought back while the spot stays. It joins with the
+ * camera and the microphone off, unless `joinWith` names them (`microphone`, `camera`, or `microphone camera`). Needs
+ * <CallScreen /> on the page.
  */
-export function CallSpot({ call, className, style, children }: { call?: string; className?: string; style?: CSSProperties; children?: ReactNode }) {
-    return createElement(useTag('call-spot'), { call, className, style }, children);
+export function CallSpot({ call, join, joinWith, className, style, children }: {
+    call?: string;
+    join?: 'audio' | 'video';
+    joinWith?: 'microphone' | 'camera' | 'microphone camera' | 'camera microphone';
+    className?: string;
+    style?: CSSProperties;
+    children?: ReactNode;
+}) {
+    return createElement(useTag('call-spot'), { call, join, 'join-with': joinWith, className, style }, children);
 }
 
 /**
  * A live stream in Easy Stream's player, its chat beside it, and the studio for its host, who goes live there: the
  * `<live-stream>` element, whose script rt.streamScreen() loads on the page's first one. `view` puts one part here
  * instead (`player`, `chat`, `details`, `studio`): the parts of one stream share its join, wherever they are.
+ * `studio-page` is the studio as a page of its own, for the host alone, in the height its `className` or `style` gives it.
  *
  *     <LiveStream name="show:mugs" title="New mugs" />
+ *     <LiveStream name="show:mugs" view="studio-page" url="/shows/mugs" backUrl="/studio" className="block h-[80vh]" />
  */
-export function LiveStream({ name, view, title, cover, url, loginUrl, studioUrl, chat, height, sticky, strings }: {
+export function LiveStream({ name, view, title, cover, url, loginUrl, studioUrl, backUrl, chat, height, sticky, strings, className, style }: {
     name: string;
-    view?: 'all' | 'player' | 'chat' | 'details' | 'studio';
+    view?: 'all' | 'player' | 'chat' | 'details' | 'studio' | 'studio-page';
     title?: string;
     cover?: string;
-    /** The page to share, the page's own by default. */
+    /** The page to share, the page's own by default; on the studio page, where viewers watch. */
     url?: string;
     /** Where a visitor signs in to chat. */
     loginUrl?: string;
     /** Where its host goes live, when that is a page of its own. */
     studioUrl?: string;
+    /** The studio page's way back, such as the host's list of streams. */
+    backUrl?: string;
     /** False for a stream without chat. */
     chat?: boolean;
     /** The chat's height in pixels, for `view="chat"`. */
@@ -351,6 +384,8 @@ export function LiveStream({ name, view, title, cover, url, loginUrl, studioUrl,
     /** The player kept at the top of a phone's screen while live, as the page scrolls past it. */
     sticky?: boolean;
     strings?: Record<string, string>;
+    className?: string;
+    style?: CSSProperties;
 }) {
     const rt = useRealtime();
 
@@ -361,10 +396,11 @@ export function LiveStream({ name, view, title, cover, url, loginUrl, studioUrl,
     }, [rt]);
 
     return createElement(useTag('live-stream'), {
-        name, view, title, cover, url, 'login-url': loginUrl, 'studio-url': studioUrl,
+        name, view, title, cover, url, 'login-url': loginUrl, 'studio-url': studioUrl, 'back-url': backUrl,
         chat: chat === false ? 'off' : undefined,
         height: height ? String(height) : undefined,
         sticky: sticky ? '' : undefined,
+        className, style,
     });
 }
 

@@ -1,0 +1,79 @@
+{
+    "about": "Ready-made colleagues to try the site with: npm run seed. The sign-up and sign-in pages offer them in one click when TEAM_DEMO=1. Each team has its lead, its members and its channels, with the messages of each channel as [who, what, minutes ago].",
+    "password": "team-space-demo-people",
+    "people": [
+        { "key": "sam", "name": "Sam", "title": "Operations", "about": "Keeps the office, the tools and the Friday all-hands running." },
+        { "key": "mia", "name": "Mia", "title": "Head of design", "about": "Design reviews on Tuesdays, an open door the rest of the week." },
+        { "key": "leo", "name": "Leo", "title": "Engineering lead", "about": "Releases, stand-ups and the occasional late-night fix." },
+        { "key": "nora", "name": "Nora", "title": "Marketing lead", "about": "Launch plans, numbers and a running club after work." },
+        { "key": "ava", "name": "Ava", "title": "Product designer", "about": "Onboarding, settings and anything with a form in it." },
+        { "key": "lena", "name": "Lena", "title": "UX writer", "about": "The words on every screen, and the blog when it needs them." },
+        { "key": "omar", "name": "Omar", "title": "Frontend engineer", "about": "Builds what design draws. Bakes bread on weekends." },
+        { "key": "noah", "name": "Noah", "title": "Backend engineer", "about": "The API, the database and the jobs that run at night." },
+        { "key": "ethan", "name": "Ethan", "title": "Mobile engineer", "about": "The iOS and Android apps. New this month." },
+        { "key": "zoe", "name": "Zoe", "title": "Content marketer", "about": "The blog, the newsletter and the launch stories." },
+        { "key": "lucas", "name": "Lucas", "title": "Growth marketer", "about": "Sign-ups, experiments and the weekly numbers. New this month." }
+    ],
+    "teams": [
+        {
+            "name": "Company", "about": "Everyone. The all-hands on Fridays, and the news of the week.", "lead": "sam",
+            "members": ["sam", "mia", "leo", "nora", "ava", "lena", "omar", "noah", "ethan", "zoe", "lucas"],
+            "channels": [
+                { "name": "general", "messages": [
+                    ["sam", "Morning, everyone. The coffee machine on the second floor works again.", 300],
+                    ["lucas", "Finally!", 290],
+                    ["nora", "The all-hands moves to Friday at four, in the Company meeting room.", 120]
+                ] },
+                { "name": "announcements", "messages": [
+                    ["sam", "New this month: Ethan joins Engineering and Lucas joins Marketing. Say hello!", 1440],
+                    ["leo", "Welcome, Ethan. Your test phones are on your desk.", 1400]
+                ] }
+            ]
+        },
+        {
+            "name": "Design", "about": "Product design, research and the words on every screen.", "lead": "mia",
+            "members": ["mia", "ava", "lena", "omar"],
+            "channels": [
+                { "name": "general", "messages": [
+                    ["mia", "Design review at three today: the new onboarding screens.", 180],
+                    ["ava", "I will share my screen with the latest version.", 150],
+                    ["lena", "I have notes on the words of step two.", 90]
+                ] },
+                { "name": "reviews", "messages": [
+                    ["omar", "The new buttons are on the preview. Feedback on the spacing welcome.", 600],
+                    ["mia", "Looks good. Let us go through it in the review.", 580]
+                ] }
+            ]
+        },
+        {
+            "name": "Engineering", "about": "The web app, the API and the mobile apps.", "lead": "leo",
+            "members": ["leo", "noah", "omar", "ethan"],
+            "channels": [
+                { "name": "general", "messages": [
+                    ["leo", "Stand-up in the meeting room at ten.", 200],
+                    ["noah", "Five minutes late, start without me.", 190],
+                    ["ethan", "The new build is on the test phones.", 60]
+                ] },
+                { "name": "releases", "messages": [
+                    ["leo", "Release 2.4 goes out on Thursday. Freeze on Wednesday evening.", 1500],
+                    ["omar", "The frontend is ready, two small fixes left.", 1400]
+                ] }
+            ]
+        },
+        {
+            "name": "Marketing", "about": "Launches, the blog, the newsletter and the numbers.", "lead": "nora",
+            "members": ["nora", "zoe", "lucas", "lena"],
+            "channels": [
+                { "name": "general", "messages": [
+                    ["nora", "The launch plan is in the shared folder. Comments by tomorrow, please.", 240],
+                    ["zoe", "The blog post draft is in. Lena, could you read it?", 200],
+                    ["lena", "On it after the design review.", 100]
+                ] },
+                { "name": "launch", "messages": [
+                    ["lucas", "Sign-ups from the newsletter doubled last week.", 700],
+                    ["nora", "Great. Let us talk it through in the Thursday meeting.", 680]
+                ] }
+            ]
+        }
+    ]
+}

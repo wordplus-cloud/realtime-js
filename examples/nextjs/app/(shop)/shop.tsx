@@ -322,7 +322,7 @@ export function Members({ me, people, open }: { me: Person; people: Person[]; op
                                     </CallButton>
                                     {/* #endregion */}
                                     {theirs && (
-                                        <a className="button quiet" href={theirs.url} target="_blank" rel="opener">
+                                        <a className="button quiet" href={theirs.url} target="_blank" rel="opener nofollow">
                                             Open as {p.name}
                                         </a>
                                     )}
@@ -495,7 +495,8 @@ export function DemoBar({ demo, me, people }: { demo: Frame; me: Person; people:
                 <a href={demo.guide}>Guide</a>
                 <a href={demo.source}>Source</a>
                 {/* Who this window is, and the other people of the shop a click away: the window becomes theirs, as their
-                    link does in a window of its own. */}
+                    link does in a window of its own. Search engines follow none of these links (nofollow), as each new
+                    shop has new ones. */}
                 <nav className="demo-people" aria-label="Who you are in this window">
                     {people.map((p) => {
                         if (p.id === me.id) {
@@ -508,7 +509,7 @@ export function DemoBar({ demo, me, people }: { demo: Frame; me: Person; people:
                         }
                         const open = demo.open.find((o) => o.id === p.id);
                         return open ? (
-                            <a key={p.id} href={open.url} title={`Be ${p.name} in this window`}>
+                            <a key={p.id} href={open.url} rel="nofollow" title={`Be ${p.name} in this window`}>
                                 <Avatar person={p} size={24} />
                                 {p.name}
                             </a>
@@ -567,7 +568,7 @@ export function TryThis({ demo, me, people, status }: { demo: Frame; me: Person;
     const link = (who: Person) => {
         const found = demo.open.find((o) => o.id === who.id);
         return found ? (
-            <a href={found.url} target="_blank" rel="opener">
+            <a href={found.url} target="_blank" rel="opener nofollow">
                 Open as {who.name}
             </a>
         ) : null;

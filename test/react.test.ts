@@ -23,9 +23,13 @@ describe('the elements, as React renders them', () => {
         expect(rendered(
             createElement(CallSpot, { call: 'match:{a}:{b}', className: 'date', style: { height: 420 } }, 'The chat'),
             createElement(CallSpot, {}),
+            createElement(CallSpot, { call: 'meeting:daily', join: 'video' }),
+            createElement(CallSpot, { call: 'meeting:daily', join: 'video', joinWith: 'microphone' }),
         )).toMatchObject([
             { type: 'call-spot', props: { call: 'match:{a}:{b}', className: 'date', style: { height: 420 } }, children: ['The chat'] },
             { type: 'call-spot', props: {} },
+            { type: 'call-spot', props: { call: 'meeting:daily', join: 'video' } },
+            { type: 'call-spot', props: { call: 'meeting:daily', join: 'video', 'join-with': 'microphone' } },
         ]);
     });
 
@@ -68,6 +72,14 @@ describe('the elements, as React renders them', () => {
         const whole = rendered(createElement(LiveStream, { name: 'show:mugs' })) as { props: Record<string, unknown> };
         expect(whole.props.view).toBeUndefined();
         expect(whole.props.chat).toBeUndefined();
+    });
+
+    it('the studio as a page of its own is <live-stream view="studio-page">, with its links and its height', () => {
+        expect(rendered(
+            createElement(LiveStream, { name: 'lesson:7', view: 'studio-page', url: '/lessons/7', backUrl: '/studio', className: 'studio', style: { height: 600 } }),
+        )).toMatchObject(
+            { type: 'live-stream', props: { name: 'lesson:7', view: 'studio-page', url: '/lessons/7', 'back-url': '/studio', className: 'studio', style: { height: 600 } } },
+        );
     });
 
     it('leave out what they are not given', () => {

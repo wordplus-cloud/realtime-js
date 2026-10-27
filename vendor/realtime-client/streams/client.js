@@ -7,9 +7,30 @@ import { avatarIn, issuerOf } from "./grant.js";
 import { pageMedia } from "./media.js";
 import { chosenLayer, layersOf, PlaybackMonitor } from "./playback.js";
 import { SendingReader } from "./sending.js";
-import { backupFor, CHROMIUM_H264_ENCODE, cameraCodecFor, hardwareFromCaps, roomCallChoice, screenCodecFor, screenPublish, SCREEN_CONTENT_HINT, SCREEN_DEGRADATION } from "../calls/room-publish.js";
+import { backupFor, CHROMIUM_H264_ENCODE, cameraCodecFor, cameraRules, fitCameraTrack, hardwareFromCaps, roomCallChoice, screenCodecFor, screenPublish, SCREEN_CONTENT_HINT, SCREEN_DEGRADATION } from "../calls/room-publish.js";
+import { checkedCameraChoice, meshCameraReport, reportMeshCamera } from "../calls/camera-check.js";
 import { probeCodecCaps } from "../calls/codecs.js";
 import { watchCameraEncoder } from "../calls/encoder-watch.js";
+import { roomPolicy, roomSettings } from "../calls/room-settings.js";
+// A stream's picture goes out in sizes in every codec, for small players and slow connections, as the industry's
+// defaults have it: H.264 and VP8 in simulcast, VP9 as SVC, since one size can't suit a stream many people watch.
+// Its screen in H.264 from every device, its hardware encoder's or the
+// browser's own in software, and VP8 only from a browser that sends no H.264 (Firefox): never VP9, which Chrome sends a
+// screen in one size only, and which in several held a scrolled page to 7-10 frames a second at its coarsest, whatever
+// the bitrate, with no media server between (2026-10-24, on a Mac).
+const STREAM_SCREEN_POLICY = { screen: ['h264', 'vp8'] };
+// A stream's camera, in the order its check measures it ("testing the performance of H264, if that is fine we keeping it
+// for best compatibility across viewers devices, if that is not fine we testing VP9 then, and if VP9 not fine,
+// switching to VP8"): H.264 in hardware or software, VP9 as three sizes in one stream, VP8 last and never measured.
+const STREAM_CAMERA_ORDER = ['h264', 'vp9', 'vp8'];
+// The node's codec policy for a stream's camera check (checkCamera()): its switches and numbers as they are, and the
+// machines its camera rules name (by default Windows and Linux), each taking the stream's order in place of its own.
+// Null with no policy: nothing is checked.
+export function streamCameraPolicy(policy) {
+    if (!policy)
+        return null;
+    return { ...policy, rules: cameraRules(policy).map((rule) => ({ ...rule, camera: [...STREAM_CAMERA_ORDER] })) };
+}
 const PROBES = { h264: 'video/H264;profile-level-id=42e01f;packetization-mode=1', h265: 'video/H265' };
 export async function cameraCodec(nav = globalThis.navigator, options = {}) {
     const agent = nav?.userAgent ?? '';
@@ -62,12 +83,14 @@ function screenCapture(quality) {
         resolution: quality === '1080p' ? { width: 1920, height: 1080, frameRate: 30 } : { width: 1280, height: 720, frameRate: 30 }
     };
 }
-// How a shared screen goes out, as a group call's does (calls/room-publish.ts): in its codec (chosenCodecs(): the
-// hardware's H.264 where there is one, else VP8), its picture marked motion (SCREEN_CONTENT_HINT, set as it is shared) and
+// How a shared screen goes out, marked motion as a group call's is (SCREEN_CONTENT_HINT, set as it is shared) and
 // keeping its size when short of bandwidth or CPU (SCREEN_DEGRADATION), so smooth where it can be and sharp where it
-// can't. In H.264 or H.265 from 1280 by 640, in three pictures for viewers' different screens and connections, as the
-// camera's sizes go (screenLayers()); in VP8 whole only, one picture, as Chrome encodes VP8 simulcast of a screen at a
-// few frames a second (screenPublish). Its sound goes in stereo at 128 kbps, where a microphone's speech goes mono at 48.
+// can't: in its codec (chosenCodecs(), STREAM_SCREEN_POLICY: H.264 from every device, VP8 from a browser without it), from
+// 1280 by 640 in three pictures for viewers' different screens and connections, as the camera's sizes go
+// (screenLayers()). VP8 too, which a group call sends whole (screenPublish), as Chrome encodes VP8 simulcast of a moving
+// screen at a few frames a second: a stream's viewers need the sizes more. A screen in VP9 or AV1 (only by the
+// embedder's cameraCodec) goes in its one layer. Its sound goes in stereo at 128 kbps, where a microphone's speech goes
+// mono at 48.
 function screenPublishing(lk, track, quality, codec) {
     const top = quality === '1080p' ? 3000000 : 2000000;
     let settings = {};
@@ -77,15 +100,16 @@ function screenPublishing(lk, track, quality, codec) {
     catch (e) {
         // A track that says nothing of its size goes whole.
     }
-    const layers = screenPublish(settings.width ?? 0, settings.height ?? 0, codec).simulcast
-        ? screenLayers(settings.width ?? 0, settings.height ?? 0, quality)
-        : [];
+    const sized = codec === 'h264' || codec === 'h265' || codec === 'vp8';
+    const layers = sized ? screenLayers(settings.width ?? 0, settings.height ?? 0, quality) : [];
+    const { scalabilityMode } = screenPublish(settings.width ?? 0, settings.height ?? 0, codec);
     return {
         videoCodec: codec,
         screenShareEncoding: { maxBitrate: top, maxFramerate: 30 },
         degradationPreference: SCREEN_DEGRADATION,
         audioPreset: { maxBitrate: 128000 },
         forceStereo: true,
+        ...(scalabilityMode ? { scalabilityMode } : {}),
         ...(layers.length > 0
             ? { simulcast: true, screenShareSimulcastLayers: layers.map((l) => new lk.VideoPreset(l.width, l.height, l.bitrate, l.fps)) }
             : { simulcast: false })
@@ -417,10 +441,12 @@ export class EasyStreamClient {
         // OBS's key frames decoded here, for keyframeSeconds(): the track they came on, the count at the last look, and
         // the looks it had grown at, the last KEYFRAME_WINDOW_MS of them.
         this.keyframes = null;
-        // This browser's codecs for a camera and a screen, asked once the room is joined, as a group call's are
-        // (calls/room-publish.ts): the first of the media server's policy this browser sends (the mesh's, rtc-client's
-        // meshCodecPolicy), by default H.264 where this device encodes it in hardware and VP8 otherwise, H.265 and
-        // Chromium's Baseline only on the mesh, VP8 behind any codec but VP8 for a viewer that decodes none of it.
+        // This browser's codecs for a camera and a screen, asked once the room is joined (pickCodecs()): the camera's
+        // measured as it goes live where the node checks cameras (checkCamera()), else as a group call's was before its
+        // check, the first of the media server's policy this browser sends (the mesh's, rtc-client's meshCodecPolicy), by
+        // default H.264 where this device encodes it in hardware and VP8 otherwise; VP8 behind any codec but VP8 for a
+        // viewer that decodes none of it. The screen's in H.264 (STREAM_SCREEN_POLICY). Asked again for a camera opened
+        // after it.
         this.codecChoice = null;
         // The camera sent, watched for a hardware encoder dropping its frames (calls/encoder-watch.ts): once seen, this
         // browser remembers it, and its next camera goes out in software. The watch follows the track's sender (a full
@@ -1835,6 +1861,9 @@ export class EasyStreamClient {
             audio: microphone ? this.microphoneOptions() : false,
             video: camera ? this.cameraOptions(lk) : false
         });
+        // A new camera's codec is asked again as it goes out (checkCamera()).
+        if (camera)
+            this.codecChoice = null;
         this.set({ devices: { camera, microphone } });
         this.refreshTiles();
     }
@@ -2065,8 +2094,9 @@ export class EasyStreamClient {
     // at 2.5), so its full size asks for less; VP8 keeps its bitrate (at 1.8 Mbit/s it scored 2.5 lower), and backs
     // any other codec. VP9 and AV1 go as one SVC stream of three sizes, each half the one above (L3T3_KEY), on about 70%
     // and 60% of VP8's bits (calls/room-publish.ts, cameraPublish()), the two lower layers then the VP8 behind's.
+    // A camera its check brought down to 720 lines goes out as a 720p stream's does.
     cameraPublishing(lk, codecs) {
-        const full = this.state.sendQuality === '1080p';
+        const full = this.state.sendQuality === '1080p' && (!codecs.height || codecs.height > 720);
         const tops = {
             vp8: full ? 4500000 : 2500000,
             h264: full ? 3500000 : 1800000,
@@ -2093,25 +2123,67 @@ export class EasyStreamClient {
     watchCamera(publication) {
         this.cameraWatch?.();
         const track = publication?.track;
-        this.cameraWatch = track?.sender ? watchCameraEncoder(() => track.sender, { onDrops: () => { this.codecChoice = null; } }) : null;
+        // the node's numbers for the watch as they are at each look (rtc-client 1.0.23)
+        const room = this.room;
+        this.cameraWatch = track?.sender
+            ? watchCameraEncoder(() => track.sender, { settings: () => roomSettings(room), onDrops: () => { this.codecChoice = null; } })
+            : null;
     }
     chosenCodecs(room) {
-        this.codecChoice ?? (this.codecChoice = this.pickCodecs(room).catch(() => ({ camera: 'vp8', screen: 'vp8', backup: null })));
+        this.codecChoice ?? (this.codecChoice = this.pickCodecs(room).catch(() => ({ camera: 'vp8', screen: 'vp8', backup: null, height: 0 })));
         return this.codecChoice;
     }
     async pickCodecs(room) {
         if (this.options.cameraCodec) {
             const codec = await this.options.cameraCodec();
-            return { camera: codec, screen: codec, backup: backupFor(codec) };
+            return { camera: codec, screen: codec, backup: backupFor(codec), height: 0 };
         }
         const agent = globalThis.navigator?.userAgent ?? '';
+        // the media server's policy: from its settings where its node sends them (rtc-client 1.0.23), else its codec policy
         const options = {
             h265: !!this.seatUrl && !!this.lk?.isMeshServer?.(this.seatUrl),
-            policy: room.meshCodecPolicy ?? null
+            policy: roomPolicy(room)
         };
         const caps = await (this.options.codecCaps ?? probeCodecCaps)().catch(() => null);
-        const camera = roomCallChoice(caps, agent, options);
-        return { camera: camera.codec, screen: screenCodecFor(agent, hardwareFromCaps(caps), options), backup: camera.backup };
+        const camera = await this.checkCamera(room, caps, agent, options);
+        // the screen in the stream's own order, unless the node's settings set screen.codecs (a rule for live streams):
+        // then the server's, as a group call's goes
+        const node = roomSettings(room);
+        const screenPolicy = node?.has('screen.codecs') ? { screen: node.get('screen.codecs') } : STREAM_SCREEN_POLICY;
+        return {
+            camera: camera.codec,
+            screen: screenCodecFor(agent, hardwareFromCaps(caps), { ...options, policy: screenPolicy }),
+            backup: camera.backup,
+            height: camera.height ?? 0
+        };
+    }
+    // The camera's codec as the stream goes live ("When starting the stream, the streamer connecting to the server and
+    // testing the performance of H264"): measured by the calls' camera check (calls/camera-check.ts: a clone of the
+    // camera through the browser's real encoder, in a loopback inside the page) where the node checks cameras (its codec
+    // policy's `check`), on the machines its camera rules name, in the stream's order (streamCameraPolicy()). Each verdict
+    // is this browser's record for a while, so a later Go live reads it instead of measuring. What it found goes to the
+    // mesh with the camera, as a call's does. A camera measured able only at fewer lines than it gives (VP9 at 720, H.264
+    // in software) is brought down to them before it goes out, the lines it then has the choice's `height`; any other
+    // camera goes out at the size it has (0). No camera, no check, or a check that fails: the codec as before
+    // (roomCallChoice()).
+    async checkCamera(room, caps, agent, options) {
+        const before = () => ({ ...roomCallChoice(caps, agent, options), height: 0 });
+        const track = this.localTrack('video')?.mediaStreamTrack;
+        if (!track || options.policy?.check !== true)
+            return before();
+        const stop = () => this.stopped || track.readyState === 'ended' || this.localTrack('video')?.mediaStreamTrack !== track;
+        let choice;
+        try {
+            choice = await (this.options.cameraCheck ?? checkedCameraChoice)(track, caps, agent, { ...options, policy: streamCameraPolicy(options.policy), stop });
+        }
+        catch {
+            return before();
+        }
+        reportMeshCamera(room, meshCameraReport(choice));
+        if (choice.source === 'default' || !choice.height || stop())
+            return { ...choice, height: 0 };
+        const height = await fitCameraTrack(track, choice.codec, choice.hardware, choice.height).catch(() => 0);
+        return { ...choice, height: height || choice.height };
     }
     // Every open track not out yet, a shared screen's too: a second call publishes nothing twice.
     async publishUnpublished(room) {
@@ -2253,6 +2325,8 @@ export class EasyStreamClient {
             if (!added)
                 return;
             this.localTracks.push(added);
+            if (device === 'camera')
+                this.codecChoice = null;
         }
         const devices = { ...this.state.devices, [device]: on };
         this.set({ devices });

@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+body {
+  background: #fafaf9;
+  color: #1c1917;
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+/* The lesson's player, chat and studio in the site's colour and font (WordPlus Cloud's ready-made stream screens): one
+   more selector than theirs, as their stylesheet comes after this one. */
+body .estream-theme {
+  --estream-accent: #0f766e;
+  --estream-font: var(--font-geist-sans), sans-serif;
+  --estream-radius: 16px;
+}
+
+/* A lesson's studio (app/(site)/studio/[id]) takes the window's whole width, and the header's links with it. */
+body:has(.lesson-studio) .site-width {
+  max-width: none;
+}
+
+/* "How this page works" on the demo (app/how-it-works-cards.tsx): the code as shiki coloured it, with the values
+   of the page, and the code named in a step. */
+.how-it-works-code pre {
+  margin: 0;
+  padding: 12px 14px;
+  /* A line too long for the screen wraps at a space, so no name is cut in two, and inside a word only when it has none. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 10px;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+@media (max-width: 640px) {
+  .how-it-works-code pre {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+}
+.how-it-works-text code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #f5f5f4;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.9em;
+}

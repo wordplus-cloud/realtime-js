@@ -62,12 +62,14 @@ export function installDemo(app, { shops, openShop, peopleOf, sign, stack }) {
         return s;
     };
 
-    // A window as someone else: the page at /as/<token> is the shop page for the person of the token.
+    // A window as someone else: the page at /as/<token> is the shop page for the person of the token. No search engine
+    // keeps a window (noindex): each new shop has new tokens, so it would find new addresses without end.
     app.use((req, res, next) => {
         const found = req.method === 'GET' && /^\/as\/([\w.-]+)$/.exec(req.path);
         if (found) {
             req.headers.authorization = 'Bearer ' + found[1];
             req.url = '/';
+            res.set('X-Robots-Tag', 'noindex, nofollow');
         }
         next();
     });

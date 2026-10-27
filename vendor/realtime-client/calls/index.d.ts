@@ -12,7 +12,7 @@ export { RemoteMediaTrack } from "./remote-track.js";
 export { SfuReporter, type ReportableRoom } from "./sfu-report.js";
 export { probeCodecCaps, roomPublishCodec } from "./codecs.js";
 export type { RoomCodec } from "./codecs.js";
-export { cameraCodecFor, screenCodecFor, roomCallCodec, roomCallChoice, hardwareFromCaps, backupFor, cameraPublish, cameraMaxHeight, fitCameraTrack, fasterCameraMode, CAMERA_MIN_FPS, screenPublish, screenVideoMode, applyScreenVideoMode, roomPixelDensity, SCREEN_ENCODING, SCREEN_CONTENT_HINT, SCREEN_CONTENT_HINT_SVC, SCREEN_SCALABILITY_MODE_SVC, SCREEN_DEGRADATION, SCREEN_DEGRADATION_VIDEO, DEFAULT_CAMERA_POLICY, DEFAULT_SCREEN_POLICY } from "./room-publish.js";
+export { cameraCodecFor, screenCodecFor, screenCodecOrder, roomCallCodec, roomCallChoice, hardwareFromCaps, backupFor, cameraPublish, cameraMaxHeight, fitCameraTrack, fasterCameraMode, CAMERA_MIN_FPS, screenPublish, screenVideoMode, directScreenMode, applyScreenVideoMode, roomPixelDensity, SCREEN_ENCODING, SCREEN_CONTENT_HINT, DIRECT_SCREEN_CONTENT_HINT, SCREEN_SCALABILITY_MODE_SVC, SCREEN_DEGRADATION, SCREEN_DEGRADATION_VIDEO, DEFAULT_CAMERA_POLICY, DEFAULT_SCREEN_POLICY } from "./room-publish.js";
 export type { CameraCodec, CameraCodecCaps, CameraChoice, CameraHardware, CodecPolicy, CallLayer, CameraPublish, ScreenPublish, ScreenVideoMode, ScreenShareTrack } from "./room-publish.js";
 export { droppedHardwareCodecs, rememberDroppedHardware, HARDWARE_DROPS_KEY } from "./room-publish.js";
 export { watchCameraEncoder, dropsFrames, cpuHeld, readingsFor, hardwareReading, readEncoder, layerEncoders } from "./encoder-watch.js";
@@ -31,6 +31,12 @@ export type { CameraState, CameraSwitchRefusal, CameraSwitchSteps } from "./came
 export { setCallPlatform, defaultPlatform, type CallPlatform } from "./platform.js";
 export { syncPair, playoutLag, audioOutputDelay, closeAudioOutput, LIP_SYNC } from "./lip-sync.js";
 export type { SyncPair, SyncReceiver, LipSyncState } from "./lip-sync.js";
+export { callPolicy, settingNumber, settingFlag, settingWord, screenEncoding, applyScreenSettings, micPublish, screenAudioPublish, micCapture, cameraCapture, screenCapture, connectGiveUpMs, cameraPublishChanged, screenPublishChanged, applyNowDelayMs } from "./room-publish.js";
+export type { CallSettings, CameraScalability, ScreenContentHint } from "./room-publish.js";
+export { checkNumbers, type CheckNumbers } from "./camera-check.js";
+export { watchNumbers, type WatchNumbers } from "./encoder-watch.js";
+export { lipSyncNumbers } from "./lip-sync.js";
+export { roomSettings, roomPolicy, applyViewSettings, type SettingsRoom } from "./room-settings.js";
 export type { CallId, CallTransport, RelayMessage } from "./transport.js";
 export type { P2PSource, P2PQuality, P2PConnection, P2PStats, SfuHandoff, IceServer, MediaState } from "./types.js";
 /**

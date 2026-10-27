@@ -1,0 +1,38 @@
+{
+    "about": "Ready-made teachers and students to try the site with: npm run seed. The sign-up and sign-in pages offer them in one click when LESSONS_DEMO=1. A teacher's course has three lessons, the first open to anyone. Each student is in the courses of `enrolled` and follows the teachers of `follows`.",
+    "password": "lessons-demo-people",
+    "people": [
+        {
+            "key": "mia", "name": "Mia", "about": "Pianist and piano teacher in Lisbon. Twenty years of playing, ten of teaching beginners of every age.",
+            "teaches": {
+                "subject": "music", "title": "Piano from the first note",
+                "about": "For those who have never played: how to sit, read a simple tune and play it with both hands.",
+                "lessons": ["Your first tune", "Reading the notes", "Both hands together"]
+            }
+        },
+        {
+            "key": "leo", "name": "Leo", "about": "Cook in a small restaurant by the river. At home I cook what my grandmother taught me.",
+            "teaches": {
+                "subject": "cooking", "title": "Lisbon home cooking",
+                "about": "The dishes Lisbon cooks at home, in an ordinary kitchen, with what any market sells.",
+                "lessons": ["Caldo verde", "Grilled sardines", "Custard tarts"]
+            }
+        },
+        {
+            "key": "nora", "name": "Nora", "about": "Nurse and runner. Six marathons, and a training plan that fits around shifts.",
+            "teaches": {
+                "subject": "fitness", "title": "Run stronger",
+                "about": "Strength and mobility for runners, twenty minutes a lesson, at home with no equipment.",
+                "lessons": ["Strong legs", "Hips and core", "Mobility after a run"]
+            }
+        },
+        { "key": "ava", "name": "Ava", "about": "Architect. Learning the piano at last.", "enrolled": ["mia"], "follows": ["mia", "leo"] },
+        { "key": "noah", "name": "Noah", "about": "Doctor on night shifts, cooking on the days off.", "enrolled": ["leo"], "follows": ["leo"] },
+        { "key": "zoe", "name": "Zoe", "about": "Climber who wants to run her first half marathon.", "enrolled": ["nora"], "follows": ["nora"] },
+        { "key": "omar", "name": "Omar", "about": "Engineer who bakes bread on weekends.", "enrolled": ["leo"], "follows": ["leo", "nora"] },
+        { "key": "lena", "name": "Lena", "about": "Translator. Played the piano as a child, starting again.", "enrolled": ["mia"], "follows": ["mia"] },
+        { "key": "lucas", "name": "Lucas", "about": "Surfer, so the legs could be stronger.", "enrolled": ["nora"], "follows": ["nora"] },
+        { "key": "ethan", "name": "Ethan", "about": "Developer and amateur chef.", "enrolled": [], "follows": ["leo"] },
+        { "key": "sam", "name": "Sam", "about": "Photographer. Curious about everything, enrolled in nothing yet.", "enrolled": [], "follows": [] }
+    ]
+}

@@ -181,12 +181,40 @@ A call shows in a window in the corner, over the page. A `<call-spot>` shows the
 | Attribute | |
 |---|---|
 | `call` | the calls it shows: the name of a call (`support:34:42`), a pattern as your rules write them (`support:{a}:{b}`), or a group call (`meeting:daily`). Without it, every call. Where two spots on a page take the same call, the one that names it most closely wins: its name, then a pattern, then every call |
+| `join` | `video` or `audio`: joins the group call `call` names as the spot comes onto the page, as its `<room-button>` would, with the camera and microphone off. Once: someone who leaves it is not brought back while the spot stays |
+| `join-with` | what `join` turns on as it joins: `microphone`, `camera`, or `microphone camera`. Without it, nothing: the person turns them on from the call's controls |
 
-- **It moves, and goes on:** a call shows in the spot as it starts, or as soon as a page with the spot opens. On another page it goes on in the window, and comes back when the page with the spot opens again, its camera, microphone and time as they were.
+- **It moves, and goes on:** a call shows in the spot as it starts. Where your pages change without loading anew, as with the links of Next.js, it goes on in the window on another page, and comes back when the page with the spot opens again, its camera, microphone and time as they were. A page that loads anew ends the call, so the browser asks before one opens.
 - **Its size** is the one your page gives it, 360px high when you give none, and the call fills it.
 - **What is inside** shows while no call is there. With nothing inside, the spot takes no place until a call comes.
 - **`data-call`** holds the name of the call while one is in it, for your CSS: `call-spot[data-call] { … }`.
 - **The ring** still shows in the corner, on any page.
+
+### Straight into a meeting
+
+With `join`, opening the page is enough: the person is in the meeting, with no button to press. Your server writes `join` only while the meeting is on, so the first one in still starts it with the button inside:
+
+```html
+<!-- join only while someone is in it: realtime.call().get() -->
+<call-spot call="meeting:7" join="video" style="height: 480px">
+    <room-button room="meeting:7">Start the meeting</room-button>
+</call-spot>
+```
+
+- **Your rule decides,** as for the button: someone it turns away sees why.
+- **Once.** Someone who leaves, or whom the host takes out, stays out while the page is open. Opening the page again joins again.
+- **One call at a time.** Someone already in another call stays in it. Someone already in this one finds it moved into the spot.
+- **A name, not a pattern:** a spot for `meeting:{id}`, or for every call, joins nothing.
+
+They come in with the camera and microphone off, and the browser asks for neither until they turn one on from the call's controls. To have them on as people come in, `join-with` names them:
+
+```html
+<call-spot call="meeting:7" join="video" join-with="microphone">
+```
+
+- **`join-with`** is `microphone`, `camera`, or `microphone camera`: the browser asks for them as the page opens, and for the camera only on a `video` call.
+- **`<room-button>`** turns on both, as before: whoever presses it means to come in on camera.
+- **Sound.** A browser plays sound only once the person has clicked or typed on the page, or on the page of your site they came from. A page opened straight into a meeting, from a link in a new tab say, shows the others and **Turn sound on** over the call: their voices start at that click, or at any other on the page.
 
 ## `<live-stream>`
 
@@ -197,12 +225,13 @@ A call shows in a window in the corner, over the page. A `<call-spot>` shows the
 | Attribute | |
 |---|---|
 | `name` | the stream, as your `streams()` rule allows it |
-| `view` | the whole stream (the default), or one part: `player`, `chat`, `details`, `studio` |
+| `view` | the whole stream (the default), or one part: `player`, `chat`, `details`, `studio`, or `studio-page`, the [studio as a page of its own](#the-studio-as-a-page-of-its-own) |
 | `title` | the title of the stream |
 | `cover` | a picture behind the player before the stream starts and after it ends |
 | `url` | the page to share, this one by default |
 | `login-url` | where a visitor signs in to write in the chat |
 | `studio-url` | a page of its own where the host goes live: here the host sees the way there in place of the studio |
+| `back-url` | on the studio page, its way back, such as the host's list of streams |
 | `chat` | `off` for the stream without its chat |
 | `height` | the height of a chat apart, in pixels |
 | `sticky` | keeps the player at the top of a phone while live |
@@ -219,6 +248,25 @@ A call shows in a window in the corner, over the page. A `<call-spot>` shows the
 ```
 
 The studio alone: the camera and microphone, the picture before going live, streaming from OBS, Go live and End stream. Nothing for anyone the rule does not make the host.
+
+## The studio as a page of its own
+
+For a host who goes live often, a page of your own with nothing but the studio, which every page of the stream points them to with `studio-url`:
+
+```html
+<!-- on the page viewers watch -->
+<live-stream name="show:mugs" studio-url="/studio/mugs"></live-stream>
+
+<!-- on /studio/mugs -->
+<live-stream name="show:mugs" view="studio-page" title="The new mugs" url="/shows/mugs" back-url="/studio"
+    style="display: block; height: calc(100vh - 64px)"></live-stream>
+```
+
+- **On the page viewers watch,** the host sees **Go live in the studio** over the player, and while live **Open the studio**, in place of the studio.
+- **The studio page** has the picture as large as fits, with Go live, the camera and microphone, the screen and OBS under it, and the statistics while live. Beside it, in tabs: the chat, the guests (the hands raised, with **Invite**, and those on stage), and the stream, with the link to share.
+- **`url`** is the page viewers watch, shown as **View page** and as the link to share. **`back-url`** puts a way back before the title.
+- **Its height** is the element's: give it `display: block` and a height, as the page around it leaves. Under 820 pixels wide, the tabs go under the picture.
+- **Anyone else** who opens it, whom the rule does not make the host, is told only hosts go live there.
 
 ## Their words and look
 

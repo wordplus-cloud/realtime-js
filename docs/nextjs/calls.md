@@ -57,6 +57,7 @@ export function CallAnn() {
 - **Its words** come in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew, by the page `<html lang>`. `<CallScreen rt={ rt } strings={ { … } } />` changes any of them.
 - **Its look** is that of Better Messages, in your own tree: its colours are CSS custom properties your page sets, and your CSS reaches its classes (`bm-…`) to change more ([customizing](customizing.md)).
 - **Group calls** load the room client and its encryption worker from the realtime route, which `config()` names: nothing to add.
+- **Leaving during a call** asks first, in the browser's own words: a reload, a closed tab or a link to another site would end it. Your `<Link>`s ask nothing, and the call goes on.
 
 ![Ann has answered: each browser shows the other person camera, their own in a corner, and the call controls. The cameras are illustrations](https://docs.wordplus.cloud/img/apps/calls-connected.webp)
 
@@ -125,6 +126,69 @@ export function CallHere( { call }: { call: string } ) {
 - **`data-call`** holds the name of the call while one is in the spot, for your CSS: `[data-call]`, or Tailwind's `data-[call]:`.
 - **The ring** still shows in the corner, on any page. `<CallScreen />` in the layout runs the call: the spot only says where it shows.
 - **Without React,** the element does the same: `<call-spot call="support:{a}:{b}" style="height: 480px"></call-spot>` ([elements](../elements.md#call-spot)).
+
+## Straight into a meeting
+
+A meeting room can take people in as they open its page, with no button to press. `join` on the spot joins the group call it names, as its `GroupCallButton` would, and your rule decides as for the button. They come in with their camera and microphone off: they see and hear the meeting at once, and turn on what they want from the call's controls.
+
+Here the page joins only while the meeting is on. Your server asks WordPlus Cloud how many are in it, and the page passes that on:
+
+```tsx
+// app/teams/[id]/page.tsx
+const room = `meeting:${ id }`;
+// How many are in it now: 0 when nobody is.
+const { people } = await realtime.call( room ).get();
+
+return <MeetingRoom room={ room } on={ people > 0 } />;
+```
+
+The spot then joins as the page opens. With nobody in the meeting, the button starts it as before:
+
+```tsx
+// app/teams/[id]/meeting.tsx
+'use client';
+
+import { useState } from 'react';
+import { useRealtime } from '@wordplus/realtime/react';
+import { CallSpot, GroupCallButton } from '@wordplus/realtime-ui/react';
+
+export function MeetingRoom( { room, on }: { room: string; on: boolean } ) {
+    const rt = useRealtime();
+    // Decided as the page opens: a meeting that starts while it is open
+    // waits for the button.
+    const [ join ] = useState( on ? 'video' as const : undefined );
+    return (
+        <CallSpot rt={ rt } call={ room } join={ join } className="h-96">
+            <GroupCallButton rt={ rt } room={ room } type="video">
+                { on ? 'Join the meeting' : 'Start the meeting' }
+            </GroupCallButton>
+        </CallSpot>
+    );
+}
+```
+
+![Ava has opened the page of the Design team while Mia leads its meeting: the meeting is already on in the page, Mia and Ava on camera above the call controls, the members of the team beside it. The cameras are illustrations](https://docs.wordplus.cloud/img/apps/meeting-straight-in.webp)
+
+- **`join`** is `video` or `audio`, as the button's `type`. Someone your rule turns away sees why, as after a click.
+- **Once.** Someone who leaves the meeting, or whom its host takes out, is not brought back while the page stays open. Opening the page again joins again, as pressing the button would.
+- **Kept in state,** as above: a refresh while the page is open, such as `router.refresh()` when someone comes or goes, changes nothing. A spot whose `join` turns on later joins then.
+- **Always, if you like:** `join="video"` on its own takes everyone who opens the page into the meeting, and starts it when nobody is in it. That suits a page that is the meeting itself, such as a consultation room at its hour, rather than one people open to read.
+- **One call at a time.** Someone already in another call stays in it, and the spot joins nothing. Someone already in this meeting, from another page, finds it moved into the spot, as always.
+- **A name, not a pattern:** a spot for `meeting:{id}`, or for every call, names no one call and joins nothing.
+- **Without React,** the element does the same: `<call-spot call="meeting:7" join="video"></call-spot>` ([elements](../elements.md#call-spot)).
+- **A whole site** that does it: [Build a team intranet](team-intranet.md#the-meeting-room), each team with its meeting room.
+
+### Camera, microphone and sound
+
+Joining by itself, the page turns nothing on: the browser asks for no camera or microphone until the person turns one on from the call's controls, so opening a page never starts a camera by surprise. Where people are expected to speak as soon as they come in, `joinWith` names what is on as they join:
+
+```tsx
+<CallSpot rt={ rt } call={ room } join={ join } joinWith="microphone" className="h-96">
+```
+
+- **`joinWith`** is `microphone`, `camera`, or `microphone camera`. The browser asks for them as the page opens, and for the camera only on a `video` call.
+- **The button** turns on both, as before: whoever presses it means to come in on camera.
+- **Sound.** A browser plays sound only once the person has clicked or typed on the page, or on the page of your site they came from. A page opened straight into a meeting, from a link in a new tab say, shows the others and **Turn sound on** over the call: their voices start at that click, or at any other on the page.
 
 ## Adding people
 

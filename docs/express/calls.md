@@ -47,6 +47,7 @@ await rt.callScreen();   // the ring and the call window, on this page
 - **Its words** come in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew, by the page `<html lang>` or `rt.callScreen( { lang: 'de' } )`. `strings: { … }` changes any of them.
 - **Its look** is that of Better Messages, in a shadow root: your styles do not reach in, and its colours are CSS custom properties your page sets.
 - **Group calls** load the room client and its encryption worker from the realtime routes, which `config()` names: nothing to add.
+- **Leaving during a call** asks first, in the browser's own words: another page, a reload or a closed tab would end it, as every page of yours loads anew.
 
 ![Ann has answered: each browser shows the other person camera, their own in a corner, and the call controls. The cameras are illustrations](https://docs.wordplus.cloud/img/apps/calls-connected.webp)
 
@@ -58,7 +59,29 @@ The call screen opens a call in a window in the corner, over the page. To show i
 <call-spot call="support:{a}:{b}" style="height: 480px"></call-spot>
 ```
 
-A call shows there as it starts, or as soon as a page with the spot opens. On another page it goes on in the window in the corner, its camera, microphone and time as they were, and comes back when the page with the spot opens again. With no call, the spot takes no place, or shows what you put inside it ([`<call-spot>`](../elements.md#call-spot)).
+A call shows there as it starts, until it ends or the page closes. With no call, the spot takes no place, or shows what you put inside it ([`<call-spot>`](../elements.md#call-spot)).
+
+## Straight into a meeting
+
+A meeting room can take people in as they open its page, with no button to press. `join` on the spot joins the group call it names, as its `<room-button>` would, and your rule decides as for the button. Here your server writes it only while the meeting is on, so the first one in still starts it with the button inside:
+
+```js
+app.get( '/teams/:id', async ( req, res ) => {
+    const room = `meeting:${ req.params.id }`;
+    // How many are in it now: 0 when nobody is.
+    const { people } = await realtime.call( room ).get();
+    const config = await realtime.config( req.session.userId ?? null );
+    res.render( 'team', { room, on: people > 0, config } );
+} );
+```
+
+```html
+<call-spot call="<%= room %>" <%- on ? 'join="video"' : '' %>>
+    <room-button room="<%= room %>">Start the meeting</room-button>
+</call-spot>
+```
+
+They come in with the camera and microphone off, and turn on what they want from the call's controls, so the browser asks for neither as the page opens. `join-with="microphone"`, or `"microphone camera"`, has them on as they come in. It joins once: someone who leaves, or whom the host takes out, stays out while the page is open, and opening the page again joins again ([straight into a meeting](../elements.md#straight-into-a-meeting)).
 
 ## Adding people
 

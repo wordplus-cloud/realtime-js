@@ -401,13 +401,13 @@ function demoBar() {
             h('a', { href: demo.guide }, 'Guide'),
             h('a', { href: demo.source }, 'Source'),
             // Who this window is, and the other people of the shop a click away: the window becomes theirs, as their link
-            // does in a window of its own.
+            // does in a window of its own. Search engines follow none of these links (nofollow), as each new shop has new ones.
             h('nav', { class: 'demo-people', 'aria-label': 'Who you are in this window' },
                 ...shop.people.map((p) => {
                     const face = h('img', { class: 'avatar', src: p.avatar, alt: '', width: 24, height: 24, 'data-user': p.id });
                     if (String(p.id) === String(me.id)) return h('span', { class: 'shop-me', 'aria-current': 'true' }, face, p.name);
                     const open = demo.open.find((o) => String(o.id) === String(p.id));
-                    return open ? h('a', { href: open.url, title: `Be ${p.name} in this window` }, face, p.name) : null;
+                    return open ? h('a', { href: open.url, rel: 'nofollow', title: `Be ${p.name} in this window` }, face, p.name) : null;
                 }))),
     );
 }
@@ -429,7 +429,7 @@ function membersCard() {
                 html`<call-button to="${p.id}" call="support:{pair}" type="audio"
                     name="${p.name}" avatar="${p.avatar}">Voice call</call-button>`,
                 // #endregion
-                open ? h('a', { class: 'button quiet', href: open.url, target: '_blank', rel: 'opener' }, `Open as ${p.name}`) : null),
+                open ? h('a', { class: 'button quiet', href: open.url, target: '_blank', rel: 'opener nofollow' }, `Open as ${p.name}`) : null),
         );
     };
     return h('section', { class: 'card', id: 'members' },
@@ -467,7 +467,7 @@ function tryThis() {
     const ann = named(34), ben = named(42), cara = named(43);
     const link = (who) => {
         const found = demo.open.find((o) => o.id === who.id);
-        return found ? h('a', { href: found.url, target: '_blank', rel: 'opener' }, `Open as ${who.name}`) : null;
+        return found ? h('a', { href: found.url, target: '_blank', rel: 'opener nofollow' }, `Open as ${who.name}`) : null;
     };
     const line = (name, text, action) => (lines[name] = h('li', { class: ticks[name] ? 'done' : '' }, h('span', {}, text), action));
 

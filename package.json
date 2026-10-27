@@ -1,6 +1,6 @@
 {
   "name": "@wordplus/realtime",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "WordPlus Cloud's realtime SDK for sites and apps outside WordPress: rooms, presence and events, calls between two people that ring in the browser, group calls and a drop-in call screen, sealed end to end. The browser client, a server part for Node and every edge runtime, React hooks and React Native.",
   "keywords": [
     "realtime",

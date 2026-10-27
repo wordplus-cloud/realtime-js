@@ -170,4 +170,6 @@ Everyone in the room gets `{ status }`, sealed with the room key on the way, and
 - [Customizing the screens](customizing.md): their look, a piece of your own, or their whole code
 - [Deploying](deploying.md) (Vercel, or any Node host), and [the example app](example.md)
 - [Build a dating site](dating-site.md): a whole site, with who is online, chat and video dates in the chat
+- [Build a live lessons site](live-lessons.md): a whole site, with teachers live in their lessons, students on stage, and a notice when a lesson goes live
+- [Build a team intranet](team-intranet.md): a whole site, with a meeting room and channels for each team, who is online, calls between colleagues, and a notice when a meeting starts
 - The [React reference](../react.md), the [server reference](../server.md), [errors](../errors.md) and [limits](../limits.md)

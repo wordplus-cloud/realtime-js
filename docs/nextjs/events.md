@@ -104,7 +104,7 @@ export function Conversation() {
 - **`messages`** is your route, asked with the page cookies. `load={ async ( before ) => ( { messages, more } ) }` replaces it, for a token or another shape: `before` is `null` for the newest page, or the oldest message shown (`{ id, at }`). With neither, it shows what the room still has.
 - **Its room rule** lets it send what it uses: `emit: [ 'message', 'typing', 'reaction', 'read' ]`, and names `message` and `reaction` in `webhook` for your app to keep.
 - **What it sends** is what you would: `message` as `{ text }` with an ack, `typing` as `{ on }` and `read` as `{ id }`, both volatile, and `reaction` as `{ id, key }`. Your own pages and apps on the same room read it.
-- **Names and pictures** come from your [directory](encryption.md#your-users).
+- **Names and pictures** come from your [directory](encryption.md#your-users), which knows a person for a day after they were last online. A group conversation can take them from your page instead, by id, so its older messages keep the names of those who wrote them: `people={ { 42: { name: 'Ben', avatar: '/photos/42' } } }` ([a team intranet](team-intranet.md#channels)).
 - **`reactions`** sets the reactions offered (`reactions={ [ '1f44d', '2764', '1f602' ] }`), and `maxLength` the longest message.
 - **It fills** the height its place gives it. Its look is that of Better Messages, in your own tree: its colours are CSS custom properties your page sets, and your CSS reaches its classes.
 - **`onSent`** hears each message the room took, for your route to keep it and tell the other person where no webhook reaches you ([telling the other person](../use-cases/chat.md#telling-the-other-person)):

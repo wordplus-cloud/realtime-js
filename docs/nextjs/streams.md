@@ -38,8 +38,10 @@ export function Show() {
 ```
 
 - **The host** sees the studio in it: the camera and microphone, the picture before going live, Go live and End stream. Everyone else sees the player, how many watch, and the chat.
+- **Guests on stage:** while live, a viewer who is signed in may raise a hand from the player, and the host invites them from the studio to come on with their camera and microphone, unless the stream's settings say `stage: false` ([guests on stage](../streams.md#guests-on-stage)). [Build a live lessons site](live-lessons.md) does it.
 - **Its parts apart**, each where the page wants it: `view="player"`, `chat` (with `height={ 480 }`), `details` or `studio`. The parts of one stream share it.
-- **Its props:** `title`, `cover`, `url` (the page to share), `loginUrl` (where a visitor signs in to chat) and `chat={ false }`.
+- **A studio page of its own** for the host: `view="studio-page"` on a page of yours, in the height its `className` gives it, with `url` (where viewers watch) and `backUrl`, and `studioUrl` on the page viewers watch, which then shows the host the way there in place of the studio ([the studio as a page of its own](../elements.md#the-studio-as-a-page-of-its-own)). [Build a live lessons site](live-lessons.md) gives its teachers one.
+- **Its props:** `title`, `cover`, `url` (the page to share), `loginUrl` (where a visitor signs in to chat), `studioUrl`, `backUrl`, `chat={ false }`, `className` and `style`.
 - **Its script**, realtime-ui-streams.min.js, comes from the realtime route with the others, and loads with the first stream on a page.
 
 `Show` in `app/(shop)/shop.tsx` of the API demo is this.

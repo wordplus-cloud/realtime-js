@@ -922,7 +922,7 @@ export async function blockMember(them: string, how: How, form: FormData) {
 - **Group chats** need nothing new from the realtime side: make a chat with more members (`pair` left empty), and the same room, the same `mayChat` and the same calls rule serve it. For a group, `mayChat` may ask only that someone is a member.
 - **Your own sign-in:** `currentUserId()` in `lib/auth.ts` is all the realtime side asks of it. Return the id of the signed-in user from yours.
 - **Its look** is Tailwind's in your pages, and in the chat and the call screen the tokens in `app/globals.css`, such as `--bm-color-accent` ([customizing](customizing.md)).
-- **Take out the demo:** `SPARK_DEMO` off, then `db/people.json`, `db/seed.mjs`, `public/people`, `app/demo-people.tsx`, `how-it-works.md`, `app/how-it-works.tsx`, `app/how-it-works-cards.tsx`, `app/api/how-it-works`, `scripts/how-it-works.mjs`, the `predev` and `prebuild` scripts that run it, the `.how-it-works-code` styles in `app/globals.css`, `lib/worlds.ts` and `db/worlds.sql` (the public demo's own), and their lines in the layout, the home page, `lib/db.ts`, and the sign-up and sign-in pages.
+- **Take out the demo:** `SPARK_DEMO` off, then `db/people.json`, `db/seed.mjs`, `public/people`, `app/demo-people.tsx`, `how-it-works.md`, `app/how-it-works.tsx`, `app/how-it-works-cards.tsx`, `app/api/how-it-works`, `scripts/how-it-works.mjs`, the `predev` and `prebuild` scripts that run it, the `.how-it-works-code` styles in `app/globals.css`, `lib/worlds.ts` and `db/worlds.sql` (the public demo's own), and their lines in the layout, the home page, `lib/db.ts`, `proxy.ts`, and the sign-up and sign-in pages.
 
 ## Put it online
 

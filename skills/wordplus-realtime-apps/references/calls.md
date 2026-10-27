@@ -315,7 +315,9 @@ await rt.callScreen();   // the call window and the ring, on this page
 - A call rings only on pages that start the screen (or your own calls code): start it on every page a person may be called on.
 - **Its words** come in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew, by the page `<html lang>` or `rt.callScreen( { lang: 'de' } )`. `strings` changes any of them by its English text (`{ 'Add Person': 'Invite' }`), a plural as a list of its forms.
 - **Its look** is that of Better Messages, in a shadow root: your styles do not reach in, and its colours are CSS custom properties a page sets.
-- **In the page, not in the corner:** `<call-spot call="support:{a}:{b}"></call-spot>` shows the calls it names where you put it, and a call goes on in the corner window on any other page ([`<call-spot>`](elements.md#call-spot)).
+- **In the page, not in the corner:** `<call-spot call="support:{a}:{b}"></call-spot>` shows the calls it names where you put it ([`<call-spot>`](elements.md#call-spot)).
+- **Leaving during a call** asks first, in the browser's own words: a reload, a closed tab or a page that loads anew would end it. Where pages change without loading anew, as with the links of Next.js, the call goes on in the corner window. The browser asks only once the person has clicked or typed on the page.
+- **Straight into a meeting:** `<call-spot call="meeting:7" join="video">` joins that group call as the page opens, with no button to press, the camera and microphone off until the person turns them on, or on as they come in with `join-with="microphone camera"` ([straight into a meeting](elements.md#straight-into-a-meeting)).
 - In React: `<CallScreen rt={ rt } />`, `<CallButton>`, `<GroupCallButton>` and `<CallSpot>` of `@wordplus/realtime-ui/react`, in your own tree ([React](react.md#ready-made-screens)).
 
 ![Ben has pressed a video call button: his browser shows the call window calling Ann, over his own camera, and the browser of Ann rings, with buttons to answer and decline](https://docs.wordplus.cloud/img/apps/calls-ringing.webp)

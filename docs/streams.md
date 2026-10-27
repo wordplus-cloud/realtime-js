@@ -61,7 +61,8 @@ return stream && <StreamView stream={ stream } title="The new mugs" />;
 ```
 
 - **Its parts apart**, each where the page wants it: `view="player"`, `chat`, `details` or `studio`, and `<stream-studio>` for the studio alone. The parts of one stream share one join, wherever they are.
-- **Its attributes:** `title`, `cover`, `url` (the page to share, this one by default), `login-url` (where a visitor signs in to chat), `studio-url` (a page of its own where the host goes live), `chat="off"`, `height` for the chat apart, and `sticky`, which keeps the player at the top of a phone while live.
+- **The studio as a page of its own:** `view="studio-page"`, the picture large with the chat, the guests and the stream beside it, for a page where the host goes live ([elements](elements.md#the-studio-as-a-page-of-its-own)).
+- **Its attributes:** `title`, `cover`, `url` (the page to share, this one by default), `login-url` (where a visitor signs in to chat), `studio-url` (a page of its own where the host goes live), `back-url` (the studio page's way back), `chat="off"`, `height` for the chat apart, and `sticky`, which keeps the player at the top of a phone while live.
 - **Its words** follow the language of the page, in the eight languages of the SDK.
 - **A refusal** shows its words in place of the stream, such as no access, or live streaming not in the plan.
 - **Its look** is its own, drawn in the page: every class starts with `estream-`.

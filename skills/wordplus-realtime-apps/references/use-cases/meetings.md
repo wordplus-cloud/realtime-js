@@ -326,6 +326,37 @@ wordplus_realtime()->group_calls( 'team:{id}', function ( $user_id, array $p ) {
 - **`encrypt: true`** encrypts its media end to end, with a key your server makes.
 - **An answer for one person** may say more: `{ hidden: true }` for someone who listens unseen, `{ publish: false }` for someone who only watches ([permissions](../permissions.md#group-calls)).
 
+## Straight into the meeting
+
+Once Ann has started the meeting, opening the page can be enough for Ben: no button to press. Put the meeting in the page with a `<call-spot>`, the button inside it, and give the spot `join` while someone is in the meeting. In the page route of `server.mjs`:
+
+```js
+    // How many are in the meeting now: 0 when nobody is.
+    const { people } = await realtime.call('team:7').get();
+    // The meeting in the page, joined as it opens while it is on.
+    // The button shows while no call is there.
+    const JOIN = people > 0 ? 'join="video"' : '';
+    const MEETING = `<call-spot call="team:7" ${JOIN} style="height: 480px">
+        ${JOIN_BUTTON}
+    </call-spot>`;
+```
+
+Then `${MEETING}` in the body, in place of `${JOIN_BUTTON}`. Now:
+
+1. **Ann opens the page.** Nobody is in the meeting, so the spot shows Join the meeting, and she presses it, as before. The meeting shows in the page, where the spot is.
+2. **Ben opens the page.** One person is in `team:7`, so his spot has `join="video"`. His page asks your server as a click would, your rule says yes, and he is in the meeting: he sees and hears Ann at once, his own camera and microphone off until he turns them on from the call's controls.
+3. **Cara opens the page.** Her spot joins too, and your rule says no: she sees You cannot make this call, as after a click.
+4. **Ann takes Ben out** from his tile. He stays out while his page is open. Opening it again would join him again, as the button would, so to keep someone out, your rule turns them away.
+
+![A team page opened while its meeting is on: the meeting is already in the page, two people on camera above the call controls, the members of the team beside it. The cameras are illustrations](https://docs.wordplus.cloud/img/apps/meeting-straight-in.webp)
+
+- **His camera and microphone on as he comes in:** `join-with="microphone camera"` on the spot, or `"microphone"` alone. Without it, his browser asks for neither until he turns one on, so opening the page never starts a camera by surprise.
+- **`join="audio"`** joins the meeting as a voice call, with no camera.
+- **Sound.** A browser plays sound only once the person has clicked or typed on the page, or on the page they came from. Ben, opening the page from a link in a new tab, sees Ann and **Turn sound on** over the call: her voice starts at that click, or at any other on the page.
+- **Another page** of the app loads anew and takes the person out of the meeting, so the browser asks first. Back on the team page, they join again while the meeting is on.
+- **Every person, always:** `join="video"` with no condition takes everyone who opens the page into the meeting, and starts it when nobody is in it. That suits a page that is the meeting itself, such as a consultation room at its hour.
+- **In React:** `<CallSpot rt={ rt } call="team:7" join="video">` ([Next.js](../nextjs/calls.md#straight-into-a-meeting)).
+
 ## Running it from your server
 
 A lead the rule answers `admin: true` gets mute, let speak and remove on each tile of the call screen, with nothing more to write. Beyond those, the lead runs the meeting through routes of yours, as `/meetings/7/end` does above: mute someone, take them out, or end it. Each route checks that the lead asks, then calls one of these ([buttons for the host](how-it-works.md#buttons-for-the-host)):
