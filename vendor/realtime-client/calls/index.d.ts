@@ -25,7 +25,7 @@ export { stepDownCamera, stepsDown } from "./camera-adapt.js";
 export { cameraTune, cameraRules, cameraRuleFor, cameraRuleOrder, cameraEnvironment, gpuMaker, CAMERA_TUNE_DEFAULTS, CAMERA_TUNE_RANGES, DEFAULT_CAMERA_RULES } from "./room-publish.js";
 export type { CameraTune, CameraRule, CameraEnvironment, CameraOs, CameraBrowser, CameraGpu, CameraDevice } from "./room-publish.js";
 export { checkedCameraChoice, todaysCameraChoice, measureCameraEncoder, judgeEncoder, cameraCheckRunning, onCameraCheck, meshCameraReport, reportMeshCamera, graphicsAdapter, CAMERA_CHECK_BUDGET_MS, CAMERA_CHECK_POLL_MS, MESH_CAMERA_SWITCHES } from "./camera-check.js";
-export type { CameraCheckVerdict, CheckedCameraChoice, CameraTest, CameraSwitch, MeshCameraReport, CameraCheckOptions, EncoderSample } from "./camera-check.js";
+export type { CameraCheckVerdict, CheckWarmup, CheckedCameraChoice, CameraTest, CameraSwitch, MeshCameraReport, CameraCheckOptions, EncoderSample } from "./camera-check.js";
 export { CameraSwitchGuard, CameraOptimizing, switchCameraCodec, nextCameraChoice, encodeCameraState, decodeCameraState, CAMERA_STATE_TOPIC, CAMERA_SWITCHES_MAX, CAMERA_SWITCH_GAP_MS, CAMERA_SWITCH_WARMUP_MS, CAMERA_REPUBLISH_TIMEOUT_MS, CAMERA_OPTIMIZING_MAX_MS, CAMERA_ANNOUNCE_TIMEOUT_MS } from "./camera-adapt.js";
 export type { CameraState, CameraSwitchRefusal, CameraSwitchSteps } from "./camera-adapt.js";
 export { setCallPlatform, defaultPlatform, type CallPlatform } from "./platform.js";

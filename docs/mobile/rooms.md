@@ -2,7 +2,7 @@
 
 A room is a name your app and your web pages join to get its events. Your server declares your rooms once, by pattern, and sends to them. Apps and pages may send to them too, as a room rule allows.
 
-**Who may join is for your server to say,** as for your web pages: its rules answer for the app user too, found by the token the app sends ([declaring rooms](https://docs.wordplus.cloud/apps/rooms/#declaring-rooms)). Nothing about rooms is written in the app but joining.
+**Who may join is for your server to say,** as for your web pages. Each room is named after what it carries, `order:1042` for the updates of order 1042. The app asks your server to join it, and the rule your server declared for every room whose name fits `order:{id}` answers, for the app user found by the token the app sends. WordPlus Cloud then holds the app to the answer ([declaring rooms](../rooms.md#declaring-rooms)). Nothing about rooms is written in the app but joining.
 
 ## Joining in React Native
 
@@ -36,7 +36,12 @@ As in a browser:
 const order = rt.join( 'order:1042' );
 order.on( 'updated', ( data, meta ) => showStatus( data.status ) );   // meta: { from, id, at }
 order.on( 'joined', () => showLive() );
+order.on( 'error', ( e ) => console.warn( e.code ) );                 // forbidden, no_rule …
 ```
+
+## What a room keeps and allows
+
+Your server says it, for the app as for your pages: how many of its last events a room keeps, which events apps and pages may send to it, whether its members are listed or counted, and whether anyone may join, signed in or not ([what a room keeps and allows](../rooms.md#what-a-room-keeps-and-allows)). The options travel in the room token, so the app reads none of them.
 
 ## When the app goes to the background
 
@@ -49,5 +54,13 @@ The platform pauses the app, and with it the connection. When it comes back, it 
 ```ts
 const { events, more } = await order.history( { limit: 50 } );   // the newest 50, oldest first, to page back
 ```
+
+## Use cases
+
+Each with the rules of your server and the code of the page, which a Capacitor app runs as it is:
+
+- [Live updates and notifications](../use-cases/live-updates.md): an order moving on, and a notice to one user in every tab and app
+- [Chat](../use-cases/chat.md): conversations of two and of a group, kept by your server
+- [Editing together](../use-cases/collaboration.md): who is in a document, their cursors and their changes
 
 More, with the code of every server: [rooms in depth](../rooms.md).

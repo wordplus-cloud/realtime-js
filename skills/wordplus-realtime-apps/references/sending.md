@@ -4,6 +4,8 @@ Your server sends events to rooms and to users with its secret, in the same chai
 
 ## To rooms and users
 
+A room by its name, such as `order:42`, the room the page of order 42 joins, and a user by their id. Your server sends once its own work is saved:
+
 **Node**
 
 ```ts
@@ -37,7 +39,7 @@ await realtime.to("order:42").aemit("updated", {"status": "paid"})   # from asyn
 | `to( rooms )` | one room, or up to 1,000 |
 | `toUser( users )` (Python `to_user`) | one user, or up to 1,000: every tab and device they have open, through a room of their own WordPlus Cloud keeps. It chains with `to()` |
 | `except( tab )` (Python `except_tab`) | a tab (the browser `rt.tab`, sent with the request that caused it, as `X-Realtime-Tab`), which does not get it back. The Laravel `toOthers()` takes it from that header |
-| `emit( event, data, { seal } )` | any name but those kept for the room itself (`joined`, `join`, `leave`, `count`, `error`). Data anything JSON takes, binary too, up to 1 MB. `seal: false` sends the data of a sealed room plain |
+| `emit( event, data, { seal } )` | any name but the [reserved names](errors.md#reserved-names) of the room and the connection (`joined`, `join`, `leave`, `count`, `error`, `kicked`, `connect`, `disconnect`, `connect_error`, `state`, `online`). Data anything JSON takes, binary too, up to 1 MB. `seal: false` sends the data of a sealed room plain |
 
 - **Sealed by default:** the data of a sealed room goes sealed with its key, a copy each, and what goes to a user with their own key. The data of public rooms goes plain, together.
 - **Kept:** a room whose rule keeps history keeps it, and the answer is the kept event ids, by room.
@@ -46,13 +48,15 @@ await realtime.to("order:42").aemit("updated", {"status": "paid"})   # from asyn
 
 ## Many at once
 
+Several events in one call: each is sent as an emit of its own, one after the other, sealed as it would be alone, and the answer is the kept ids of each, in their order.
+
 **Node**
 
 ```ts
 await realtime.batch( [
     { rooms: 'order:42', event: 'updated', data: { status: 'paid' } },
     { users: 42, event: 'notice', data: { text: 'Paid' } },
-] );   // 100 events a request
+] );
 ```
 
 **PHP**
@@ -88,15 +92,21 @@ await realtime.in( 'chat:34:42' ).kick( 43 );                 // out now
 **PHP**
 
 ```php
-$realtime->in( 'room:7' )->members();
-$realtime->in( 'chat:34:42' )->kick( 43 );
+$realtime->in( 'room:7' )->count();
+$realtime->in( 'room:7' )->members();                        // [ 'count', 'list' => [ [ 'id', 'info' ] ], 'next'? ], their info opened
+$realtime->in( 'chat:34:42' )->history( [ 'limit' => 50 ] );   // [ 'events', 'more' ], oldest first, opened
+$realtime->in( 'chat:34:42' )->forget( $id );                // one kept event, forget() for all
+$realtime->in( 'chat:34:42' )->kick( 43 );                   // out now
 ```
 
 **Python**
 
 ```python
-realtime.in_room("room:7").members()
-realtime.in_room("chat:34:42").kick(43)
+realtime.in_room("room:7").count()
+realtime.in_room("room:7").members()                    # {"count", "list": [{"id", "info"}], "next"?}, their info opened
+realtime.in_room("chat:34:42").history(limit=50)        # {"events", "more"}, oldest first, opened
+realtime.in_room("chat:34:42").forget(event_id)         # one kept event, forget() for all
+realtime.in_room("chat:34:42").kick(43)                 # out now
 ```
 
 **Kick** takes the user connections out of the room at once, and refuses the token they had. Their page asks your rule again when it loads, so to keep them out, your rule says no for them, from your own data such as a ban list: a room has no ban of its own. With the key generations kept ([encryption](encryption.md#when-someone-loses-access)), it also moves the room key on, so a sealed event after the kick is not theirs to read.
@@ -138,17 +148,17 @@ const replies = await realtime.user( 42 ).ask( 'cart', { why: 'checkout' }, { ti
 **PHP**
 
 ```php
-$realtime->user( 42 )->get();
-$realtime->user( 42 )->disconnect();
-$replies = $realtime->user( 42 )->ask( 'cart', [ 'why' => 'checkout' ], [ 'timeout' => 5000 ] );
+$realtime->user( 42 )->get();                        // [ 'id', 'online', 'at'?, 'connections' ]
+$realtime->user( 42 )->disconnect();                 // out of everything at once
+$replies = $realtime->user( 42 )->ask( 'cart', [ 'why' => 'checkout' ], [ 'timeout' => 5000 ] );   // [ [ 'data', 'at' ] ]
 ```
 
 **Python**
 
 ```python
-realtime.user(42).get()
-realtime.user(42).disconnect()
-replies = realtime.user(42).ask("cart", {"why": "checkout"}, timeout=5000)
+realtime.user(42).get()                              # {"id", "online", "at"?, "connections"}
+realtime.user(42).disconnect()                       # out of everything at once
+replies = realtime.user(42).ask("cart", {"why": "checkout"}, timeout=5000)   # [{"data", "at"}]. await … .aask(…) from async code
 ```
 
 - **`get()`** says whether the user is online, since when they were last seen when they are not, and how many of their connections your server vouched for are open.
@@ -186,25 +196,55 @@ usage = realtime.usage()
 
 ## Webhooks
 
-WordPlus Cloud tells your server what happens in rooms, at the address set on your app page in your WordPlus Cloud account (`https://shop.example.com/api/realtime/webhook`), which the package routes answer:
+WordPlus Cloud tells your server what happens in rooms, at the address set on your app page in your WordPlus Cloud account (`https://shop.example.com/api/realtime/webhook`), which the package routes answer. A room rule names the events of its pages that come here too (`webhook`), and `realtime.on()` gives each event, by its name, a handler of yours. These handlers say:
+
+1. **A message** in a chat is kept once, by its `event_id`, from signed-in people alone.
+2. **A user going offline** is marked away.
 
 **Node**
 
 ```ts
-realtime.on( 'message', async ( { room, from, data, event_id, at } ) => from && saveMessage( { id: event_id, room, from, text: data.text, at } ) );   // a guest has no from
+// 1. A message, which the rule of its room names in `webhook`.
+realtime.on( 'message', async ( { room, from, data, event_id, at } ) => {
+    // A guest in a public room sends with no `from`: kept from signed-in people alone.
+    if ( ! from ) return;
+    await saveMessage( { id: event_id, room, from, text: data.text, at } );
+} );
+
+// 2. A user going offline.
 realtime.on( 'user.offline', ( { user } ) => markAway( user ) );
 ```
 
 **PHP**
 
 ```php
-$realtime->on( 'message', fn ( array $e ) => isset( $e['from'] ) && save_message( $e['event_id'], $e['room'], $e['from'], $e['data']['text'], $e['at'] ) );   // a guest has no from
+// 1. A message, which the rule of its room names in `webhook`.
+$realtime->on( 'message', function ( array $e ) {
+    // A guest in a public room sends with no `from`: kept from signed-in people alone.
+    if ( ! isset( $e['from'] ) ) {
+        return;
+    }
+    save_message( $e['event_id'], $e['room'], $e['from'], $e['data']['text'], $e['at'] );
+} );
+
+// 2. A user going offline.
+$realtime->on( 'user.offline', fn ( array $e ) => mark_away( $e['user'] ) );
 ```
 
 **Python**
 
 ```python
-realtime.on("message", lambda e: "from" in e and save_message(e["event_id"], e["room"], e["from"], e["data"]["text"], e["at"]))   # a guest has no from
+# 1. A message, which the rule of its room names in `webhook`.
+def keep_message(e):
+    # A guest in a public room sends with no "from": kept from signed-in people alone.
+    if "from" not in e:
+        return
+    save_message(e["event_id"], e["room"], e["from"], e["data"]["text"], e["at"])
+
+realtime.on("message", keep_message)
+
+# 2. A user going offline.
+realtime.on("user.offline", lambda e: mark_away(e["user"]))
 ```
 
 | Event | |
@@ -233,12 +273,27 @@ cloudflared tunnel --url http://localhost:3000     # or: ngrok http 3000
 
 Set the address it prints, with the path of your webhook, as the webhook of your app (`https://quiet-hill-1234.trycloudflare.com/api/realtime/webhook`), then send a test event to see it arrive:
 
+**Node**
+
 ```ts
 await realtime.webhooks.test();   // { delivered: true, status: 204 }, or what your server answered
 ```
 
-- **One address an app.** While you build the app, its webhook is your tunnel. When it goes live, set it to your server. A quick tunnel gets a new address each time it starts, so set it again, or use a named tunnel that keeps one.
-- **Once the app is live,** its webhook stays with your server: try a change on a staging server of yours that the address points to for a while, or on a second app of your own, with its own key and secret in your development `.env` (each app is a subscription of its own).
+**PHP**
+
+```php
+$realtime->webhooks()->test();    // [ 'delivered' => true, 'status' => 204 ], or what your server answered
+```
+
+**Python**
+
+```python
+realtime.webhooks.test()          # {"delivered": True, "status": 204}, or what your server answered
+```
+
+- **One webhook address an app.** While you build the app, its webhook is your tunnel. When it goes live, set it to your server. A quick tunnel gets a new address each time it starts, so set it again, or use a named tunnel that keeps one.
+- **Once the app is live,** its webhook stays with your server, and your computer keeps working on the same app. Its addresses hold your website and its subdomains, and beside them the addresses you develop on: `http://localhost:3000`, one on your own network, or a name ending in `.test` or `.local`, up to 20 in all. There, with the same key, secret and local key, everything but the webhook works as it does live. Those pages share the rooms of the live app, so keep your development data apart, such as rooms named with a prefix of their own (`dev:order:42`).
+- **A change to a webhook handler** goes to a staging server of yours, on a subdomain of your website such as `https://staging.shop.example.com`: point the webhook there while you try it, and `webhooks.test()` checks it end to end, its signature included.
 - **Not every feature needs it.** A chat page tells your server each message it sent, with no webhook ([without a webhook](use-cases/chat.md#without-a-webhook-as-on-localhost)). Live stream, usage and member events come only by webhook.
 - **What arrived:** `realtime.webhooks.deliveries()`, below, has each try, with what your server answered or why nothing did.
 
@@ -269,3 +324,12 @@ realtime.webhooks.test()
 ```
 
 The deliveries are the last 100 tries of the last three days, the newest first: each batch by its id, the HTTP status your server answered (0 with `error` when nothing answered: `timeout`, `unreachable`, `not_public`), when it is tried again, and whether it may be sent again now. A batch your server did not take is kept while it is tried again, and three days after. `test()` checks your webhook works end to end, its signature included, the day you set it up.
+
+## Use cases
+
+Each with the rules of your server and the code of the page:
+
+- [Live updates and notifications](use-cases/live-updates.md): an order moving on, and a notice to one user in every tab
+- [Every page and app of a user](use-cases/devices.md): `ask()` and `rt.answer()`, and taking a user out of everything at once
+- [Charging for calls and streams](use-cases/charging.md): what each person used, from the webhook
+- [Members-only streams](use-cases/members-only.md): telling the members by `toUser()` when a stream goes live

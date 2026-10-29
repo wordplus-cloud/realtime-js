@@ -4,6 +4,8 @@ A few speak and everyone else listens: a teacher and a class, a panel and its au
 
 For one person live to a large audience, with a chat and viewers who need not sign in, see the live streams: [interviews and questions on stage](interviews.md). A group call fits a class where anyone may be let on to speak, and an audio room.
 
+**In your stack:** [Next.js](../nextjs/calls.md#speakers-and-listeners) · [Express](../express/calls.md#speakers-and-listeners) · [Laravel](https://docs.wordplus.cloud/laravel/calls/) · [PHP](https://docs.wordplus.cloud/php/calls/) · [Django](https://docs.wordplus.cloud/django/calls/) · [FastAPI](https://docs.wordplus.cloud/fastapi/calls/) · [Flask](https://docs.wordplus.cloud/flask/calls/) · [WordPress](https://docs.wordplus.cloud/wordpress/group-calls/#speakers-and-listeners)
+
 ## The rules
 
 A group call for each class, named after it: `class:7`, and beside it a room of the same name, where students raise a hand.
@@ -129,14 +131,22 @@ wordplus_realtime()->room( 'class:{id}', function ( $user_id, array $p ) {
 
 ## Letting someone speak
 
-The Let speak button of the teacher calls a route of yours, which keeps the choice for the rule and changes it in the call at once:
+The Let speak button of the teacher calls a route of yours, which checks that the teacher asks, then:
+
+1. **Keeps the choice** where the rule reads it, for every join after.
+2. **Changes it in the call** at once.
 
 **Node**
 
 ```ts
 app.post( '/classes/:id/speakers', async ( req, res ) => {
+    // Only the teacher of the class.
     if ( !( await isTeacherOf( req.params.id, req.user.id ) ) ) return res.sendStatus( 403 );
+
+    // 1. Kept for the rule.
     await setMaySpeak( req.params.id, req.body.user, req.body.speak );
+
+    // 2. Changed in the call at once.
     await realtime.call( 'class:' + req.params.id ).permit( req.body.user, { publish: req.body.speak } );
     res.sendStatus( 204 );
 } );
@@ -145,21 +155,33 @@ app.post( '/classes/:id/speakers', async ( req, res ) => {
 **PHP**
 
 ```php
+// In your route for POST /classes/{id}/speakers, once the teacher is checked.
+// 1. Kept for the rule.
 set_may_speak( $class, $student, $speak );
+
+// 2. Changed in the call at once.
 $realtime->call( 'class:' . $class )->permit( $student, [ 'publish' => $speak ] );
 ```
 
 **Python**
 
 ```python
+# In your route for POST /classes/<id>/speakers, once the teacher is checked.
+# 1. Kept for the rule.
 set_may_speak(class_id, student, speak)
+
+# 2. Changed in the call at once.
 realtime.call(f"class:{class_id}").permit(student, publish=speak)
 ```
 
 **WordPress**
 
 ```php
+// In your route for POST /classes/{id}/speakers, once the teacher is checked.
+// 1. Kept for the rule.
 my_school_set_may_speak( $class, $student, $speak );
+
+// 2. Changed in the call at once.
 wordplus_realtime()->call( 'class:' . $class )->permit( $student, array( 'publish' => $speak ) );
 ```
 
@@ -168,6 +190,8 @@ wordplus_realtime()->call( 'class:' . $class )->permit( $student, array( 'publis
 - **A token signed for them before** follows the change, so an older one cannot undo it, and your rule decides every join after. Keep the choice where it reads it, as `setMaySpeak()` does.
 
 ## The page of a student
+
+**Browser**
 
 ```js
 const calls = await rt.calls();
@@ -189,7 +213,72 @@ lesson.on( 'person', ( person ) => place( person, person.publish ? speakers : li
 lesson.on( 'speakers', ( people ) => highlight( people ) );
 ```
 
+**React**
+
+```tsx
+import { useEffect, useReducer, useState } from 'react';
+import type { GroupCall } from '@wordplus/realtime';
+import { useCalls, useRoom } from '@wordplus/realtime/react';
+
+export function Lesson() {
+    const { calls } = useCalls();
+    const hands = useRoom( 'class:7' );
+    const [ lesson, setLesson ] = useState<GroupCall | null>( null );
+    const [ , redraw ] = useReducer( ( n: number ) => n + 1, 0 );
+
+    useEffect( () => {
+        if ( !calls ) return;
+        let joined: GroupCall | null = null;
+        let microphone: MediaStreamTrack | null = null;
+        let gone = false;
+
+        void calls.group( 'class:7', { type: 'audio' } ).then( ( call ) => {
+            if ( gone ) return call.leave();
+            joined = call;
+            call.on( 'permissions', async ( { publish } ) => {
+                if ( publish ) {
+                    microphone = ( await navigator.mediaDevices.getUserMedia( { audio: true } ) ).getAudioTracks()[ 0 ];
+                    await call.setTrack( 'microphone', microphone );   // let on: it speaks
+                } else {
+                    microphone?.stop();                                 // back to listening: the light goes off
+                }
+            } );
+            call.on( 'person', redraw ).on( 'person_left', redraw ).on( 'speakers', redraw );
+            setLesson( call );
+        } );
+
+        return () => {
+            gone = true;
+            joined?.leave();
+        };
+    }, [ calls ] );
+
+    const people = lesson?.people() ?? [];
+
+    return (
+        <>
+            <button onClick={ () => hands.emit( 'hand', { up: true } ) }>Raise hand</button>
+            <h2>Speaking</h2>
+            { people.filter( ( p ) => p.publish ).map( ( p ) => <Seat key={ p.identity } person={ p } /> ) }
+            <h2>Listening</h2>
+            { people.filter( ( p ) => !p.publish ).map( ( p ) => <Seat key={ p.identity } person={ p } /> ) }
+        </>
+    );
+}
+
+function Seat( { person } ) {
+    return (
+        <p className={ person.speaking ? 'speaking' : '' }>
+            { person.info?.name }
+            <audio autoPlay ref={ ( audio ) => { if ( audio ) person.microphone?.attach( audio ); } } />
+        </p>
+    );
+}
+```
+
 ## The page of the teacher
+
+**Browser**
 
 ```js
 const hands = rt.join( 'class:7' );
@@ -198,7 +287,31 @@ hands.on( 'hand', ( { up }, { from } ) => ( up ? showHand( from ) : hideHand( fr
 letSpeak.onclick = () => fetch( '/classes/7/speakers', { method: 'POST', body: JSON.stringify( { user: chosen, speak: true } ), headers: { 'Content-Type': 'application/json' } } );
 ```
 
-- **`group.can`** is what the page may do now, `{ publish, subscribe }`, and each person has `publish`, so a page draws the speakers apart from the listeners.
+**React**
+
+```tsx
+import { useState } from 'react';
+import { useRoom } from '@wordplus/realtime/react';
+
+export function Hands() {
+    const [ raised, setRaised ] = useState<string[]>( [] );
+    useRoom( 'class:7', {
+        hand: ( { up }, { from } ) => {
+            if ( !from ) return;
+            setRaised( ( all ) => ( up ? [ ...all.filter( ( id ) => id !== from ), from ] : all.filter( ( id ) => id !== from ) ) );
+        },
+    } );
+    const letSpeak = ( user: string ) => fetch( '/classes/7/speakers', { method: 'POST', body: JSON.stringify( { user, speak: true } ), headers: { 'Content-Type': 'application/json' } } );
+
+    return (
+        <ul>
+            { raised.map( ( user ) => <li key={ user }>{ nameOf( user ) } <button onClick={ () => letSpeak( user ) }>Let speak</button></li> ) }
+        </ul>
+    );
+}
+```
+
+- **`group.can`** is what the page may do now, `{ publish, subscribe }`, with `admin` for its host, and each person has `publish`, so a page draws the speakers apart from the listeners.
 - **An audio room** is the same with `type: 'audio'` for everyone: no camera is asked for, and a person on audio counts half toward the credits ([limits](../limits.md)).
 - **Hidden observers,** such as a supervisor, are in the call and listed to nobody.
 
@@ -208,4 +321,5 @@ letSpeak.onclick = () => fetch( '/classes/7/speakers', { method: 'POST', body: J
 - **The teacher mutes someone** for a moment: `realtime.call( 'class:7' ).mute( 34, 'microphone' )`. They may turn it on again, while `permit()` keeps them a listener.
 - **Breakout groups** during the class ([waiting rooms and breakout rooms](waiting-rooms.md)).
 - **In a WordPress plugin:** the same rule with `wordplus_realtime()->group_calls()` and `->call( $name )->permit()` ([WordPress group calls](https://docs.wordplus.cloud/wordpress/group-calls/#speakers-and-listeners)).
-- **In iOS and Android apps:** `group.onPermissions` and `GroupPerson.publish` ([iOS](https://docs.wordplus.cloud/ios/calls/#speakers-and-listeners), [Android](https://docs.wordplus.cloud/android/calls/#speakers-and-listeners)).
+- **On phones:** `group.onPermissions` and `GroupPerson.publish` in the iOS and Android apps ([iOS](https://docs.wordplus.cloud/ios/calls/#speakers-and-listeners), [Android](https://docs.wordplus.cloud/android/calls/#speakers-and-listeners)), and the same page as here in a Capacitor app ([mobile apps](../mobile/calls.md)).
+- **A class live to many,** with a chat and a stage in place of a group call: live lessons, a whole site in Next.js ([live lessons site](../nextjs/live-lessons.md)).

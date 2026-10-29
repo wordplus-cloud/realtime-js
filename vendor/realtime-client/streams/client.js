@@ -6,6 +6,8 @@ import { CHECK_PATH, INGEST_IDENTITY, JOIN_PATH, LIVE_PATH, REACTION_EMOJI } fro
 import { avatarIn, issuerOf } from "./grant.js";
 import { pageMedia } from "./media.js";
 import { chosenLayer, layersOf, PlaybackMonitor } from "./playback.js";
+import { TROUBLE_WINDOW_MS, ViewerHold, VIEWER_HOLDS_MS } from "./hold.js";
+import { StreamTrace } from "./trace.js";
 import { SendingReader } from "./sending.js";
 import { backupFor, CHROMIUM_H264_ENCODE, cameraCodecFor, cameraRules, fitCameraTrack, hardwareFromCaps, roomCallChoice, screenCodecFor, screenPublish, SCREEN_CONTENT_HINT, SCREEN_DEGRADATION } from "../calls/room-publish.js";
 import { checkedCameraChoice, meshCameraReport, reportMeshCamera } from "../calls/camera-check.js";
@@ -192,12 +194,16 @@ const HIDDEN_LOW_SIDE = 360;
 // then plays late, a jolt each time (seen at about 1% lost on the way to Frankfurt, on stock LiveKit as on the mesh).
 // On stage, where people talk to each other, 150 ms covers a 50 ms round trip
 // (WordPlus Mesh's TestJitterBufferUnderLoss: 1% lost over a 50 ms round trip played 50 ± 21 ms between frames, 50 ± 6
-// at 150 ms). A viewer holds a second, which a live stream can spare: each lost packet then has time for several tries,
-// not one. A viewer in Ukraine of a stream through Canada's node (140 ms away, about 7% lost on the way down at 2.5
-// Mbit/s, the host's upload clean) dropped 73 and 112 frames and froze 5-6 times in 30 s at 300 ms, and dropped none
-// and never froze at 1000, decoding 29 frames a second of 29.
-const VIEWER_JITTER_BUFFER_MS = 1000;
+// at 150 ms). A viewer holds a second to begin with, which a live stream can spare: each lost packet then has time for
+// several tries, not one. A viewer in Ukraine of a stream through Canada's node (140 ms away, about 7% lost on the way
+// down at 2.5 Mbit/s, the host's upload clean) dropped 73 and 112 frames and froze 5-6 times in 30 s at 300 ms, and
+// dropped none and never froze at 1000, decoding 29 frames a second of 29. A viewer whose picture keeps freezing while
+// packets go missing holds longer, two seconds, then three, and comes back down once it plays smoothly (hold.ts).
 const STAGE_JITTER_BUFFER_MS = 150;
+// A line of how the stream played goes to the trace this often while watching, when anything went wrong meanwhile:
+// freezes, stops, 1% or more lost, a hold above the first.
+const TRACE_SUMMARY_MS = 5 * 60000;
+const TRACE_LOSS_PCT = 1;
 // OBS's key frames counted over this long (keyframeSeconds()): OBS makes one at its interval alone, never when a
 // viewer asks, so a viewer coming in, back to the page from another, or to another size of the picture waits for the
 // next. OBS's Keyframe Interval left at 0 (auto, and Simple output mode has no other) gave one every 8.2 s at 30 fps.
@@ -312,6 +318,8 @@ function helloExtras(hello) {
 function peakOf(cloud, watching, seen) {
     return typeof cloud === 'number' ? Math.max(cloud, watching) : Math.max(seen, watching);
 }
+// A length in ms as the trace says it: "1.6 s".
+const secondsOf = (ms) => ((Number(ms) || 0) / 1000).toFixed(1) + ' s';
 function healthOf(quality) {
     switch (String(quality)) {
         case 'excellent':
@@ -425,6 +433,11 @@ export class EasyStreamClient {
         // How the stream plays here (playbackStats()), and the pixel density adaptive stream sizes pictures by in the room
         // joined, which a viewer's chosen quality raises (capQuality).
         this.playback = new PlaybackMonitor((stalled) => this.set({ stalled }));
+        // A viewer's hold on arrivals, by how its connection carries the stream (hold.ts), and this player's account of how
+        // the stream plays, to the cloud (trace.ts), with what its next summary line counts (TRACE_SUMMARY_MS).
+        this.viewerHold = new ViewerHold();
+        this.trace = new StreamTrace((lines) => this.send('trace', { lines }));
+        this.played = { since: 0, freezes: 0, frozenMs: 0, lost: 0, got: 0, stalls: 0, stalledMs: 0, height: 0 };
         // What a host sends, in detail (sendingDetail()).
         this.sending = new SendingReader();
         this.pixelDensity = 1;
@@ -458,6 +471,8 @@ export class EasyStreamClient {
         this.video = options.video ?? true;
         this.state = { ...this.state, canShareScreen: Boolean(options.createLocalScreenTracks) || canShareScreen() };
         this.playback.onTooSlow = () => this.pictureTooSlow();
+        this.playback.onLook = (look) => this.looked(look);
+        this.playback.onNote = (event) => this.traceEvent(event);
     }
     // Something on the page shows the picture now (a player added beside a chat): video comes as it would have.
     wantVideo() {
@@ -504,6 +519,9 @@ export class EasyStreamClient {
     }
     // Leaves everything: media, devices and the chat socket.
     stop() {
+        if (!this.stopped)
+            this.summarize(true);
+        this.trace.stop();
         this.disconnectMedia();
         this.stopLocalTracks();
         this.stopScreenTracks();
@@ -1642,14 +1660,15 @@ export class EasyStreamClient {
         return this.hiddenKept && !this.handheld
             && !!smallest && smallest.height > 0 && Math.min(smallest.width, smallest.height) <= HIDDEN_LOW_SIDE;
     }
-    // A track's jitter buffer at VIEWER_JITTER_BUFFER_MS for a viewer, STAGE_JITTER_BUFFER_MS on stage; a browser
-    // without the setting keeps its own.
+    // A track's jitter buffer: a picture's at the viewer's hold (hold.ts), STAGE_JITTER_BUFFER_MS on stage, and a sound's
+    // at the first hold, which then follows its picture (soundFollowsPicture()); a browser without the setting keeps its
+    // own.
     holdArrivals(track) {
         const receiver = track.receiver;
         if (!receiver || !('jitterBufferTarget' in receiver))
             return;
         try {
-            receiver.jitterBufferTarget = this.ownHold();
+            receiver.jitterBufferTarget = String(track.kind) === 'audio' ? this.baseHold() : this.ownHold();
         }
         catch { }
     }
@@ -1686,8 +1705,111 @@ export class EasyStreamClient {
     encoderOf({ key, path }) {
         return { url: this.options.cloud.replace(/\/$/, '') + path, key };
     }
+    // A viewer off stage, whose hold follows its connection.
+    watchingOnly() {
+        return this.state.you?.role === 'viewer' && !this.state.onStage;
+    }
     ownHold() {
-        return this.state.you?.role === 'viewer' && !this.state.onStage ? VIEWER_JITTER_BUFFER_MS : STAGE_JITTER_BUFFER_MS;
+        return this.watchingOnly() ? this.viewerHold.ms : STAGE_JITTER_BUFFER_MS;
+    }
+    // The least anything is held: a viewer's first hold, or on stage STAGE_JITTER_BUFFER_MS.
+    baseHold() {
+        return this.watchingOnly() ? VIEWER_HOLDS_MS[0] : STAGE_JITTER_BUFFER_MS;
+    }
+    // A look at how the stream plays (playback.ts): counted for the trace's next summary, and for a viewer off stage,
+    // its hold on arrivals following it (hold.ts).
+    looked(look) {
+        this.countPlayed(look);
+        if (!this.watchingOnly())
+            return;
+        const change = this.viewerHold.look(look);
+        if (change)
+            this.holdMoved(change);
+    }
+    // The viewer's hold moved: every picture it receives held as long now, said in the statistics and the trace. The
+    // browser moves a picture's delay a little at a time, and each sound follows its picture's as it goes
+    // (soundFollowsPicture()): set at once, a sound would play up to a second off its picture for the seconds it takes.
+    holdMoved(change) {
+        for (const participant of this.room?.remoteParticipants.values() ?? []) {
+            for (const publication of participant.trackPublications.values()) {
+                if (publication.track && String(publication.kind) === 'video')
+                    this.holdArrivals(publication.track);
+            }
+        }
+        this.playback.note('hold', String(change.to));
+        const why = change.up
+            ? `froze ${change.freezes}x ${secondsOf(change.frozenMs ?? 0)} in ${TROUBLE_WINDOW_MS / 1000} s, ${change.lost} packets lost, ${change.nacks} asked again`
+            : `${Math.round((change.cleanMs ?? 0) / 60000)} min without trouble`;
+        this.trace.add(`hold ${change.from} -> ${change.to} ms: ${why}`);
+    }
+    // What happened, as a line of the trace (trace.ts). The hold's own line says why it moved (holdMoved()), and joining
+    // says nothing the join doesn't.
+    traceEvent(event) {
+        const detail = event.detail ? ' ' + event.detail : '';
+        switch (event.kind) {
+            case 'joining':
+            case 'hold':
+                return;
+            case 'joined': {
+                const server = this.playback.snapshot().server;
+                const node = (server?.node ?? '?') + (server?.region ? ' (' + server.region + ')' : '');
+                this.trace.add(`joined${detail} as ${this.state.you?.role ?? '?'}${this.state.onStage ? ' on stage' : ''}, node ${node}, hold ${this.ownHold()} ms`);
+                return;
+            }
+            case 'first-frame': {
+                const video = this.playback.snapshot().video;
+                this.trace.add(`first picture in ${secondsOf(Number(event.detail))}` + (video ? `, ${video.codec ?? '?'} ${video.height}p` : ''));
+                return;
+            }
+            case 'stalled':
+                this.trace.add('picture stopped');
+                return;
+            case 'resumed':
+                this.trace.add(`picture back after ${secondsOf(Number(event.detail))}`);
+                return;
+            default:
+                this.trace.add(event.kind + detail);
+        }
+    }
+    // A look counted for the trace's summary, which goes every TRACE_SUMMARY_MS.
+    countPlayed(look) {
+        const p = this.played;
+        if (p.since === 0) {
+            const session = this.playback.snapshot().session;
+            this.played = { ...p, since: look.at, stalls: session.stalls, stalledMs: session.stalledMs };
+        }
+        this.played.freezes += look.freezes;
+        this.played.frozenMs += look.frozenMs;
+        this.played.lost += look.lost;
+        this.played.got += look.got;
+        if (look.height > 0)
+            this.played.height = look.height;
+        if (look.at - this.played.since >= TRACE_SUMMARY_MS)
+            this.summarize(false, look.at);
+    }
+    // How the stream played since the last summary, as a line of the trace when anything went wrong in it: freezes,
+    // stops, TRACE_LOSS_PCT or more lost, a viewer's hold above the first. `last`: as the player stops.
+    summarize(last, at = Date.now()) {
+        const p = this.played;
+        if (p.since === 0)
+            return;
+        const stats = this.playback.snapshot();
+        const stalls = stats.session.stalls - p.stalls, stalledMs = stats.session.stalledMs - p.stalledMs;
+        const packets = p.lost + p.got;
+        const lossPct = packets > 0 ? Math.round(p.lost / packets * 1000) / 10 : 0;
+        const held = this.watchingOnly() ? this.viewerHold.ms : 0;
+        if (p.freezes > 0 || stalls > 0 || lossPct >= TRACE_LOSS_PCT || held > VIEWER_HOLDS_MS[0]) {
+            const parts = [
+                p.height > 0 ? p.height + 'p' : null,
+                p.freezes > 0 ? `froze ${p.freezes}x ${secondsOf(p.frozenMs)}` : null,
+                stalls > 0 ? `stopped ${stalls}x ${secondsOf(stalledMs)}` : null,
+                `lost ${lossPct}% (${p.lost} of ${packets})`,
+                held > 0 ? `hold ${held} ms` : null,
+                stats.transport?.rttMs ? `round trip ${stats.transport.rttMs} ms` : null
+            ].filter(Boolean);
+            this.trace.add(`${last ? 'played until now' : 'played'} ${((at - p.since) / 60000).toFixed(1)} min: ${parts.join(', ')}`);
+        }
+        this.played = { since: last ? 0 : at, freezes: 0, frozenMs: 0, lost: 0, got: 0, stalls: stats.session.stalls, stalledMs: stats.session.stalledMs, height: p.height };
     }
     // Sound follows picture in this room while it is the one joined (SYNC_TICK_MS).
     followPictures(room) {
@@ -1709,12 +1831,12 @@ export class EasyStreamClient {
         this.syncTimer = null;
     }
     // Each person's sound held as long as the longest of their pictures, less SYNC_SLACK_MS, and never less than this
-    // client's own hold: a person showing nothing, or a browser that can't tell, has their sound held as before.
+    // client's first hold: a person showing nothing, or a browser that can't tell, has their sound held as before.
     async soundFollowsPicture(room) {
         const lk = this.lk;
         if (!lk)
             return;
-        const own = this.ownHold();
+        const own = this.baseHold();
         for (const participant of room.remoteParticipants.values()) {
             let picture = 0;
             const sounds = [];
@@ -2150,17 +2272,15 @@ export class EasyStreamClient {
         // then the server's, as a group call's goes
         const node = roomSettings(room);
         const screenPolicy = node?.has('screen.codecs') ? { screen: node.get('screen.codecs') } : STREAM_SCREEN_POLICY;
-        return {
-            camera: camera.codec,
-            screen: screenCodecFor(agent, hardwareFromCaps(caps), { ...options, policy: screenPolicy }),
-            backup: camera.backup,
-            height: camera.height ?? 0
-        };
+        const screen = screenCodecFor(agent, hardwareFromCaps(caps), { ...options, policy: screenPolicy });
+        const source = camera.source ?? 'rule';
+        this.trace.add(`codecs: camera ${camera.codec}${camera.hardware ? ' hardware' : ''} by ${source}${camera.height ? ' at ' + camera.height + 'p' : ''}, screen ${screen}`);
+        return { camera: camera.codec, screen, backup: camera.backup, height: camera.height ?? 0 };
     }
-    // The camera's codec as the stream goes live ("When starting the stream, the streamer connecting to the server and
-    // testing the performance of H264"): measured by the calls' camera check (calls/camera-check.ts: a clone of the
-    // camera through the browser's real encoder, in a loopback inside the page) where the node checks cameras (its codec
-    // policy's `check`), on the machines its camera rules name, in the stream's order (streamCameraPolicy()). Each verdict
+    // The camera's codec as the stream goes live, H.264 first: measured by the calls' camera check (calls/camera-check.ts:
+    // a clone of the camera through the browser's real encoder, in a loopback inside the page) where the node checks
+    // cameras (its codec policy's `check`), on the machines its camera rules name, in the stream's order
+    // (streamCameraPolicy()). Each verdict
     // is this browser's record for a while, so a later Go live reads it instead of measuring. What it found goes to the
     // mesh with the camera, as a call's does. A camera measured able only at fewer lines than it gives (VP9 at 720, H.264
     // in software) is brought down to them before it goes out, the lines it then has the choice's `height`; any other

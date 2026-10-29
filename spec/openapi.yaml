@@ -110,7 +110,8 @@ paths:
         Sends up to 100 events in one request, each as Send an event takes it. The answer
         has the kept ids of each, in their order.
 
-        In the packages: `realtime.batch( events )`.
+        The packages send each event of `realtime.batch( events )` as its own request instead, so their batch has no
+        limit of 100.
       requestBody:
         required: true
         content:
@@ -274,7 +275,7 @@ paths:
                           properties:
                             id: { type: string, description: The user id. }
                             info: { description: 'What your token said of them: a value, or a sealed string.' }
-                      next: { type: string, description: 'Present when there are more than 1,000.' }
+                      next: { type: string, description: 'Present when there are more than 1,000. No route takes it back: a page reads on from its own members as people join and leave.' }
               example: { ok: true, count: 2, connections: 3, members: { count: 2, list: [ { id: '34', info: 'ch:chat:34:42:1:1.AQEB…' }, { id: '42', info: 'ch:chat:34:42:1:1.AgIC…' } ] } }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -939,7 +940,7 @@ paths:
               required: [ text, name ]
               properties:
                 text: { type: string, maxLength: 500 }
-                name: { type: string, maxLength: 64 }
+                name: { type: string, description: 'Cut to its first 64 characters.' }
                 avatar: { type: string, format: uri, description: 'An https address.' }
             example: { text: 'Free shipping until midnight', name: 'Mug Shop' }
       responses:
@@ -2488,7 +2489,8 @@ components:
         - `room.occupied`, `room.vacated`: `room`. The first one in, the last one out.
         - `member.joined`, `member.left`: `room`, `user`. In a presence room.
         - `user.online`, `user.offline`: `user`.
-        - `stream.live`, `stream.ended`: `stream`, `started_at`, `ended_at` (milliseconds).
+        - `stream.live`, `stream.ended`: `stream`, `started_at`, `ended_at` (milliseconds). `stream.ended` also has
+          `peak`, the most who watched at once, and `viewer_seconds`, the seconds watched by everyone together.
         - `call.ended`: `call`, `call_id`, `from`, `to`, `media`, `started_at`, `answered_at`, `ended_at`, `seconds`, `reason`.
           A call between two people ended, `seconds` the time talked from the answer, 0 for one never answered.
         - `group.joined`, `group.left`: `call`, `user`, `media`, `joined_at`, and on leaving `left_at` and `seconds`.
@@ -2509,6 +2511,8 @@ components:
         stream: { type: string }
         started_at: { type: [ integer, 'null' ] }
         ended_at: { type: [ integer, 'null' ] }
+        peak: { type: integer, description: 'In `stream.ended`: the most who watched at once.' }
+        viewer_seconds: { type: integer, description: 'In `stream.ended`: the seconds watched by everyone together.' }
         call: { type: string, description: The name of the call, as your rules gave it. }
         call_id: { type: string }
         media: { type: [ string, 'null' ], enum: [ audio, video, null ] }

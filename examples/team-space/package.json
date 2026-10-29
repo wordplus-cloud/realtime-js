@@ -11,8 +11,8 @@
     "seed": "node --env-file=.env.local db/seed.mjs"
   },
   "dependencies": {
-    "@wordplus/realtime": "^1.0.1",
-    "@wordplus/realtime-ui": "^1.0.1",
+    "@wordplus/realtime": "^1.1.0",
+    "@wordplus/realtime-ui": "^1.1.0",
     "better-auth": "1.7.11",
     "next": "16.4.2",
     "pg": "8.23.1",

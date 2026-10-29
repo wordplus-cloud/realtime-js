@@ -14,17 +14,28 @@ Who may do what is decided by your server, in rules it declares by name pattern:
 
 ## Rooms
 
+A chat of two is named after its two people, `chat:34:42`, and the page of a product after the product, `product:7`. A page that joins one asks your server, and these rules answer:
+
+1. **The two people** in the name of a chat join it, and send messages, typing and read ticks.
+2. **A supervisor** reads along in any chat, and sends nothing.
+3. **Everyone else** stays out of the chat.
+4. **The page of a product** lets in anyone, signed in or not, with a live count of who is looking. It has no rule to run.
+
 **Node**
 
 ```ts
-// The chat of two people: both of them in it, and a supervisor who may read along but send nothing.
-realtime.room( 'chat:{a}:{b}', { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] },
-    async ( user, { a, b } ) => {
-        if ( [ a, b ].includes( String( user ) ) ) return true;
-        return ( await isSupervisor( user ) ) ? { readOnly: true } : false;
-    } );
+realtime.room( 'chat:{a}:{b}', { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] }, async ( user, { a, b } ) => {
+    // 1. The two people in the name.
+    if ( [ a, b ].includes( String( user ) ) ) return true;
 
-// A product page: anyone, signed in or not, and a live count of who is looking.
+    // 2. A supervisor reads along, and sends nothing.
+    if ( await isSupervisor( user ) ) return { readOnly: true };
+
+    // 3. Everyone else stays out.
+    return false;
+} );
+
+// 4. The page of a product: anyone, signed in or not, and a live count. No rule to run.
 realtime.room( 'product:{id}', { public: true, count: true } );
 ```
 
@@ -32,13 +43,21 @@ realtime.room( 'product:{id}', { public: true, count: true } );
 
 ```php
 $realtime->room( 'chat:{a}:{b}', function ( $user, array $p ) {
+    // 1. The two people in the name.
     if ( in_array( (string) $user, [ $p['a'], $p['b'] ], true ) ) {
         return true;
     }
 
-    return is_supervisor( $user ) ? [ 'readOnly' => true ] : false;
+    // 2. A supervisor reads along, and sends nothing.
+    if ( is_supervisor( $user ) ) {
+        return [ 'readOnly' => true ];
+    }
+
+    // 3. Everyone else stays out.
+    return false;
 }, [ 'presence' => true, 'history' => 50, 'emit' => [ 'message', 'typing', 'read' ], 'webhook' => [ 'message' ] ] );
 
+// 4. The page of a product: anyone, signed in or not, and a live count. No rule to run.
 $realtime->room( 'product:{id}', null, [ 'public' => true, 'count' => true ] );
 ```
 
@@ -46,11 +65,20 @@ $realtime->room( 'product:{id}', null, [ 'public' => true, 'count' => true ] );
 
 ```python
 def may_read_chat(user, p):
+    # 1. The two people in the name.
     if str(user) in (p["a"], p["b"]):
         return True
-    return {"readOnly": True} if is_supervisor(user) else False
+
+    # 2. A supervisor reads along, and sends nothing.
+    if is_supervisor(user):
+        return {"readOnly": True}
+
+    # 3. Everyone else stays out.
+    return False
 
 realtime.room("chat:{a}:{b}", may_read_chat, presence=True, history=50, emit=["message", "typing", "read"], webhook=["message"])
+
+# 4. The page of a product: anyone, signed in or not, and a live count. No rule to run.
 realtime.room("product:{id}", public=True, count=True)
 ```
 
@@ -84,34 +112,76 @@ What the room itself allows, the same for everyone in it ([rooms](rooms.md#what-
 
 ## Calls between two people
 
+A call between two people is named after them too, with their ids: `support:34:42` for a customer, 42, and the agent helping them, 34. When one calls the other, the page asks your server, and this rule answers, once for the one calling and again for the one who answers. How a call then starts, runs and ends: [how calls and live streams work](use-cases/how-it-works.md). The rule says:
+
+1. **Only the two people** in the name are in the call.
+2. **One of the two is staff:** a customer may call an agent, and an agent anyone.
+3. **Add Person** offers an agent the other agents, and a customer nobody.
+
 **Node**
 
 ```ts
-// A customer may call an agent, and an agent anyone. Add Person offers the other agents.
 realtime.calls( 'support:{a}:{b}', async ( user, withUser, { a, b } ) => {
-    // The two ids in the name, as text: user 42 is "42" there, user_2abc itself.
+    // 1. The two in the name, as text: user 42 is "42" there, user_2abc itself.
     const pair = [ a, b ];
-    return pair.includes( String( user ) ) && pair.includes( String( withUser ) ) && ( isStaff( user ) || isStaff( withUser ) );
-}, { people: async ( user ) => ( isStaff( user ) ? await staffIds() : [] ) } );
+    if ( ! pair.includes( String( user ) ) ) return false;
+    if ( ! pair.includes( String( withUser ) ) ) return false;
+
+    // 2. One of the two is staff.
+    if ( await isStaff( user ) ) return true;
+    return isStaff( withUser );
+}, {
+    // 3. Whom Add Person offers: the other agents, to an agent.
+    people: async ( user ) => ( ( await isStaff( user ) ) ? await staffIds() : [] ),
+} );
 ```
 
 **PHP**
 
 ```php
 $realtime->calls( 'support:{a}:{b}', function ( $user, $with, array $p ) {
-    $pair = [ $p['a'], $p['b'] ]; // the two ids in the name, as text
-    return in_array( (string) $user, $pair, true ) && in_array( (string) $with, $pair, true ) && ( is_staff( $user ) || is_staff( $with ) );
-}, [ 'people' => fn ( $user ) => is_staff( $user ) ? staff_ids() : [] ] );
+    // 1. The two in the name, as text.
+    $pair = [ $p['a'], $p['b'] ];
+    if ( ! in_array( (string) $user, $pair, true ) ) {
+        return false;
+    }
+    if ( ! in_array( (string) $with, $pair, true ) ) {
+        return false;
+    }
+
+    // 2. One of the two is staff.
+    if ( is_staff( $user ) ) {
+        return true;
+    }
+
+    return is_staff( $with );
+}, [
+    // 3. Whom Add Person offers: the other agents, to an agent.
+    'people' => fn ( $user ) => is_staff( $user ) ? staff_ids() : [],
+] );
 ```
 
 **Python**
 
 ```python
 def may_call_support(user, with_user, p):
-    pair = [p["a"], p["b"]]  # the two ids in the name, as text
-    return str(user) in pair and str(with_user) in pair and (is_staff(user) or is_staff(with_user))
+    # 1. The two in the name, as text.
+    pair = [p["a"], p["b"]]
+    if str(user) not in pair:
+        return False
+    if str(with_user) not in pair:
+        return False
 
-realtime.calls("support:{a}:{b}", may_call_support, people=lambda user, call: staff_ids() if is_staff(user) else [])
+    # 2. One of the two is staff.
+    if is_staff(user):
+        return True
+    return is_staff(with_user)
+
+# 3. Whom Add Person offers: the other agents, to an agent.
+def people_to_add(user, call):
+    return staff_ids() if is_staff(user) else []
+
+realtime.calls("support:{a}:{b}", may_call_support, people=people_to_add)
 ```
 
 - **Asked twice:** when `user` calls `withUser`, and again when the one called answers, with them as `user`. Each side has to be let in. The fifth argument, `side.role`, says which side asks (`caller` or `callee`), so a rule may let someone answer calls they may not place.
@@ -122,14 +192,30 @@ realtime.calls("support:{a}:{b}", may_call_support, people=lambda user, call: st
 
 ## Group calls
 
+A group call is named after where people meet: `class:7` for the office hours of class 7. Each person who joins asks your server, and this rule answers:
+
+1. **The teacher** speaks, and hosts the call: mutes, lets speak, removes.
+2. **An observer** watches and listens, and is listed to nobody.
+3. **A student** watches and listens.
+4. **Everyone else** stays out.
+
+And the media of these calls is encrypted end to end (`encrypt`, below the table).
+
 **Node**
 
 ```ts
-// Office hours: the teacher hosts the room, the students watch and listen, an observer is listed to nobody.
 realtime.groupCalls( 'class:{id}', async ( user, { id } ) => {
-    if ( await isTeacherOf( id, user ) ) return { admin: true };   // speaks, and hosts: mutes, lets speak, removes
+    // 1. The teacher speaks, and hosts.
+    if ( await isTeacherOf( id, user ) ) return { admin: true };
+
+    // 2. An observer watches and listens, listed to nobody.
     if ( await isObserverOf( id, user ) ) return { publish: false, hidden: true };
-    return ( await isStudentOf( id, user ) ) ? { publish: false } : false;
+
+    // 3. A student watches and listens.
+    if ( await isStudentOf( id, user ) ) return { publish: false };
+
+    // 4. Everyone else stays out.
+    return false;
 }, { encrypt: true } );
 ```
 
@@ -137,11 +223,23 @@ realtime.groupCalls( 'class:{id}', async ( user, { id } ) => {
 
 ```php
 $realtime->groupCalls( 'class:{id}', function ( $user, array $p ) {
+    // 1. The teacher speaks, and hosts.
     if ( is_teacher_of( $p['id'], $user ) ) {
-        return [ 'admin' => true ]; // speaks, and hosts: mutes, lets speak, removes
+        return [ 'admin' => true ];
     }
 
-    return is_student_of( $p['id'], $user ) ? [ 'publish' => false ] : false;
+    // 2. An observer watches and listens, listed to nobody.
+    if ( is_observer_of( $p['id'], $user ) ) {
+        return [ 'publish' => false, 'hidden' => true ];
+    }
+
+    // 3. A student watches and listens.
+    if ( is_student_of( $p['id'], $user ) ) {
+        return [ 'publish' => false ];
+    }
+
+    // 4. Everyone else stays out.
+    return false;
 }, [ 'encrypt' => true ] );
 ```
 
@@ -149,9 +247,20 @@ $realtime->groupCalls( 'class:{id}', function ( $user, array $p ) {
 
 ```python
 def may_join_class(user, p):
+    # 1. The teacher speaks, and hosts.
     if is_teacher_of(p["id"], user):
-        return {"admin": True}  # speaks, and hosts: mutes, lets speak, removes
-    return {"publish": False} if is_student_of(p["id"], user) else False
+        return {"admin": True}
+
+    # 2. An observer watches and listens, listed to nobody.
+    if is_observer_of(p["id"], user):
+        return {"publish": False, "hidden": True}
+
+    # 3. A student watches and listens.
+    if is_student_of(p["id"], user):
+        return {"publish": False}
+
+    # 4. Everyone else stays out.
+    return False
 
 realtime.group_calls("class:{id}", may_join_class, encrypt=True)
 ```
@@ -164,21 +273,40 @@ realtime.group_calls("class:{id}", may_join_class, encrypt=True)
 | `admin` | `false` | hosts the call: the call screen gives them mute, let speak or make a listener, and remove on the tiles of the others |
 | `hidden` | `false` | is not listed to the others |
 
-**A host's controls** are those of Better Messages, on the tile of each of the others: Mute Microphone, Block Broadcast (to listening), Allow Broadcast (to speaking) and Kick User. Each goes to your calls route, which asks this rule again for whoever clicked and acts only for a host, through `realtime.call( name ).mute()`, `.permit()` or `.remove()`: nothing to add on your server. A microphone muted stays the person's own to turn on again. Your own buttons, or a page without the call screen, call those from routes of yours ([from your server](calls.md#from-your-server)), or `group.moderate( act, user )` in the page, which goes the same way. Your server changes `publish` and `subscribe` while the call runs, with `realtime.call( name ).permit( user, { publish } )`: a listener made a speaker, or a speaker back to listening ([speakers and listeners](calls.md#speakers-and-listeners)).
+**A host's controls** are those of Better Messages, behind Manage Participant on the tile of each of the others: Mute Microphone, Stop Camera & Mic (to listening) and Allow Camera & Mic (to speaking) in a video call, Demote to Viewer and Promote to Speaker in an audio call, and Remove from Call. Each goes to your calls route, which asks this rule again for whoever clicked and acts only for a host, through `realtime.call( name ).mute()`, `.permit()` or `.remove()`: nothing to add on your server. A microphone muted stays the person's own to turn on again. Your own buttons, or a page without the call screen, call those from routes of yours ([from your server](calls.md#from-your-server)), or `group.moderate( act, user )` in the page, which goes the same way. Your server changes `publish` and `subscribe` while the call runs, with `realtime.call( name ).permit( user, { publish } )`: a listener made a speaker, or a speaker back to listening ([speakers and listeners](calls.md#speakers-and-listeners)).
 
 `encrypt: true` encrypts the media of these group calls end to end, with keys your server makes: the media servers forward what they cannot read. The group calls that come from a call between two people always are.
 
 ## Live streams
 
+A live stream is named after its show: `show:7` for the show of shop 7. Each person who opens it asks your server, and this rule answers:
+
+1. **A visitor** who is not signed in watches.
+2. **The owner of the shop** hosts, with camera, microphone and screen, up to 1080p.
+3. **Its staff** watch and keep the chat.
+4. **Its customers** watch and write in the chat.
+5. **Everyone else** watches and reads the chat.
+
+And the settings of the stream: it takes reactions, those who keep the chat see who is watching, its chat is closed while it is not live, and only those who keep the chat may post links.
+
 **Node**
 
 ```ts
-// The show of a shop: its owner hosts, staff keep the chat, customers write, and visitors watch and read.
 realtime.streams( 'show:{shop}', async ( user, { shop } ) => {
+    // 1. A visitor watches.
     if ( user === null ) return 'viewer';
+
+    // 2. The owner hosts.
     if ( await isOwnerOf( shop, user ) ) return { role: 'host', src: [ 'camera', 'microphone', 'screen' ], quality: '1080p' };
+
+    // 3. Staff watch and keep the chat.
     if ( await isStaffOf( shop, user ) ) return { role: 'viewer', mod: true };
-    return ( await isCustomerOf( shop, user ) ) ? 'viewer' : { role: 'viewer', chat: 'read' };
+
+    // 4. Customers watch and write.
+    if ( await isCustomerOf( shop, user ) ) return 'viewer';
+
+    // 5. Everyone else watches and reads.
+    return { role: 'viewer', chat: 'read' };
 }, { reactions: true, people: 'mods', chat: { offline: 'closed', links: false } } );
 ```
 
@@ -186,14 +314,28 @@ realtime.streams( 'show:{shop}', async ( user, { shop } ) => {
 
 ```php
 $realtime->streams( 'show:{shop}', function ( $user, array $p ) {
+    // 1. A visitor watches.
     if ( null === $user ) {
         return 'viewer';
     }
+
+    // 2. The owner hosts.
     if ( is_owner_of( $p['shop'], $user ) ) {
         return [ 'role' => 'host', 'src' => [ 'camera', 'microphone', 'screen' ], 'quality' => '1080p' ];
     }
 
-    return is_staff_of( $p['shop'], $user ) ? [ 'role' => 'viewer', 'mod' => true ] : 'viewer';
+    // 3. Staff watch and keep the chat.
+    if ( is_staff_of( $p['shop'], $user ) ) {
+        return [ 'role' => 'viewer', 'mod' => true ];
+    }
+
+    // 4. Customers watch and write.
+    if ( is_customer_of( $p['shop'], $user ) ) {
+        return 'viewer';
+    }
+
+    // 5. Everyone else watches and reads.
+    return [ 'role' => 'viewer', 'chat' => 'read' ];
 }, [ 'reactions' => true, 'people' => 'mods', 'chat' => [ 'offline' => 'closed', 'links' => false ] ] );
 ```
 
@@ -201,11 +343,24 @@ $realtime->streams( 'show:{shop}', function ( $user, array $p ) {
 
 ```python
 def show_role(user, p):
+    # 1. A visitor watches.
     if user is None:
         return "viewer"
+
+    # 2. The owner hosts.
     if is_owner_of(p["shop"], user):
         return {"role": "host", "src": ["camera", "microphone", "screen"], "quality": "1080p"}
-    return {"role": "viewer", "mod": True} if is_staff_of(p["shop"], user) else "viewer"
+
+    # 3. Staff watch and keep the chat.
+    if is_staff_of(p["shop"], user):
+        return {"role": "viewer", "mod": True}
+
+    # 4. Customers watch and write.
+    if is_customer_of(p["shop"], user):
+        return "viewer"
+
+    # 5. Everyone else watches and reads.
+    return {"role": "viewer", "chat": "read"}
 
 realtime.streams("show:{shop}", show_role, reactions=True, people="mods", chat={"offline": "closed", "links": False})
 ```

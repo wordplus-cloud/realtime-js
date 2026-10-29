@@ -15,6 +15,8 @@ export declare class Keyring {
     private readonly keys;
     private readonly listeners;
     private resolver;
+    /** The connections open on the page (rooms.ts, lend()), the newest last, each with its own way to ask or none. */
+    private readonly holders;
     private readonly inFlight;
     private readonly refused;
     private batch;
@@ -49,6 +51,16 @@ export declare class Keyring {
     /** How a context asks for keys it misses: the site's route from a page, a tab from a worker. */
     setResolver(resolver: KeyResolver | null): void;
     hasResolver(): boolean;
+    /**
+     * A connection holding the keyring while it is open (rooms.ts), with its way to ask the site for keys, its own
+     * credentials with it: the newest open one asks, unless a plugin set its own (setResolver()), which is asked first.
+     * Returns its release. Once the last connection releases and no plugin asks its own way, every key goes, so a user
+     * who signs out of a page that stays open (an app of one page) leaves none of theirs, nor their way to ask, to
+     * whoever signs in next.
+     */
+    lend(ask: KeyResolver | null): () => void;
+    /** Who asks for a missing key: the plugin's own way, else the newest open connection's. */
+    private asker;
     /**
      * Makes sure the keyring holds these keys, asking the resolver once for those it doesn't. Labels asked for in
      * the same moment go in one request, one already asked for waits for that request, and one asked for in vain

@@ -28,7 +28,7 @@ A timestamp in the test values is in the past: check a signature against them, b
 
 ## `stream-grants.json`
 
-With its `secret`, for each case: its `claims`, with `"aud": "easy-stream"` put in its place, in the order [your server routes](routes.md#live-streams) gives, must sign to its `token` exactly. Serialize as JSON does with no spaces, keep every character as it is (no escaping of `<`, `>`, `&` or of letters past ASCII), and leave out what is not set.
+With its `secret`, for each case: its `claims`, with `"aud": "easy-stream"` put in its place, in the order [your server routes](routes.md#live-streams) gives, must sign to its `token` exactly under the key `easy-stream grant v1`. A server that signs with `live-stream grant v1` and `live-stream` puts its claims in the same order. Serialize as JSON does with no spaces, keep every character as it is (no escaping of `<`, `>`, `&` or of letters past ASCII), and leave out what is not set.
 
 ## Running them
 

@@ -2,6 +2,8 @@
 
 A document, a board or a design several people work on at once: who is in it, where each cursor is, and every change reaching the others as it is made. Cursors go as volatile events, dropped rather than queued and never kept, while changes are kept for a page that reconnects. Changes may be binary, the way editors that merge changes on their own (CRDTs) send them.
 
+**In your stack:** [Next.js](../nextjs/events.md) · [Express](../express/events.md) · [Laravel](https://docs.wordplus.cloud/laravel/events/) · [PHP](https://docs.wordplus.cloud/php/events/) · [Django](https://docs.wordplus.cloud/django/events/) · [FastAPI](https://docs.wordplus.cloud/fastapi/events/) · [Flask](https://docs.wordplus.cloud/flask/events/) · [WordPress](https://docs.wordplus.cloud/wordpress/events/)
+
 ## The room
 
 A room for each document, named after it: `doc:7`. Everyone editing joins it, sees who else is in it, and sends their cursor and their changes to the others.
@@ -53,7 +55,11 @@ realtime.room(
 
 ```php
 wordplus_realtime()->room( 'doc:{id}', function ( $user_id, array $p ) {
-	return $user_id > 0 && user_can( $user_id, 'edit_post', (int) $p['id'] );   // those who may edit the post
+	if ( $user_id <= 0 ) {
+		return false;
+	}
+
+	return user_can( $user_id, 'edit_post', (int) $p['id'] );   // those who may edit the post
 }, array(
 	'presence' => true,                          // 1. who is in it
 	'history'  => 100,                           // 2. the last 100 changes, for a page that reconnects
@@ -64,6 +70,8 @@ wordplus_realtime()->room( 'doc:{id}', function ( $user_id, array $p ) {
 A reader who may look but not edit: the rule answers `{ emit: [ 'cursor' ] }` for them, or `{ readOnly: true }` to send nothing.
 
 ## The page
+
+**Browser**
 
 ```js
 const doc = rt.join( 'doc:7' );
@@ -82,6 +90,31 @@ editor.onchange = ( change ) => doc.emit( 'update', { bytes: encode( change ) } 
 doc.on( 'update', ( { bytes }, meta ) => apply( decode( bytes ) ) );
 ```
 
+**React**
+
+```tsx
+import { useRoom } from '@wordplus/realtime/react';
+
+export function Document() {
+    // Who is in it, with your profile name and picture: doc.members, kept current.
+    const doc = useRoom( 'doc:7', {
+        // Cursors: as they move, never queued or kept.
+        cursor: ( { x, y }, meta ) => moveCursorOf( meta.from, x, y ),
+        // Changes: binary, checked and kept.
+        update: ( { bytes } ) => apply( decode( bytes ) ),
+    } );
+
+    return (
+        <div onPointerMove={ ( e ) => doc.room?.volatile.emit( 'cursor', { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY } ) }>
+            <Editors people={ doc.members } />
+            <Editor onChange={ ( change ) => doc.emit( 'update', { bytes: encode( change ) } ) } />
+        </div>
+    );
+}
+```
+
+`Editors` and `Editor` are yours: who is in it, and your editor.
+
 - **Binary** may be anywhere in the data: an `ArrayBuffer`, a `Uint8Array` or a `Blob`. It arrives as a `Uint8Array`, sealed like the rest.
 - **Volatile events** suit anything only its latest value matters for: cursors, selections, who is scrolling where. Up to 50 events a second a connection.
 - **A page back from a reconnect** gets the changes it missed, in order, from the history of the room, then the new ones. One that opens later loads the document from your server, which saves the changes it gets by [webhook](../sending.md#webhooks) (`webhook: [ 'update' ]`).
@@ -94,25 +127,40 @@ Name the changes in the webhook of the room, and your server applies them to the
 **Node**
 
 ```ts
+// The rule above, with the changes sent to your server too.
 realtime.room( 'doc:{id}', { presence: true, history: 100, emit: [ 'cursor', 'update' ], webhook: [ 'update' ] }, mayEditRule );
+
+// Each change, applied once by its event_id to the copy your server keeps.
 realtime.on( 'update', async ( { room, data, event_id } ) => saveChange( room.slice( 'doc:'.length ), event_id, data.bytes ) );
 ```
 
 **PHP**
 
 ```php
+// The rule above, with the changes sent to your server too.
+$realtime->room( 'doc:{id}', 'may_edit_rule', [ 'presence' => true, 'history' => 100, 'emit' => [ 'cursor', 'update' ], 'webhook' => [ 'update' ] ] );
+
+// Each change, applied once by its event_id to the copy your server keeps.
 $realtime->on( 'update', fn ( array $e ) => save_change( substr( $e['room'], 4 ), $e['event_id'], $e['data']['bytes'] ) );
 ```
 
 **Python**
 
 ```python
+# The rule above, with the changes sent to your server too.
+realtime.room("doc:{id}", may_join_doc, presence=True, history=100, emit=["cursor", "update"], webhook=["update"])
+
+# Each change, applied once by its event_id to the copy your server keeps.
 realtime.on("update", lambda e: save_change(e["room"][4:], e["event_id"], e["data"]["bytes"]))
 ```
 
 **WordPress**
 
 ```php
+// The rule above, with the changes sent to your server too.
+wordplus_realtime()->room( 'doc:{id}', 'my_may_edit_rule', array( 'presence' => true, 'history' => 100, 'emit' => array( 'cursor', 'update' ), 'webhook' => array( 'update' ) ) );
+
+// Each change, applied once by its event_id to the copy your server keeps.
 wordplus_realtime()->on( 'update', function ( array $e ) {
 	my_save_change( (int) substr( $e['room'], 4 ), $e['event_id'], $e['data']['bytes'] );   // a string of the bytes
 } );

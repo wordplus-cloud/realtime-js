@@ -77,7 +77,7 @@ export interface RemoteOptions {
 export declare class RemoteConnector implements ConnectorApi {
     private readonly port;
     private readonly options;
-    readonly version = "1.0.57";
+    readonly version = "1.0.63";
     /** The worker's copy, once it answered. */
     hostVersion: string | null;
     private readonly links;

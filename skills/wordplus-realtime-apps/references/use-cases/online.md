@@ -4,6 +4,8 @@ Three things people see of each other: a dot on every avatar of someone online a
 
 ![The browsers of Ann, Ben and Cara, each listing the three of them in the shop now, with their roles from the info of each member](https://docs.wordplus.cloud/img/apps/presence-shop.webp)
 
+**In your stack:** [Next.js](../nextjs/presence.md) · [Express](../express/presence.md) · [Laravel](https://docs.wordplus.cloud/laravel/presence/) · [PHP](https://docs.wordplus.cloud/php/presence/) · [Django](https://docs.wordplus.cloud/django/presence/) · [FastAPI](https://docs.wordplus.cloud/fastapi/presence/) · [Flask](https://docs.wordplus.cloud/flask/presence/) · [WordPress](https://docs.wordplus.cloud/wordpress/presence/)
+
 ## Online anywhere
 
 Every page whose user your server vouched for makes that user online, and they go offline 10 seconds after their last tab or app closes, so a reload does not flicker. A user who chose to hide their status stays hidden:
@@ -36,12 +38,30 @@ add_filter( 'wordplus_realtime_hidden', function ( $hidden, $user_id ) {
 
 The page watches the people it shows:
 
+**Browser**
+
 ```js
 rt.online.watch( [ 34, 43 ] ).on( 'change', ( { id, online, at } ) => dot( id, online, at ) );   // now, then every change
 rt.online.on( 'count', ( n ) => ( onlineNow.textContent = n + ' online' ) );
 ```
 
-In React, `const { online, lastSeen } = useOnline( [ 34, 43 ] )`.
+**React**
+
+```tsx
+import { useOnline } from '@wordplus/realtime/react';
+
+export function People() {
+    const { online, lastSeen, count } = useOnline( [ 34, 43 ], { count: true } );   // now, then every change
+
+    return (
+        <>
+            <p>{ count ?? 0 } online</p>
+            <Avatar id={ 34 } online={ online[ 34 ] } lastSeen={ lastSeen[ 34 ] } />
+            <Avatar id={ 43 } online={ online[ 43 ] } lastSeen={ lastSeen[ 43 ] } />
+        </>
+    );
+}
+```
 
 ## Who is in a room
 
@@ -110,6 +130,8 @@ wordplus_realtime()->room( 'shop', function ( $user_id ) {
 
 The page draws the list and follows it:
 
+**Browser**
+
 ```js
 const shop = rt.join( 'shop' );
 shop.on( 'joined', () => drawAll( [ ...shop.members ] ) );   // [ [ id, info ], … ]
@@ -117,7 +139,26 @@ shop.on( 'join', ( { id, info } ) => add( id, info ) );
 shop.on( 'leave', ( { id } ) => remove( id ) );
 ```
 
-Ready-made, with a call button on each row: `<online-list room="shop" call="support:{pair}" type="video"></online-list>`. In React, `usePresence( 'shop' )`, or `<OnlineList rt={ rt } room="shop" call="support:{pair}" />` of `@wordplus/realtime-ui/react`.
+**React**
+
+```tsx
+import { usePresence } from '@wordplus/realtime/react';
+
+export function InTheShop() {
+    const people = usePresence( 'shop' );   // [ { id, info } ], kept current
+
+    return (
+        <ul>
+            { people.map( ( member ) => {
+                const { name, role } = member.info as { name: string; role: string };
+                return <li key={ member.id }>{ name }, { role }</li>;
+            } ) }
+        </ul>
+    );
+}
+```
+
+Ready-made, with a call button on each row: `<online-list room="shop" call="support:{pair}" type="video"></online-list>`, `<OnlineList room="shop" call="support:{pair}" type="video" />` in React, or the one of `@wordplus/realtime-ui/react`, drawn in your own tree. `{pair}` is the two ids, the smaller first, and ids of text in text order.
 
 - **A user with several tabs or devices** is one member: they leave when the last one closes.
 - **Up to 1,000 members** are listed in full. Past that, the room counts them, and `members()` pages through them.
@@ -151,15 +192,33 @@ realtime.room("product:{id}", public=True, count=True)
 wordplus_realtime()->room( 'product:{id}', null, array( 'public' => true, 'count' => true ) );
 ```
 
+The page shows the count:
+
+**Browser**
+
 ```js
 const product = rt.join( 'product:42' );
 product.on( 'count', ( n ) => ( looking.textContent = n > 1 ? n + ' people are looking at this' : '' ) );
 ```
 
-Ready-made: `<online-count room="product:42"></online-count>`. Your server asks too, with `realtime.in( 'product:42' ).count()`.
+**React**
+
+```tsx
+import { useRoom } from '@wordplus/realtime/react';
+
+export function Looking() {
+    const { count } = useRoom( 'product:42' );   // how many are in it, never who
+
+    return count !== null && count > 1 ? <p>{ count } people are looking at this</p> : null;
+}
+```
+
+Ready-made: `<online-count room="product:42"></online-count>`, `<OnlineCount room="product:42" />` in React. Your server asks too, with `realtime.in( 'product:42' ).count()`.
 
 ## Variations
 
 - **Who is looking at a profile,** for its owner: a presence room per profile whose rule lets in any signed-in user, and a `join` that shows them.
 - **Agents on duty for support:** a presence room the agents join while they work, read by the page that offers a call ([calls from a button](support-calls.md)).
 - **A list of online friends:** `rt.online.watch( friendIds )`, up to 1,000 users a connection.
+- **On phones:** the iOS and Android apps show the same people online and in the same rooms ([iOS](https://docs.wordplus.cloud/ios/presence/), [Android](https://docs.wordplus.cloud/android/presence/)), and so do React Native and Capacitor apps ([mobile apps](../mobile/presence.md)).
+- **A whole site, in Next.js:** who is online on a dating site ([dating site](../nextjs/dating-site.md#who-is-online)) and in a team intranet ([team intranet](../nextjs/team-intranet.md#who-is-online)), and how many others look at an item now ([marketplace](../nextjs/marketplace.md#looking-at-it-now)).

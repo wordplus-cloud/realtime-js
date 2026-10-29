@@ -192,28 +192,37 @@ Encrypted end to end, its answer adds `media_key`: base64url `HMAC-SHA256( local
 
 ## Live streams
 
-`POST {base}/calls` with `{ "stream": "show:mugs" }`: run your streams rule, then answer `{ "token", "exp" }` with a stream grant, or `{ "denied": "forbidden" }`.
+`POST {base}/calls` with `{ "stream": "show:mugs" }`: run your streams rule, then answer `{ "token", "exp" }` with a stream grant, or `{ "denied": code }`: `bad_request` (not a stream name: up to 128 of `A-Z a-z 0-9 - = @ , . ; :`, no underscore), `forbidden` (your rule said no, or no rule for the name), `no_user` (a visitor given more than the place of a viewer, or a user id a stream does not take).
 
-A stream grant is a JSON Web Token, HS256, under `HMAC-SHA256( secret, "easy-stream grant v1" )`, for 10 minutes. Its claims go in this order, those not set left out, so every language signs the same claims to the same token:
+A stream grant is a JSON Web Token, HS256, for 10 minutes. Its key and its `aud` go together, and WordPlus Cloud takes either pair:
+
+- **The key** `HMAC-SHA256( secret, "live-stream grant v1" )` with `aud` `live-stream`, as the Node package signs it.
+- **Or the names before them,** the key `HMAC-SHA256( secret, "easy-stream grant v1" )` with `aud` `easy-stream`, as the PHP and Python packages and the [test values](test-values.md#stream-grantsjson) sign it.
+
+Its claims go in this order, those not set left out, so every language signs the same claims to the same token:
 
 | Claim | |
 |---|---|
 | `iss` | your app key |
-| `aud` | `easy-stream` |
+| `aud` | `live-stream`, or `easy-stream` with the key before |
 | `str` | the stream name |
-| `role` | `host` or `viewer` |
-| `sub` | the user id, as a string. Left out for a visitor, who may only be a viewer: refuse more with `no_user` |
-| `name`, `avatar` | as everyone sees them. `avatar` an `https://` address |
+| `role` | `host`, `guest` or `viewer` |
+| `sub` | the user id, as a string: up to 64 of letters, digits, `_`, `.`, `@` and `-`. Left out for a visitor, who may only be a viewer: refuse more with `no_user` |
+| `name`, `avatar` | as everyone sees them: a name of up to 64 characters, and `avatar` an `https://` address of up to 512 |
 | `chat` | `write` or `read` |
 | `mod` | `true` for someone who keeps the chat |
-| `src` | what a host may send: `[ "camera", "microphone", "screen" ]` |
-| `q` | the best picture a host sends: `720p` or `1080p` |
+| `src` | what a host or a guest may send: `[ "camera", "microphone", "screen" ]` |
+| `q` | the best picture they send: `720p` or `1080p` |
+| `stage` | `false`: the stream takes no guests. Nobody raises a hand, and its host invites nobody |
 | `offline` | `open` or `closed`: the chat while the stream is not live |
 | `links` | `false`: links only from those who keep the chat |
 | `fresh` | `true`: the chat emptied each time it goes live |
 | `people` | who may see who is watching: `mods` or `all` |
 | `reactions` | whether it takes reactions |
 | `iat`, `exp` | unix seconds |
+
+- **The settings of the stream,** `stage`, `offline`, `links`, `fresh`, `people` and `reactions`, are the same in every grant for it, whoever it is for.
+- **The test values also carry `org`,** the page addresses a grant is good for, which no package signs. It goes between `reactions` and `iat`.
 
 ## Check yours
 

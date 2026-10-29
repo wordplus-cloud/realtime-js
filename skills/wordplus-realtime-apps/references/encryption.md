@@ -17,6 +17,17 @@ A room with `public: true` is not sealed, unless it says `seal: true`: anyone wi
 
 ![On the left, what WordPlus Cloud carried of the update of an order, as the page of Ann shows it: the room and the event name in plain text, its data a sealed string, then what her page opened. On the right, the browser of Ben, which opened it too, showing his order as delivered](https://docs.wordplus.cloud/img/apps/encryption-sealed.webp)
 
+## Calls and live streams
+
+| What | Encrypted end to end |
+|---|---|
+| A call between two people | yes, on every path: direct between the two, through our relays, or through our media servers |
+| A group call that comes from a call, when someone is added | yes |
+| A group call your server names (`groupCalls()`) | when its rule says `encrypt: true` |
+| A live stream | no: its picture and its chat are for everyone watching, so they are encrypted on the way, and the media servers see them |
+
+An encrypted call is encrypted in the browser, with a key your server makes from its local key and gives only to the people in the call: our relays and media servers carry what they cannot read ([calls](calls.md#what-wordplus-cloud-sees), [live streams](streams.md#what-wordplus-cloud-sees)).
+
 ## Your local key
 
 `WORDPLUS_LOCAL_KEY`, 64 hex characters you make (`openssl rand -hex 32`), is the master every key is derived from: `HMAC-SHA256(local key, "wordplus-realtime key v1|" + label)`. Keep it:
@@ -25,7 +36,7 @@ A room with `public: true` is not sealed, unless it says `seal: true`: anyone wi
 - **as long as the app:** a new one means pages holding old keys cannot open what comes, and the history of a room cannot be read again.
 - **out of every page and app,** as the secret.
 
-It also makes the signal key of each call and the media key of a group call, so WordPlus Cloud cannot read the negotiation of a call or see its media.
+It also makes the key of each call between two people, so WordPlus Cloud can read neither how its two pages connect nor its media, and the media key of a group call that is encrypted end to end ([calls and live streams](#calls-and-live-streams)).
 
 ## Who gets which key
 
@@ -37,6 +48,10 @@ It also makes the signal key of each call and the media key of a group call, so 
 | Your own kind | `{kind}:{…}` | whoever your `kind()` callback says |
 
 The page takes keys from your server only (its settings, the grant of a room, or your keys route), never from the realtime servers. `hasKeys: ( user ) => false` (PHP `'hasKeys'`, Python `has_keys=`) cuts a user off.
+
+## Signing out
+
+A single-page app calls `rt.close()` when its user signs out, before another user signs in on the same page: it closes the connection and forgets the keys of the page.
 
 ## When someone loses access
 
@@ -106,24 +121,54 @@ Those still let in get the new key from your server with the next grant of the r
 
 ## Your own sealed values
 
+A kind of key of your own is named after what it seals: `note:12` for note 12. A page that lacks the key asks your keys route, and a rule answers: a function your server declares once for the kind `note`, given the rest of the name, `12`. This rule says:
+
+1. **Visitors** who are not signed in get no key.
+2. **Those who may read the note** get its key, and nobody else.
+
 **Node**
 
 ```ts
-realtime.kind( 'note', async ( rest, user ) => user !== null && ( await mayRead( user, rest ) ) );
+realtime.kind( 'note', async ( rest, user ) => {
+    // 1. Visitors get no key.
+    if ( user === null ) return false;
+
+    // 2. Those who may read note 12, and nobody else.
+    return mayRead( user, rest );
+} );
+
 const sealed = await realtime.keys.seal( JSON.stringify( note ), 'note:' + note.id );   // send it any way you like
 ```
 
 **PHP**
 
 ```php
-$realtime->kind( 'note', fn ( $rest, $user ) => null !== $user && may_read( $user, $rest ) );
+$realtime->kind( 'note', function ( $rest, $user ) {
+    // 1. Visitors get no key.
+    if ( null === $user ) {
+        return false;
+    }
+
+    // 2. Those who may read note 12, and nobody else.
+    return may_read( $user, $rest );
+} );
+
 $sealed = $realtime->keys()->sealJson( $note, 'note:' . $note['id'] );   // send it any way you like
 ```
 
 **Python**
 
 ```python
-realtime.kind("note", lambda rest, user, label: user is not None and may_read(user, rest))
+def may_have_note(rest, user):
+    # 1. Visitors get no key.
+    if user is None:
+        return False
+
+    # 2. Those who may read note 12, and nobody else.
+    return may_read(user, rest)
+
+realtime.kind("note", may_have_note)
+
 sealed = realtime.keys.seal_json(note, "note:" + str(note["id"]))   # send it any way you like
 ```
 

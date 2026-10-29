@@ -6,6 +6,8 @@ This page builds it with you from an empty folder: a small Node.js app with a de
 
 ![Ann, Ben and Cara in one group call from three browsers, with the call screen grid: each sees the other two and their own camera, then the call controls. The cameras are illustrations](https://docs.wordplus.cloud/img/apps/rooms-meeting.webp)
 
+**In your stack:** [Next.js](../nextjs/calls.md) · [Express](../express/calls.md) · [Laravel](https://docs.wordplus.cloud/laravel/calls/) · [PHP](https://docs.wordplus.cloud/php/calls/) · [Django](https://docs.wordplus.cloud/django/calls/) · [FastAPI](https://docs.wordplus.cloud/fastapi/calls/) · [Flask](https://docs.wordplus.cloud/flask/calls/) · [WordPress](https://docs.wordplus.cloud/wordpress/group-calls/)
+
 ## How it goes
 
 Ann leads the design team, user `34` in your app. Ben is on the team, user `42`. Cara is not, user `43`.
@@ -210,7 +212,7 @@ What each part does:
 
 1. **Your users and your team.** Ann, Ben and Cara, and the design team, team 7, which Ann leads and Ben is on. In your app, they come from your database.
 2. **The WordPlus package.** `createRealtime()` takes your keys, where the page finds the browser files (`rooms` is the client of group calls), and `profile`: the name the others see in the meeting.
-3. **The rule.** `realtime.groupCalls()` is called once, for every group call whose name fits `team:{id}`. It runs each time someone joins, with `user` the one joining and `id` the team: yes for a member of team 7, no for anyone else. For Ann, who leads it, the yes is `{ admin: true }`: she hosts, and the call screen gives her Mute Microphone, Block and Allow Broadcast and Kick User on the tile of each of the others. Each asks your route, which runs this rule again for her. `encrypt: true` encrypts the video and sound end to end.
+3. **The rule.** `realtime.groupCalls()` is called once, for every group call whose name fits `team:{id}`. It runs each time someone joins, with `user` the one joining and `id` the team: yes for a member of team 7, no for anyone else. For Ann, who leads it, the yes is `{ admin: true }`: she hosts, and the call screen gives her Manage Participant on the tile of each of the others, with Mute Microphone, Stop Camera & Mic and Allow Camera & Mic, and Remove from Call. Each asks your route, which runs this rule again for her. `encrypt: true` encrypts the video and sound end to end.
 4. **The route.** `app.use( '/api/realtime', … )` is the one line that answers the page when it asks before joining (step 2 of [how it goes](#how-it-goes)). It gives the package the user of the session, and the package runs your rule for them. `/api/realtime` is only the usual address: any other works, as [any address you like](how-it-works.md#any-address-you-like) shows.
 5. **Signing in.** Three buttons, for Ann, Ben and Cara. Your app has its own sign-in instead.
 6. **Ending the meeting.** `POST /meetings/7/end` checks that the one asking leads the team, then `realtime.call( 'team:7' ).end()` takes everyone out of the meeting at once. A page cannot end a meeting for the others by itself: it asks your server, which decides.
@@ -286,7 +288,7 @@ The same pieces, with three changes:
 2. **Your sign-in.** In `realtime.node( ( req ) => … )`, give the user your own sign-in found, in place of `req.session.user`.
 3. **The buttons.** Show Join the meeting to the members of the team, and the buttons that run it to its lead. Your rule and your routes still decide, whatever the page shows.
 
-On another stack, the guide of each sets up the route and the settings in the page: [Next.js](https://docs.wordplus.cloud/nextjs/getting-started/), [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/) and [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/). The rule is then the same in each language:
+On another stack, the guide of each sets up the route and the settings in the page: [Next.js](../nextjs/getting-started.md), [Express](../express/getting-started.md), [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [PHP](https://docs.wordplus.cloud/php/getting-started/), [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/), [Flask](https://docs.wordplus.cloud/flask/getting-started/) and [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/). The rule is then the same in each language:
 
 **Node**
 
@@ -355,7 +357,7 @@ Then `${MEETING}` in the body, in place of `${JOIN_BUTTON}`. Now:
 - **Sound.** A browser plays sound only once the person has clicked or typed on the page, or on the page they came from. Ben, opening the page from a link in a new tab, sees Ann and **Turn sound on** over the call: her voice starts at that click, or at any other on the page.
 - **Another page** of the app loads anew and takes the person out of the meeting, so the browser asks first. Back on the team page, they join again while the meeting is on.
 - **Every person, always:** `join="video"` with no condition takes everyone who opens the page into the meeting, and starts it when nobody is in it. That suits a page that is the meeting itself, such as a consultation room at its hour.
-- **In React:** `<CallSpot rt={ rt } call="team:7" join="video">` ([Next.js](../nextjs/calls.md#straight-into-a-meeting)).
+- **In React:** `<CallSpot call="team:7" join={ people > 0 ? 'video' : undefined }>` of `@wordplus/realtime/react`, around a `<GroupCallButton name="team:7">`, with `people` from your server as above ([Next.js](../nextjs/calls.md#straight-into-a-meeting), and the meeting room of a [team intranet](../nextjs/team-intranet.md#the-meeting-room)).
 
 ## Running it from your server
 
@@ -374,32 +376,40 @@ await meeting.end();                       // over, for everyone
 **PHP**
 
 ```php
-$realtime->call( 'team:7' )->mute( 42, 'microphone' );
-$realtime->call( 'team:7' )->remove( 42 );
-$realtime->call( 'team:7' )->end();
+$meeting = $realtime->call( 'team:7' );
+$meeting->get();                         // who is in it, and what each sends
+$meeting->mute( 42, 'microphone' );      // a microphone left on
+$meeting->remove( 42 );                  // out now, and their tokens from before refused
+$meeting->end();                         // over, for everyone
 ```
 
 **Python**
 
 ```python
-realtime.call("team:7").mute(42, "microphone")
-realtime.call("team:7").remove(42)
-realtime.call("team:7").end()
+meeting = realtime.call("team:7")
+meeting.get()                      # who is in it, and what each sends
+meeting.mute(42, "microphone")     # a microphone left on
+meeting.remove(42)                 # out now, and their tokens from before refused
+meeting.end()                      # over, for everyone
 ```
 
 **WordPress**
 
 ```php
-wordplus_realtime()->call( 'team:7' )->mute( 42, 'microphone' );
-wordplus_realtime()->call( 'team:7' )->remove( 42 );
-wordplus_realtime()->call( 'team:7' )->end();
+$meeting = wordplus_realtime()->call( 'team:7' );
+$meeting->get();                         // who is in it, and what each sends
+$meeting->mute( 42, 'microphone' );      // a microphone left on
+$meeting->remove( 42 );                  // out now, and their tokens from before refused
+$meeting->end();                         // over, for everyone
 ```
 
 `realtime.listCalls()` lists the meetings going on, for a page that says which teams meet now.
 
 ## Your own interface instead
 
-The call screen and the button are optional. The same meeting with screens of your own, on the calls API, after `connect()`:
+The call screen and the button are optional. The same meeting with screens of your own, on the calls API: `rt.calls()` after `connect()`, or `useCalls()` in React.
+
+**Browser**
 
 ```js
 const calls = await rt.calls();
@@ -425,6 +435,54 @@ muteButton.onclick = () => meeting.setTrack( 'microphone', null );   // stops se
 leaveButton.onclick = () => meeting.leave();
 ```
 
+**React**
+
+```tsx
+import { useEffect, useReducer, useState } from 'react';
+import type { GroupCall } from '@wordplus/realtime';
+import { useCalls } from '@wordplus/realtime/react';
+
+export function Meeting() {
+    const { calls } = useCalls();
+    const [ meeting, setMeeting ] = useState<GroupCall | null>( null );
+    const [ , redraw ] = useReducer( ( n: number ) => n + 1, 0 );
+
+    const join = async () => {
+        if ( !calls ) return;
+        const call = await calls.group( 'team:7', { type: 'video' } );
+        const media = await navigator.mediaDevices.getUserMedia( { video: true, audio: true } );
+        await call.setTrack( 'camera', media.getVideoTracks()[ 0 ] );
+        await call.setTrack( 'microphone', media.getAudioTracks()[ 0 ] );
+        // Drawn again as someone arrives, leaves, changes what they send or speaks.
+        call.on( 'person', redraw ).on( 'person_left', redraw ).on( 'speakers', redraw );
+        setMeeting( call );
+    };
+    const share = async () => {
+        const screen = await navigator.mediaDevices.getDisplayMedia( { video: true } );
+        await meeting?.setTrack( 'screen_share', screen.getVideoTracks()[ 0 ] );
+    };
+
+    // Left as the component goes, and as Leave is pressed.
+    useEffect( () => () => meeting?.leave(), [ meeting ] );
+
+    if ( !meeting ) return <button disabled={ !calls } onClick={ join }>Join the meeting</button>;
+
+    return (
+        <>
+            { meeting.people().map( ( person ) => (
+                <figure key={ person.identity } className={ person.speaking ? 'speaking' : '' }>
+                    <video autoPlay playsInline muted ref={ ( video ) => { if ( video ) person.camera?.attach( video ); } } />
+                    <audio autoPlay ref={ ( audio ) => { if ( audio ) person.microphone?.attach( audio ); } } />
+                </figure>
+            ) ) }
+            <button onClick={ share }>Share screen</button>
+            <button onClick={ () => meeting.setTrack( 'microphone', null ) }>Mute</button>
+            <button onClick={ () => setMeeting( null ) }>Leave</button>
+        </>
+    );
+}
+```
+
 Group calls need the room client, which the package routes serve and the settings name, so `connect( settings )` finds it ([calls](../calls.md#group-calls)).
 
 ## Variations
@@ -433,4 +491,6 @@ Group calls need the room client, which the package routes serve and the setting
 - **Invite someone who is not on the team:** a call between two people that someone adds to becomes a group call of its own ([calls](../calls.md#adding-people)).
 - **Speakers and an audience:** most people listening, a few speaking ([classes and audio rooms](classes.md)).
 - **A lobby before the meeting:** the lead admits each guest ([waiting rooms](waiting-rooms.md)).
-- **Credits:** up to 32 people on video at once take no credits with 1,000 connections, and each one above takes a credit a minute ([limits](../limits.md)).
+- **Credits:** up to 32 people on video at once take no credits with 1,000 connections, and 12 more for each 1,000 after them, a person on audio counting half. Each one above takes a credit a minute, on audio half ([limits](../limits.md)).
+- **On phones:** the iOS and Android apps join the same meetings ([iOS](https://docs.wordplus.cloud/ios/calls/), [Android](https://docs.wordplus.cloud/android/calls/)), and a Capacitor app does as a browser does ([mobile apps](../mobile/calls.md)).
+- **A whole site, in Next.js:** a team intranet, where each team has its meeting room, its lead hosts it, and the team hears when it starts ([team intranet](../nextjs/team-intranet.md#the-meeting-room)).

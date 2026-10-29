@@ -5,61 +5,132 @@
 - **Group calls** run on the WordPlus Cloud media servers, with no limit on people in a call. Up to 32 people on video at once take no credits with 1,000 connections, and 12 more for each 1,000 after them, a person on audio counting half. Each one above takes a credit a minute from your account ([limits](limits.md)).
 - **Encrypted end to end:** the media of a call is, on every path, and that of its group call too, with a key only your server gives out. A group call your server names is when you say so.
 - **The call screen** is the Better Messages interface for both: call buttons, the ring and a call window, with no call code. iOS and Android have it natively ([iOS](https://docs.wordplus.cloud/ios/calls/), [Android](https://docs.wordplus.cloud/android/calls/)).
+- **Step by step:** [calls from a button](use-cases/support-calls.md), [team meetings](use-cases/meetings.md), [consultations by booking](use-cases/consultations.md), [classes, webinars and audio rooms](use-cases/classes.md), and [waiting rooms and breakout rooms](use-cases/waiting-rooms.md). How a call and a group call start, run and end: [how calls work](use-cases/how-it-works.md).
 
 **Any user id your app gives:** numbers, and ids of text such as UUIDs, Clerk ids (`user_2abc…`) or Auth0 ids (`auth0|5f7c…`), up to 64 characters with no space. An id of digits is the same user as its number, `"42"` as `42`, and the page reads it back as the number.
 
 ## Who may call
 
-Your server declares calls by pattern, as it declares rooms: calls between two people with `calls()`, group calls with `groupCalls()`.
+Every call has a name your app gives it: `support:34:42` for a call between agent 34 and customer 42, `staff:daily` for the daily meeting of the staff. A page that calls, answers or joins asks your server first, and a rule answers: a function your server declares once for every call whose name fits a pattern, as it declares rooms. Calls between two people with `calls()`, group calls with `groupCalls()`. WordPlus Cloud then holds the page to the answer ([permissions](permissions.md#calls-between-two-people)).
+
+These rules say:
+
+1. **A support call,** `support:34:42`, is for the two people in its name.
+2. **One of them is staff.**
+3. **The staff meeting,** `staff:daily`, is for staff alone.
+4. **Managers host it:** they mute the others, let them speak or make them listeners, and take them out.
 
 **Node**
 
 ```ts
+// A support call, such as support:34:42.
 realtime.calls( 'support:{a}:{b}', async ( user, withUser, { a, b } ) => {
-    // The two ids in the name, as text: user 42 is "42" there, user_2abc itself.
+    // 1. The two people in the name: user 42 is "42" there, user_2abc itself.
     const pair = [ a, b ];
-    return pair.includes( String( user ) ) && pair.includes( String( withUser ) ) && ( isStaff( user ) || isStaff( withUser ) );
+    if ( ! pair.includes( String( user ) ) || ! pair.includes( String( withUser ) ) ) {
+        return false;
+    }
+
+    // 2. One of them is staff.
+    return ( await isStaff( user ) ) || ( await isStaff( withUser ) );
 } );
-realtime.groupCalls( 'staff:{id}', ( user ) => isStaff( user ) );
+
+// The staff meeting, such as staff:daily: a group call.
+realtime.groupCalls( 'staff:{id}', async ( user ) => {
+    // 3. Staff alone.
+    if ( ! ( await isStaff( user ) ) ) {
+        return false;
+    }
+
+    // 4. Managers host it.
+    return { admin: await isManager( user ) };
+} );
 ```
 
 **PHP**
 
 ```php
 // Laravel: the same with the Realtime facade, in the boot() of a service provider.
+
+// A support call, such as support:34:42.
 $realtime->calls( 'support:{a}:{b}', function ( $user, $with, array $p ) {
-    $pair = [ $p['a'], $p['b'] ]; // the two ids in the name, as text
-    return in_array( (string) $user, $pair, true ) && in_array( (string) $with, $pair, true ) && ( is_staff( $user ) || is_staff( $with ) );
+    // 1. The two people in the name: user 42 is "42" there, user_2abc itself.
+    $pair = [ $p['a'], $p['b'] ];
+    if ( ! in_array( (string) $user, $pair, true ) || ! in_array( (string) $with, $pair, true ) ) {
+        return false;
+    }
+
+    // 2. One of them is staff.
+    return is_staff( $user ) || is_staff( $with );
 } );
-$realtime->groupCalls( 'staff:{id}', fn ( $user ) => is_staff( $user ) );
+
+// The staff meeting, such as staff:daily: a group call.
+$realtime->groupCalls( 'staff:{id}', function ( $user ) {
+    // 3. Staff alone.
+    if ( ! is_staff( $user ) ) {
+        return false;
+    }
+
+    // 4. Managers host it.
+    return [ 'admin' => is_manager( $user ) ];
+} );
 ```
 
 **Python**
 
 ```python
+# A support call, such as support:34:42.
 def may_call_support(user, with_user, p):
-    pair = [p["a"], p["b"]]  # the two ids in the name, as text
-    return str(user) in pair and str(with_user) in pair and (is_staff(user) or is_staff(with_user))
+    # 1. The two people in the name: user 42 is "42" there, user_2abc itself.
+    pair = (p["a"], p["b"])
+    if str(user) not in pair or str(with_user) not in pair:
+        return False
+
+    # 2. One of them is staff.
+    return is_staff(user) or is_staff(with_user)
 
 realtime.calls("support:{a}:{b}", may_call_support)
-realtime.group_calls("staff:{id}", lambda user: is_staff(user))
+
+# The staff meeting, such as staff:daily: a group call.
+def may_join_staff(user, p):
+    # 3. Staff alone.
+    if not is_staff(user):
+        return False
+
+    # 4. Managers host it.
+    return {"admin": is_manager(user)}
+
+realtime.group_calls("staff:{id}", may_join_staff)
 ```
 
 - **`withUser`** (`$with`, `with_user`) is the other person: whom `user` calls, or who calls `user`. Your server asks again when the callee answers, with the callee as `user`.
-- **`side.role`** (`$side['role']`, `side["role"]`), the fifth argument, says which: `caller` or `callee`. A rule that says yes to every callee and checks only callers lets people answer calls they may not place, such as members on a paid plan who call and the others who answer: `( user, withUser, p, call, side ) => side.role === 'callee' || isPro( user )`.
-- **Answer** `false` for no, `true` for yes, or an object: `info` (what the others see of `user`: your profile name and avatar by default), and in a group call `publish` and `subscribe` (true unless said), `admin` and `hidden` (false unless said). `admin` is the room admin right on the media server alone: no page and no call screen of the SDK mutes, lets speak or removes others with it. Your server does, from a route of yours that checks who asks ([from your server](#from-your-server)).
+- **`side.role`** (`$side['role']`, `side["role"]`), the fifth argument, says which: `caller` or `callee`. The fourth is the name of the call. A rule that says yes to every callee and checks only callers lets people answer calls they may not place, such as members on a paid plan who call and the others who answer: `( user, withUser, p, call, side ) => side.role === 'callee' || isPro( user )`.
+- **Answer** `false` for no, `true` for yes, or an object: `info` (what the others see of `user`: your profile name and avatar by default), and in a group call `publish` and `subscribe` (true unless said), `admin` and `hidden` (false unless said).
+- **`admin`** makes them its host, who mutes the others, lets them speak or makes them listeners, and takes them out. Your calls route asks this rule again for each of those, and does it only for a host.
+- **A host in the call screen** has the host buttons on the tile of each of the others: Manage Participant opens Mute Microphone, Stop Camera & Mic and Allow Camera & Mic (Demote to Viewer and Promote to Speaker in an audio call), and Remove from Call ([the call screen](#the-call-screen)).
+- **A host on a page of your own** does the same with `group.moderate( act, user )`: `mute`, `speak`, `listen` or `remove` ([group calls](#group-calls)).
+- **Your server** does it with no page open: `realtime.call( name ).mute()`, `.permit()`, `.remove()` and `.end()`, the same in PHP and Python ([from your server](#from-your-server)).
 
 ### A call in a chat
 
-A chat's call buttons call by the name of its room, so a call in a numbered chat, `chat:{id}` ([two people, or a group](rooms.md#two-people-or-a-group)), is let through when both people are members of it. `isMemberOf` is your own lookup:
+A chat's call buttons call by the name of its room, so a call in a numbered chat, `chat:{id}` ([two people, or a group](rooms.md#two-people-or-a-group)), is let through when:
+
+1. **The person calling or answering** is a member of the chat.
+2. **So is the other person.**
+
+`isMemberOf` is your own lookup:
 
 **Node**
 
 ```ts
 realtime.calls( 'chat:{id}', async ( user, withUser, { id } ) => {
-    const userIsMember = await isMemberOf( id, user );
-    const otherIsMember = await isMemberOf( id, withUser );
-    return userIsMember && otherIsMember;
+    // 1. The person calling or answering is a member.
+    if ( ! ( await isMemberOf( id, user ) ) ) {
+        return false;
+    }
+
+    // 2. So is the other person.
+    return isMemberOf( id, withUser );
 } );
 ```
 
@@ -67,9 +138,13 @@ realtime.calls( 'chat:{id}', async ( user, withUser, { id } ) => {
 
 ```php
 $realtime->calls( 'chat:{id}', function ( $user, $with, array $p ) {
-    $user_is_member  = is_member_of( $p['id'], $user );
-    $other_is_member = is_member_of( $p['id'], $with );
-    return $user_is_member && $other_is_member;
+    // 1. The person calling or answering is a member.
+    if ( ! is_member_of( $p['id'], $user ) ) {
+        return false;
+    }
+
+    // 2. So is the other person.
+    return is_member_of( $p['id'], $with );
 } );
 ```
 
@@ -77,9 +152,12 @@ $realtime->calls( 'chat:{id}', function ( $user, $with, array $p ) {
 
 ```python
 def may_call_in_chat(user, with_user, p):
-    user_is_member = is_member_of(p["id"], user)
-    other_is_member = is_member_of(p["id"], with_user)
-    return user_is_member and other_is_member
+    # 1. The person calling or answering is a member.
+    if not is_member_of(p["id"], user):
+        return False
+
+    # 2. So is the other person.
+    return is_member_of(p["id"], with_user)
 
 realtime.calls("chat:{id}", may_call_in_chat)
 ```
@@ -91,6 +169,7 @@ const calls = await rt.calls();          // loads the call engine the first time
 
 const call = await calls.start( 'support:34:42', { to: 34, type: 'video' } );
 call.on( 'state', ( state ) => show( state ) );   // ringing, connecting, connected, reconnecting, ended
+call.on( 'path', ( path ) => show( path ) );      // direct, relay or room: the path it connects on now
 call.on( 'remote', () => call.remote.camera?.attach( video ) );
 call.setTrack( 'camera', cameraTrack );
 call.setTrack( 'microphone', micTrack );
@@ -109,6 +188,7 @@ calls.on( 'group', ( group ) => setTimeout( () => group.leave(), 15 * 60 * 1000 
 - A page holds its user **line**, where their calls ring, unless `connect()` was given `ring: false`.
 - A call rings for 45 seconds, then ends with `no_answer`.
 - The connection of either side may drop for 45 seconds during a call and come back.
+- **`path`** is `direct`, `relay` (our relays, TURN on 443 and 80) or `room` (our media servers), and changes as the call moves. None takes credits.
 
 ## Adding people
 
@@ -129,6 +209,7 @@ group.on( 'invite', ( invite ) => showRinging( invite.to ) );
 - **`group` comes on both sides,** connecting and already sending what the page sent to the call. The call then ends with `group`. Send with `group.setTrack()` from then on, and leave with `group.leave()`. The others go on.
 - **The call screen** adds an Add Person button once a call is up, listing whom your server `people` names (below). The window goes on as the group call.
 - **Who is in a call is for your server to say,** in proofs it makes with its local key, which WordPlus Cloud never sees. Every grant for a call names its two people and carries the user proof of being in it. Ringing someone in needs that proof and gives the proof the person was rung, which the realtime server hands them with the ring and their answer needs. The realtime server carries the proofs and cannot make one, and your server keeps nothing.
+- **Credits:** the call that became a group call is a group call, and takes credits as one ([limits](limits.md)).
 
 Whom the call screen offers to add:
 
@@ -136,20 +217,28 @@ Whom the call screen offers to add:
 
 ```ts
 realtime.calls( 'support:{a}:{b}', mayCall, {
-    people: async ( user, call ) => ( isStaff( user ) ? await staffIds() : [] ),   // asked of mayCall each
+    // Whom Add Person offers: staff, to staff. Each is still asked of the rule.
+    people: async ( user, call ) => ( ( await isStaff( user ) ) ? staffIds() : [] ),
 } );
 ```
 
 **PHP**
 
 ```php
-$realtime->calls( 'support:{a}:{b}', $mayCall, [ 'people' => fn ( $user, $call ) => is_staff( $user ) ? staff_ids() : [] ] );
+$realtime->calls( 'support:{a}:{b}', $mayCall, [
+    // Whom Add Person offers: staff, to staff. Each is still asked of the rule.
+    'people' => fn ( $user, string $call ) => is_staff( $user ) ? staff_ids() : [],
+] );
 ```
 
 **Python**
 
 ```python
-realtime.calls("support:{a}:{b}", may_call, people=lambda user, call: staff_ids() if is_staff(user) else [])
+# Whom Add Person offers: staff, to staff. Each is still asked of the rule.
+def people_to_add(user, call):
+    return staff_ids() if is_staff(user) else []
+
+realtime.calls("support:{a}:{b}", may_call, people=people_to_add)
 ```
 
 `people` answers user ids. The screen lists each with the name and avatar from your `profile`, leaving out anyone `mayCall` would not let the user call about `call`. With `people` on any pattern, the server `config()` tells the call screen to offer Add Person (`screen: { add: true }`, `rt.callScreen( { add: true } )` does the same).
@@ -168,28 +257,64 @@ Group calls load the room client and its encryption worker, `realtime-rooms-e2ee
 
 - **`group.encrypted`** says whether its media is encrypted end to end: always for the group calls that come from a call (the one a call moves to when no direct path works, and the one it becomes when someone is added), and a group call your server names when its `groupCalls()` says `encrypt: true`. Every frame is encrypted in the browser with a key your server derives from its local key, so the media servers forward what they cannot read. A browser that cannot encrypt each frame is refused (`encryption_unsupported`) rather than sending in the clear. Every current one can.
 - **`group.group`** is the call id for a call that became a group call, with `group.add()`, `group.invites()` and the `invite` event. Null for a group call your server names, where `add()` rejects with `not_a_call`.
-- **`group.can.admin`** is true for its host, whom its rule answered `admin: true`. `await group.moderate( act, user )` then mutes their microphone (`mute`), lets a listener speak (`speak`), makes a speaker a listener (`listen`) or takes them out (`remove`), through your calls route, which asks the rule again: it resolves whether it changed anything, and rejects with `forbidden` for anyone else. The call screen gives a host these as buttons on each tile.
+- **`group.can.admin`** is true for its host, whom its rule answered `admin: true`. `await group.moderate( act, user )` then mutes their microphone (`mute`), lets a listener speak (`speak`), makes a speaker a listener (`listen`) or takes them out (`remove`), through your calls route, which asks the rule again: it resolves whether it changed anything, and rejects with `forbidden` for anyone else. The call screen gives a host these behind Manage Participant on each tile ([the call screen](#the-call-screen)).
+- **Credits:** the people on video up to the floor of your plan take none, a person on audio counting half, and each one above takes a credit a minute ([limits](limits.md)).
 
 ![Ann, Ben and Cara in one group call from three browsers, with the call screen grid: each sees the other two and their own camera, then the call controls. The cameras are illustrations](https://docs.wordplus.cloud/img/apps/rooms-meeting.webp)
 
 ## Speakers and listeners
 
-A class, a town hall or an audio room: a few speak and everyone else listens, and a listener raises a hand to be let on. Your rule makes the listeners (`publish: false`), a room of the same name carries the hands, and your server lets someone speak while the call runs.
+A class, a town hall or an audio room: a few speak and everyone else listens, and a listener raises a hand to be let on. Your rule makes the listeners (`publish: false`), a room of the same name carries the hands, and your server lets someone speak while the call runs ([classes, webinars and audio rooms](use-cases/classes.md)). For one person live to a large audience, with guests on stage, see the live streams: [interviews and questions on stage](use-cases/interviews.md).
+
+The rule of a class, `class:7`, says:
+
+1. **The teacher** speaks, and hosts the class.
+2. **Anyone who is not a student** is turned away.
+3. **A student** listens until the teacher lets them speak.
+
+The room of the hands lets in the teacher and the students, and carries only `hand`. The Let speak button of the teacher calls a route of yours, which:
+
+4. **Takes it from the teacher** alone.
+5. **Keeps the choice** where the rule reads it, for every join after.
+6. **Changes it in the call** at once.
 
 **Node**
 
 ```ts
 realtime.groupCalls( 'class:{id}', async ( user, { id } ) => {
-    if ( await isTeacherOf( id, user ) ) return true;   // speaks, and runs the class through the routes below
-    if ( ! await isStudentOf( id, user ) ) return false;
-    return { publish: await maySpeak( id, user ) };   // a listener until let on
-} );
-realtime.room( 'class:{id}', { emit: [ 'hand' ] }, async ( user, { id } ) => ( await isTeacherOf( id, user ) ) || isStudentOf( id, user ) );
+    // 1. The teacher speaks, and hosts the class.
+    if ( await isTeacherOf( id, user ) ) {
+        return { admin: true };
+    }
 
-// The Let speak button of the teacher, a route of yours.
+    // 2. Anyone who is not a student.
+    if ( ! ( await isStudentOf( id, user ) ) ) {
+        return false;
+    }
+
+    // 3. A student listens until let speak.
+    return { publish: await maySpeak( id, user ) };
+} );
+
+// The room of the hands: the teacher and the students, and only hand gets through.
+realtime.room( 'class:{id}', { emit: [ 'hand' ] }, async ( user, { id } ) => {
+    if ( await isTeacherOf( id, user ) ) {
+        return true;
+    }
+    return isStudentOf( id, user );
+} );
+
+// The Let speak button of the teacher: POST /classes/7/speakers with { user, speak }.
 app.post( '/classes/:id/speakers', async ( req, res ) => {
-    if ( ! await isTeacherOf( req.params.id, req.user.id ) ) return res.sendStatus( 403 );
-    await setMaySpeak( req.params.id, req.body.user, req.body.speak );   // what the rule reads for every join after
+    // 4. The teacher alone.
+    if ( ! ( await isTeacherOf( req.params.id, req.user.id ) ) ) {
+        return res.sendStatus( 403 );
+    }
+
+    // 5. Kept where the rule reads it, for every join after.
+    await setMaySpeak( req.params.id, req.body.user, req.body.speak );
+
+    // 6. At once in the call: their page hears `permissions`.
     await realtime.call( 'class:' + req.params.id ).permit( req.body.user, { publish: req.body.speak } );
     res.sendStatus( 204 );
 } );
@@ -199,31 +324,83 @@ app.post( '/classes/:id/speakers', async ( req, res ) => {
 
 ```php
 $realtime->groupCalls( 'class:{id}', function ( $user, array $p ) {
+    // 1. The teacher speaks, and hosts the class.
     if ( is_teacher_of( $p['id'], $user ) ) {
-        return true; // speaks, and runs the class through the route below
+        return [ 'admin' => true ];
     }
 
-    return is_student_of( $p['id'], $user ) ? [ 'publish' => may_speak( $p['id'], $user ) ] : false;
+    // 2. Anyone who is not a student.
+    if ( ! is_student_of( $p['id'], $user ) ) {
+        return false;
+    }
+
+    // 3. A student listens until let speak.
+    return [ 'publish' => may_speak( $p['id'], $user ) ];
 } );
 
-// In the route of the Let speak button, once the teacher is checked:
-set_may_speak( $class, $student, true );
-$realtime->call( 'class:' . $class )->permit( $student, [ 'publish' => true ] );
+// The room of the hands: the teacher and the students, and only hand gets through.
+$realtime->room( 'class:{id}', function ( $user, array $p ) {
+    if ( is_teacher_of( $p['id'], $user ) ) {
+        return true;
+    }
+
+    return is_student_of( $p['id'], $user );
+}, [ 'emit' => [ 'hand' ] ] );
+
+// The Let speak button of the teacher: POST /classes/7/speakers with { user, speak }, in your route.
+$body = json_decode( file_get_contents( 'php://input' ), true );
+
+// 4. The teacher alone.
+if ( ! is_teacher_of( $class_id, $user ) ) {
+    http_response_code( 403 );
+    exit;
+}
+
+// 5. Kept where the rule reads it, for every join after.
+set_may_speak( $class_id, $body['user'], (bool) $body['speak'] );
+
+// 6. At once in the call: their page hears `permissions`.
+$realtime->call( 'class:' . $class_id )->permit( $body['user'], [ 'publish' => (bool) $body['speak'] ] );
+http_response_code( 204 );
 ```
 
 **Python**
 
 ```python
 def class_call(user, p):
+    # 1. The teacher speaks, and hosts the class.
     if is_teacher_of(p["id"], user):
-        return True  # speaks, and runs the class through the route below
-    return {"publish": may_speak(p["id"], user)} if is_student_of(p["id"], user) else False
+        return {"admin": True}
+
+    # 2. Anyone who is not a student.
+    if not is_student_of(p["id"], user):
+        return False
+
+    # 3. A student listens until let speak.
+    return {"publish": may_speak(p["id"], user)}
 
 realtime.group_calls("class:{id}", class_call)
 
-# In the route of the Let speak button, once the teacher is checked:
-set_may_speak(class_id, student, True)
-realtime.call(f"class:{class_id}").permit(student, publish=True)
+# The room of the hands: the teacher and the students, and only hand gets through.
+def class_hands(user, p):
+    if is_teacher_of(p["id"], user):
+        return True
+    return is_student_of(p["id"], user)
+
+realtime.room("class:{id}", class_hands, emit=["hand"])
+
+# The Let speak button of the teacher: POST /classes/7/speakers with {"user", "speak"}, from your route.
+def let_speak(class_id, teacher, student, speak):
+    # 4. The teacher alone.
+    if not is_teacher_of(class_id, teacher):
+        return 403
+
+    # 5. Kept where the rule reads it, for every join after.
+    set_may_speak(class_id, student, speak)
+
+    # 6. At once in the call: their page hears `permissions`.
+    realtime.call(f"class:{class_id}").permit(student, publish=speak)
+    return 204
 ```
 
 The page of a student:
@@ -251,6 +428,7 @@ group.on( 'person', ( person ) => place( person, person.publish ? speakers : lis
 - **`permit( user, { publish } )`** is theirs at once when they are in the call, and their page hears `permissions`. Back to listening, the media server takes down what they sent. `subscribe` stops or starts what they get of the others.
 - **A token signed for them before** follows the change too, so an older one cannot undo it. A token signed after follows your rule, so keep who may speak where the rule reads it, as `setMaySpeak()` does above.
 - **Everyone sees who may speak:** `person.publish`, each person coming again as `person` when it changes.
+- **On the call screen,** the teacher, as host, has Manage Participant on the tile of each student: Promote to Speaker and Demote to Viewer in an audio call, Allow Camera & Mic and Stop Camera & Mic in a video call. They change the call as `permit()` does, through your calls route. Your route above also keeps the choice for the joins after.
 - **The teacher's buttons and the call window.** The ready-made call screen opens its window in a corner of the page, over what is under it, so Let speak buttons there are out of reach. Put them where the window leaves the page free, or make it narrower on the other side of the page from them (`call-screen::part(call-window) { width: min(480px, 100vw - 48px); }`, with `inset-inline-end: auto; inset-inline-start: 24px;` to take it to the start side), or put them in the call screen: a control of yours in its dock that opens your list of hands, or in React a `GridTile` of yours with a Let speak button on each listener ([customizing](customizing.md)). Each still calls your route, as above.
 
 ## From your server
@@ -272,27 +450,32 @@ await call.end();                               // out, everyone
 **PHP**
 
 ```php
-$realtime->listCalls();
-$realtime->call( 'staff:daily' )->mute( 43, 'microphone' );
-$realtime->call( 'staff:daily' )->permit( 43, [ 'publish' => false ] );
-$realtime->call( 'staff:daily' )->remove( 43 );
-$realtime->call( 'staff:daily' )->end();
+$realtime->listCalls();                         // [ [ 'name', 'people', 'started_at' ] ]
+$call = $realtime->call( 'staff:daily' );
+$call->get();                                   // [ 'people', 'started_at', 'list' => [ [ 'user', 'joined_at', 'camera', 'microphone', 'screen' ] ] ]
+$call->mute( 43, 'microphone' );                // 'camera' or 'screen' too
+$call->permit( 43, [ 'publish' => false ] );    // a listener now, as above
+$call->remove( 43 );                            // out now
+$call->end();                                   // out, everyone
 ```
 
 **Python**
 
 ```python
-realtime.list_calls()
-realtime.call("staff:daily").mute(43, "microphone")
-realtime.call("staff:daily").permit(43, publish=False)
-realtime.call("staff:daily").remove(43)
-realtime.call("staff:daily").end()
+realtime.list_calls()                     # [{"name", "people", "started_at"}]
+call = realtime.call("staff:daily")
+call.get()                                # {"people", "started_at", "list": [{"user", "joined_at", "camera", "microphone", "screen"}]}
+call.mute(43, "microphone")               # "camera" or "screen" too
+call.permit(43, publish=False)            # a listener now, as above
+call.remove(43)                           # out now
+call.end()                                # out, everyone
 ```
 
 - **`get()`** answers who is in the call now. With nobody in it, never or no longer, `people` is 0, `started_at` null and `list` empty, so a panel that asks every few seconds needs no error case. `started_at` is when this call began: one named again after everyone left begins again.
 - **`mute()`** turns a microphone, camera or screen off as a host does. They may turn it on again: to keep someone quiet, make them a listener with `permit()` ([speakers and listeners](#speakers-and-listeners)), or remove them.
 - **`remove()`** takes someone out now, and the tokens signed for them before do not take them back in. A token your server signs after does, so your rule decides.
 - **`end()`** takes everyone out, and the tokens signed before do not open it again.
+- **Buttons of your own,** such as a host panel beside the call, call a route of yours that checks who asks, then these, as the Let speak route above does ([buttons for the host](use-cases/how-it-works.md#buttons-for-the-host)).
 
 A call between two people runs between their browsers, so it is not in `listCalls()`. Once someone is added it is a group call, named `call:` and its id.
 
@@ -311,13 +494,14 @@ await rt.callScreen();   // the call window and the ring, on this page
 ```
 
 - **`{pair}`** in `call` is filled in with the page user and the one called, in order, so whichever of the two calls names the same call: `support:34:42`.
-- **A host** of a group call (its rule's `admin`) gets mute, let speak or make a listener, and remove on the tile of each of the others ([permissions](permissions.md#group-calls)).
+- **A host** of a group call (its rule's `admin`) gets Manage Participant on the tile of each of the others. It opens Mute Microphone, Stop Camera & Mic and Allow Camera & Mic (Demote to Viewer and Promote to Speaker in an audio call), and Remove from Call ([permissions](permissions.md#group-calls)).
 - A call rings only on pages that start the screen (or your own calls code): start it on every page a person may be called on.
 - **Its words** come in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew, by the page `<html lang>` or `rt.callScreen( { lang: 'de' } )`. `strings` changes any of them by its English text (`{ 'Add Person': 'Invite' }`), a plural as a list of its forms.
 - **Its look** is that of Better Messages, in a shadow root: your styles do not reach in, and its colours are CSS custom properties a page sets.
 - **In the page, not in the corner:** `<call-spot call="support:{a}:{b}"></call-spot>` shows the calls it names where you put it ([`<call-spot>`](elements.md#call-spot)).
 - **Leaving during a call** asks first, in the browser's own words: a reload, a closed tab or a page that loads anew would end it. Where pages change without loading anew, as with the links of Next.js, the call goes on in the corner window. The browser asks only once the person has clicked or typed on the page.
 - **Straight into a meeting:** `<call-spot call="meeting:7" join="video">` joins that group call as the page opens, with no button to press, the camera and microphone off until the person turns them on, or on as they come in with `join-with="microphone camera"` ([straight into a meeting](elements.md#straight-into-a-meeting)).
+- **Sound.** A browser plays sound only once the person has clicked or typed on the page, or on the page of your site they came from. Until then the call screen shows **Turn sound on** over the call, and the voices of the others start at that click, or at any other on the page. On a screen of your own, `call.on( 'autoplay_blocked', … )` says so ([your own interface](interface.md#calls)).
 - In React: `<CallScreen rt={ rt } />`, `<CallButton>`, `<GroupCallButton>` and `<CallSpot>` of `@wordplus/realtime-ui/react`, in your own tree ([React](react.md#ready-made-screens)).
 
 ![Ben has pressed a video call button: his browser shows the call window calling Ann, over his own camera, and the browser of Ann rings, with buttons to answer and decline](https://docs.wordplus.cloud/img/apps/calls-ringing.webp)

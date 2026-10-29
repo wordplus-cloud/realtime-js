@@ -1,0 +1,51 @@
+{
+    "about": "Ready-made neighbours and their items to try the site with: npm run seed. The sign-up and sign-in pages offer them in one click when MARKET_DEMO=1. An item's photo is one of db/items. A conversation is about an item, between its seller and a buyer: its messages [who, what, minutes ago], and an offer of the buyer's waiting for an answer.",
+    "password": "marketplace-demo-people",
+    "people": [
+        { "key": "ava", "name": "Ava", "area": "Riverside", "about": "Furnishing a first flat, one find at a time." },
+        { "key": "omar", "name": "Omar", "area": "Old Town", "about": "Moving abroad in a month: everything must go." },
+        { "key": "mia", "name": "Mia", "area": "Hillcrest", "about": "Restores old furniture at weekends." },
+        { "key": "noah", "name": "Noah", "area": "Old Town", "about": "Too many cameras, not enough shelves." },
+        { "key": "ethan", "name": "Ethan", "area": "Market Quarter", "about": "Looking for a camera to learn film on." },
+        { "key": "leo", "name": "Leo", "area": "Riverside", "about": "Upgraded my bike, selling the old one." },
+        { "key": "lena", "name": "Lena", "area": "Hillcrest", "about": "Plants that outgrew the flat." },
+        { "key": "sam", "name": "Sam", "area": "Market Quarter", "about": "Makes ceramics in a shared studio." },
+        { "key": "lucas", "name": "Lucas", "area": "Riverside", "about": "Bought the wrong size, twice." },
+        { "key": "zoe", "name": "Zoe", "area": "Old Town", "about": "Clearing out the study." },
+        { "key": "nora", "name": "Nora", "area": "Hillcrest", "about": "Looking for a desk lamp for late study nights." }
+    ],
+    "items": [
+        { "photo": "turntable", "seller": "omar", "title": "Wooden turntable, works perfectly", "price": 150, "category": "Music", "about": "Belt drive, walnut plinth, new needle fitted last month. Comes with its dust cover. I can show it playing on a call." },
+        { "photo": "camera", "seller": "noah", "title": "35mm film camera with a 50mm lens", "price": 120, "category": "Photo", "about": "Fully manual, light meter works, shutter tested at every speed. A good one to learn film on." },
+        { "photo": "armchair", "seller": "mia", "title": "Mid-century armchair, reupholstered", "price": 180, "category": "Home", "about": "Solid walnut arms, new mustard wool. Very comfortable, and heavier than it looks." },
+        { "photo": "bike", "seller": "leo", "title": "Road bike, 54 cm frame", "price": 260, "category": "Sports", "about": "Sixteen gears, new tyres and brake pads this spring. Fits riders from about 170 to 180 cm." },
+        { "photo": "monstera", "seller": "lena", "title": "Monstera, 1.2 m tall, with its pot", "price": 35, "category": "Garden", "about": "Healthy and growing fast, which is the problem. The terracotta pot comes with it." },
+        { "photo": "mugs", "seller": "sam", "title": "Four handmade speckled mugs", "price": 40, "category": "Home", "about": "Stoneware, dishwasher safe, each a little different.", "status": "sold", "buyer": "nora" },
+        { "photo": "boots", "seller": "lucas", "title": "Leather hiking boots, size 43", "price": 55, "category": "Sports", "about": "Worn on two short walks, then they turned out half a size too small." },
+        { "photo": "lamp", "seller": "zoe", "title": "Brass desk lamp with a green shade", "price": 45, "category": "Home", "about": "The classic banker's lamp. Takes a standard bulb, which is included." }
+    ],
+    "deals": [
+        {
+            "item": "turntable", "buyer": "ava",
+            "messages": [
+                ["ava", "Hi! Is the turntable still available?", 120],
+                ["omar", "Yes it is. It comes with the cover and the new needle.", 100],
+                ["ava", "Lovely. Would you take 130?", 20]
+            ],
+            "offer": 130
+        },
+        {
+            "item": "camera", "buyer": "ethan",
+            "messages": [
+                ["ethan", "Does the light meter work?", 60],
+                ["noah", "It does, tested with a fresh battery last week.", 50]
+            ]
+        },
+        {
+            "item": "armchair", "buyer": "ava",
+            "messages": [
+                ["ava", "Could I see it on a video call before coming over? I want to check the colour.", 30]
+            ]
+        }
+    ]
+}

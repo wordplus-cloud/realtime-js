@@ -1,3 +1,4 @@
+import { selectedPair } from "./pair.js";
 const num = (v) => typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 const add = (a, b) => a === undefined ? b : b === undefined ? a : a + b;
 const round1 = (v) => Math.round(v * 10) / 10;
@@ -13,7 +14,6 @@ export function qualityTotals(report, scope, at = Date.now()) {
         byId.set(s.id, s); });
     const totals = { at, out: new Map(), in: new Map(), path: {} };
     let transport = null;
-    let pair = null;
     report.forEach((s) => {
         if (!s)
             return;
@@ -70,13 +70,9 @@ export function qualityTotals(report, scope, at = Date.now()) {
         else if (s.type === 'transport' && s.selectedCandidatePairId && !transport) {
             transport = s;
         }
-        else if (s.type === 'candidate-pair' && s.state === 'succeeded' && (s.selected || s.nominated) && !pair) {
-            pair = s;
-        }
     });
-    // The transport's own word on the selected pair first; Firefox has no
-    // transport entry and marks the pair instead.
-    const selected = (transport ? byId.get(transport.selectedCandidatePairId) : null) ?? pair;
+    // The pair in use, not any pair once nominated (pair.ts).
+    const selected = selectedPair(report);
     if (selected) {
         const rtt = num(selected.currentRoundTripTime);
         const out = num(selected.availableOutgoingBitrate);

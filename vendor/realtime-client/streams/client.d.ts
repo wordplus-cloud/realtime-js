@@ -214,6 +214,9 @@ export declare class EasyStreamClient {
     private syncing;
     private pictureHolds;
     private readonly playback;
+    private readonly viewerHold;
+    private readonly trace;
+    private played;
     private readonly sending;
     private pixelDensity;
     private screenDensity;
@@ -293,7 +296,14 @@ export declare class EasyStreamClient {
     private keepEncoderOn;
     private findEncoder;
     private encoderOf;
+    private watchingOnly;
     private ownHold;
+    private baseHold;
+    private looked;
+    private holdMoved;
+    private traceEvent;
+    private countPlayed;
+    private summarize;
     private followPictures;
     private stopFollowing;
     private soundFollowsPicture;

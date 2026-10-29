@@ -1,0 +1,66 @@
+{
+    "about": "A ready-made photography club to try the site with: npm run seed. The sign-up and sign-in pages offer its members in one click when CLUB_DEMO=1. Hosts run its events and look after its lounges. A channel's messages are [who, what, minutes ago, a photo of db/shared or none]. An event starts `in` minutes from now (negative for one past).",
+    "password": "community-demo-people",
+    "people": [
+        { "key": "zoe", "name": "Zoe", "role": "host", "title": "Landscapes, founder of the club", "about": "Early mornings, mountains and lakes. Started the club to have people to get up at five with." },
+        { "key": "mia", "name": "Mia", "role": "host", "title": "Portraits", "about": "Window light and patient people. Runs the portfolio reviews." },
+        { "key": "omar", "name": "Omar", "role": "host", "title": "Street photography", "about": "Cities at night, rain, reflections. Leads the Friday night walks." },
+        { "key": "ava", "name": "Ava", "role": "member", "title": "Learning landscapes", "about": "Designer by day, sunrise chaser at weekends." },
+        { "key": "ethan", "name": "Ethan", "role": "member", "title": "Street, mostly at night", "about": "Shoots on the way home from work." },
+        { "key": "lena", "name": "Lena", "role": "member", "title": "Macro and nature", "about": "Small things up close: dew, insects, moss." },
+        { "key": "leo", "name": "Leo", "role": "member", "title": "Cities and travel", "about": "Old towns from above, whenever a train goes there." },
+        { "key": "lucas", "name": "Lucas", "role": "member", "title": "Seascapes", "about": "Long exposures and cold hands." },
+        { "key": "noah", "name": "Noah", "role": "member", "title": "Film photography", "about": "Two film cameras and a fridge full of rolls." },
+        { "key": "nora", "name": "Nora", "role": "member", "title": "Night skies", "about": "Plans trips around the new moon." },
+        { "key": "sam", "name": "Sam", "role": "member", "title": "Everyday moments", "about": "Cafes, markets and the people in them." }
+    ],
+    "channels": [
+        {
+            "name": "introductions", "about": "Say hello, and what you like to shoot.",
+            "messages": [
+                ["zoe", "Welcome to the club! Say hello here, and share a photo you're proud of.", 4320, null],
+                ["leo", "Hi all, Leo here. I mostly shoot cities from wherever I can get above them. This one is from Tuscany.", 2900, "rooftops"],
+                ["noah", "Noah, film mostly. This is a scan from my last roll, a field near where I grew up.", 1500, "wheat"],
+                ["sam", "Hi! I like everyday moments. My favourite cafe on a quiet morning.", 600, "cafe"]
+            ]
+        },
+        {
+            "name": "critique", "about": "Share a photo for honest, kind feedback.",
+            "messages": [
+                ["ava", "Sunrise at the lake last weekend. Is there too much sky?", 300, "lake"],
+                ["zoe", "The reflection carries it. I'd crop a little off the top so the peak sits on the upper third.", 280, null],
+                ["ethan", "Rainy night in the old town. I was going for the neon.", 180, "street"],
+                ["omar", "Love the reflections. Try a lower angle next time, the puddles do the work for you.", 150, null],
+                ["lena", "Dew this morning, 100mm macro at f/4.", 90, "dew"],
+                ["lucas", "Two second exposure at dusk. Too smooth?", 40, "waves"],
+                ["mia", "Not too smooth at all, the rocks keep it grounded. The horizon tilts a hair to the left.", 25, null]
+            ]
+        },
+        {
+            "name": "gear", "about": "Lenses, bodies, bags and everything else.",
+            "messages": [
+                ["ethan", "Thinking of a 35mm prime for street. Any favourites?", 800, null],
+                ["omar", "Whatever is light enough that you always carry it.", 760, null]
+            ]
+        },
+        {
+            "name": "trips", "about": "Plan photo walks and trips together.",
+            "messages": [
+                ["omar", "Night walk on Friday: we meet at the station at 8 and walk the river.", 1200, null],
+                ["nora", "From the desert trip in spring. The next new moon is in two weeks if anyone wants to come.", 400, "stars"]
+            ]
+        }
+    ],
+    "lounges": [
+        { "name": "Coffee lounge", "about": "Drop in for a chat, cameras off.", "kind": "audio" },
+        { "name": "Editing hangout", "about": "Edit together: share your screen and ask.", "kind": "video" },
+        { "name": "Critique corner", "about": "Show a print on camera, or a photo on screen, for feedback live.", "kind": "video" }
+    ],
+    "events": [
+        { "title": "Live portfolio review", "host": "mia", "in": 0, "about": "Mia reviews three photos each from members who come on stage. Raise your hand from the player to be next." },
+        { "title": "Night photography basics", "host": "omar", "in": 1440, "about": "Settings, tripods and staying safe, before Friday's walk." },
+        { "title": "Golden hour, a Q&A", "host": "zoe", "in": 4320, "about": "Planning around the light: apps, weather and when to stay home." },
+        { "title": "Composition, the fundamentals", "host": "zoe", "in": -10080, "about": "Thirds, leading lines and when to break them." }
+    ],
+    "going": { "Live portfolio review": ["ava", "ethan", "lena", "lucas", "sam"], "Night photography basics": ["ethan", "ava", "nora"], "Golden hour, a Q&A": ["ava", "leo"] }
+}

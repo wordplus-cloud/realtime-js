@@ -9,11 +9,15 @@ The elements draw in a shadow root, and their colours are custom properties your
 ```css
 /* public/app.css */
 call-screen, chat-room, online-list {
-    --bm-color-accent: 37, 99, 235;      /* red, green, blue */
-    --bm-messenger-font: Inter, system-ui, sans-serif;
-    --bm-radius-card: 14px;
+    --wplus-color-accent: 37, 99, 235;      /* red, green, blue */
+    --wplus-messenger-font: Inter, system-ui, sans-serif;
+    --wplus-radius-card: 14px;
 }
 ```
+
+- **Light and dark** follow the system. `wplus-messages-light` or `wplus-messages-dark` on `<body>` keeps one, as does a `color-scheme` on the page that names one alone.
+- **Words:** the screens come in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew, in the language of the page (`<html lang>`), or the one `screen: { lang }` names in `connect()`. `rt.callScreen( { strings: { 'End Call': 'Hang up' } } )` changes any of them by its English text.
+- **Right to left:** in Hebrew they draw mirrored, by the language they show.
 
 ## 2. A piece of your own
 
@@ -63,6 +67,14 @@ The view is yours now: `components/wordplus/chat/`, and what runs the conversati
 ## 4. Your own interface
 
 The elements are the ready-made option, never a must. Draw who is online, the chat, the calls and the live stream with your own components, on the same API they are built on: your rules, encryption and connection stay the same. [Your own interface](../interface.md) shows the API under each element.
+
+## Live streams
+
+`<live-stream>` and `<stream-studio>` are the player, chat and studio of Easy Stream, with a look of their own: custom properties on `.estream-theme`, such as `--estream-accent`, `--estream-radius` and `--estream-font`, and their words in the same nine languages, by `rt.streamScreen( { lang, strings } )` ([live streams](../customizing.md#live-streams)).
+
+```css
+body .estream-theme { --estream-accent: #16a34a; --estream-radius: 12px; }
+```
 
 ## With your AI coding agent
 

@@ -6,12 +6,24 @@ Three ways to show people: a presence room lists who is in it to everyone in it.
 
 ## A presence room
 
+A presence room is named after the place people are in: `room:7` for room 7. A page that joins it asks your server first, and a rule answers: a function your server declares once for every room whose name fits `room:{id}`. WordPlus Cloud then holds the page to the answer ([permissions](permissions.md)). This rule says:
+
+1. **Visitors** who are not signed in stay out.
+2. **Those who may enter** the room join, and nobody else. `mayEnter` is your own check.
+3. **Each one is shown** to the others with their name and their role, your profile when the rule gives nothing.
+
 **Node**
 
 ```ts
 realtime.room( 'room:{id}', { presence: true }, async ( user, { id } ) => {
-    if ( user === null || !( await mayEnter( user, id ) ) ) return false;
-    return { info: { name: await nameOf( user ), role: 'agent' } };   // what the others see, your profile by default
+    // 1. Visitors stay out.
+    if ( user === null ) return false;
+
+    // 2. Those who may enter, and nobody else.
+    if ( !( await mayEnter( user, id ) ) ) return false;
+
+    // 3. What the others see of them.
+    return { info: { name: await nameOf( user ), role: 'agent' } };
 } );
 ```
 
@@ -19,23 +31,46 @@ realtime.room( 'room:{id}', { presence: true }, async ( user, { id } ) => {
 
 ```php
 $realtime->room( 'room:{id}', function ( $user, array $p ) {
-    if ( null === $user || ! may_enter( $user, $p['id'] ) ) {
+    // 1. Visitors stay out.
+    if ( null === $user ) {
         return false;
     }
-    return [ 'info' => [ 'name' => name_of( $user ), 'role' => 'agent' ] ];   // what the others see, your profile by default
+
+    // 2. Those who may enter, and nobody else.
+    if ( ! may_enter( $user, $p['id'] ) ) {
+        return false;
+    }
+
+    // 3. What the others see of them.
+    return [ 'info' => [ 'name' => name_of( $user ), 'role' => 'agent' ] ];
 }, [ 'presence' => true ] );
 
 // Laravel: routes/channels.php, where an array is the info of the member and makes the room a presence room.
-Broadcast::channel( 'room.{id}', fn ( User $user, string $id ) => $user->canEnter( $id ) ? [ 'name' => $user->name, 'role' => 'agent' ] : false );
+Broadcast::channel( 'room.{id}', function ( User $user, string $id ) {
+    // 1. A visitor never gets here. 2. Those who may enter, and nobody else.
+    if ( ! $user->canEnter( $id ) ) {
+        return false;
+    }
+
+    // 3. What the others see of them.
+    return [ 'name' => $user->name, 'role' => 'agent' ];
+} );
 ```
 
 **Python**
 
 ```python
 def may_enter_room(user, p):
-    if user is None or not may_enter(user, p["id"]):
+    # 1. Visitors stay out.
+    if user is None:
         return False
-    return {"info": {"name": name_of(user), "role": "agent"}}   # what the others see, your profile by default
+
+    # 2. Those who may enter, and nobody else.
+    if not may_enter(user, p["id"]):
+        return False
+
+    # 3. What the others see of them.
+    return {"info": {"name": name_of(user), "role": "agent"}}
 
 realtime.room("room:{id}", may_enter_room, presence=True)
 ```
@@ -71,25 +106,27 @@ rt.online.on( 'count', ( n ) => showOnline( n ) );           // how many are onl
 const { ids, next } = await rt.online.list();                // a page of who is online
 ```
 
+Your server says who stays hidden, with `hidden`, which answers for each user, and asks who is online itself:
+
 **Node**
 
 ```ts
-const realtime = createRealtime( { /* … */ hidden: async ( user ) => ( await settingsOf( user ) ).hideStatus } );
+const realtime = createRealtime( { /* … */ hidden: async ( user ) => ( await settingsOf( user ) ).hideStatus } );   // "Hide my status"
 await realtime.online.has( 42 );   // and .count(), .list(), .states( [ 42, 43 ] )
 ```
 
 **PHP**
 
 ```php
-$realtime = Realtime::fromEnvironment( [ 'hidden' => fn ( $user ) => settings_of( $user )->hide_status ] );
+$realtime = Realtime::fromEnvironment( [ 'hidden' => fn ( $user ) => settings_of( $user )->hide_status ] );   // "Hide my status"
 $realtime->online()->has( 42 );   // and ->count(), ->list(), ->states( [ 42, 43 ] )
 ```
 
 **Python**
 
 ```python
-realtime = Realtime.from_environment(hidden=lambda user: settings_of(user).hide_status)
-realtime.online().has(42)   # and .count(), .list(), .states([42, 43])
+realtime = Realtime.from_environment(hidden=lambda user: settings_of(user).hide_status)   # "Hide my status"
+realtime.online.has(42)   # and .count(), .list(), .states([42, 43])
 ```
 
 In React, `useOnline( [ 34, 43 ], { count: true } )`, from `@wordplus/realtime/react`.
@@ -106,3 +143,10 @@ The Better Messages members list on a presence room, with a call button for each
 ```
 
 `await rt.callScreen()` loads them with the call screen, `rt.ui()` without. In React, `<OnlineList>` and `<OnlineCount>` ([React](react.md)). `call` names the call each row places: `{pair}` is the two user ids in order, `{me}` and `{id}` each one. Only those the user may call get a button: the list asks your calls route once for all its members, which runs your `calls()` rule for each as for the caller.
+
+## Use cases
+
+Each with the rules of your server and the code of the page:
+
+- [Who is online and who is here](use-cases/online.md): a dot on every avatar, the people in a room, and a live count
+- [Editing together](use-cases/collaboration.md): who is in a document, their cursors and their changes

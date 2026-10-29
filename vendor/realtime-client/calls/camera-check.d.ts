@@ -136,6 +136,20 @@ export interface CameraCheckVerdict {
     fps?: number;
     /** the lines it encoded at the end (EncoderSample.frameHeight) */
     frameHeight?: number;
+    /** how its warm-up went, wherever the loopback was set up (1.0.58): what an unsure verdict says beside its why */
+    warmup?: CheckWarmup;
+}
+/**
+ * How a measurement's warm-up went (measureCameraEncoder()): a check that gave up as "slow-start" says only that, and a
+ * trace needs these to tell an encoder slow to give its first frame from one that gave it and then sent too few.
+ */
+export interface CheckWarmup {
+    /** ms from the loopback's start to the encoder's first frame; null: none came */
+    firstFrameMs: number | null;
+    /** the most of the camera's frames it sent over any CAMERA_CHECK_KEEPUP_MS of the warm-up (passSent to keep up); null: none read */
+    bestShare: number | null;
+    /** what the browser said held the encoder back at its last reading (qualityLimitationReason: none, bandwidth, cpu, other); '' not said */
+    limit: string;
 }
 /**
  * The verdict on one codec from its loopback's numbers. wantHardware: the codec was to go out in hardware (H.264,
@@ -200,6 +214,8 @@ export interface EncoderCountsNow {
      * Camera says 720 and gives 1080. 0 not said
      */
     sourceHeight: number;
+    /** what the browser says holds the encoder back now (qualityLimitationReason); '' not said */
+    limit: string;
 }
 /** The sender's counts from its stats (an RTCStatsReport): its outbound-rtp's, summed, and its media-source's frames. */
 export declare function encoderCounts(report: StatsLike): EncoderCountsNow;

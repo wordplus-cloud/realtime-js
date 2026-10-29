@@ -176,7 +176,7 @@ export function fitsLower(verdict, to, tune = CAMERA_TUNE_DEFAULTS, headroom = C
 /** The sender's counts from its stats (an RTCStatsReport): its outbound-rtp's, summed, and its media-source's frames. */
 export function encoderCounts(report) {
     const out = { at: 0, captured: 0, encoded: 0, sent: 0, encodeSeconds: 0, cpuSeconds: 0, bandwidthSeconds: 0, captureFps: 0, implementation: '', hardware: false, known: false, frameHeight: 0,
-        sourceHeight: 0 };
+        sourceHeight: 0, limit: '' };
     report.forEach((s) => {
         if (s?.type === 'outbound-rtp' && (!s.kind || s.kind === 'video')) {
             out.at = Math.max(out.at, Number(s.timestamp) || 0);
@@ -193,6 +193,8 @@ export function encoderCounts(report) {
                 out.known = true;
             if (s.powerEfficientEncoder === true || (name && isHardwareEncoder(name)))
                 out.hardware = true;
+            if (s.qualityLimitationReason)
+                out.limit = String(s.qualityLimitationReason);
         }
         else if (s?.type === 'media-source' && (!s.kind || s.kind === 'video')) {
             out.captured = Math.max(out.captured, Number(s.frames) || 0);
@@ -326,7 +328,13 @@ export async function measureCameraEncoder(track, codec, wantHardware, options =
     const top = publish?.top ?? { maxBitrate: n.fallbackKbps * 1000, maxFramerate: 30 };
     let clone = null;
     let a = null, b = null;
+    // the warm-up as it goes (CheckWarmup): when the loopback started and gave its first frame, the best share of the
+    // camera's frames sent over a keep-up stretch, and the browser's last word on what held the encoder back
+    let began = 0, firstAt = 0, best = null, limit = '';
+    const warmup = () => ({ firstFrameMs: firstAt ? firstAt - began : null, bestShare: best === null ? null : Math.round(best * 100) / 100, limit });
+    const gaveUp = (why) => ({ ...failed(why), ...(began ? { warmup: warmup() } : {}) });
     try {
+        began = Date.now();
         const pa = a = new RTCPeerConnection(), pb = b = new RTCPeerConnection();
         clone = track.clone();
         pa.onicecandidate = (e) => { if (e.candidate)
@@ -379,6 +387,8 @@ export async function measureCameraEncoder(track, codec, wantHardware, options =
         };
         const counts = async () => {
             const c = encoderCounts(await step(sender.getStats()));
+            if (c.limit)
+                limit = c.limit;
             await fit(c);
             return c;
         };
@@ -387,22 +397,21 @@ export async function measureCameraEncoder(track, codec, wantHardware, options =
         const lastStart = until - n.windowMs - n.pollMs;
         // connected and encoding: the first frame out of the encoder, waited for as long as a measuring still fits after
         // it (a hardware encoder's first session in a browser gives it late)
-        let firstAt = 0;
         for (;;) {
             // looked at each time round too: a wait as long as step()'s own look ends before it
             if (gone())
-                return failed('ended');
+                return gaveUp('ended');
             if (pa.connectionState === 'failed' || pa.connectionState === 'closed')
-                return failed();
+                return gaveUp('failed');
             const connected = pa.connectionState === 'connected';
             if (!connected && Date.now() > connectBy)
-                return failed(Date.now() > until ? 'timeout' : 'failed');
+                return gaveUp(Date.now() > until ? 'timeout' : 'failed');
             if (connected && (await counts()).encoded > 0) {
                 firstAt = Date.now();
                 break;
             }
             if (Date.now() + n.warmupMs > lastStart)
-                return failed('slow-start');
+                return gaveUp('slow-start');
             await step(sleep(n.pollMs));
         }
         // the warm-up: CAMERA_CHECK_WARMUP_MS at least, and until the encoder keeps up with its camera (sent passSent of
@@ -421,7 +430,10 @@ export async function measureCameraEncoder(track, codec, wantHardware, options =
                 for (const r of readings)
                     if (now - r.at >= n.keepUpMs)
                         from = r;
-                if (from && now - firstAt >= n.warmupMs && keepsUp(sampleBetween(from.counts, c), passSent))
+                const stretch = from && sampleBetween(from.counts, c);
+                if (stretch && stretch.captured > 0)
+                    best = Math.max(best ?? 0, sentShareOf(stretch));
+                if (stretch && now - firstAt >= n.warmupMs && keepsUp(stretch, passSent))
                     return c;
                 if (Date.now() + n.pollMs > lastStart)
                     return null;
@@ -430,7 +442,7 @@ export async function measureCameraEncoder(track, codec, wantHardware, options =
         };
         const first = await warmed();
         if (!first)
-            return failed('slow-start');
+            return gaveUp('slow-start');
         fitting = false;
         // the window, read at its middle too: an encoder rising through it is still starting (judgeEncoder, `late`)
         await step(sleep(n.windowMs / 2));
@@ -438,11 +450,12 @@ export async function measureCameraEncoder(track, codec, wantHardware, options =
         await step(sleep(n.windowMs / 2));
         const last = await counts();
         if (gone())
-            return failed('ended');
-        return { ...judgeEncoder(codec, wantHardware, { ...sampleBetween(first, last), late: sampleBetween(middle, last) }, options.tune, n), height };
+            return gaveUp('ended');
+        return { ...judgeEncoder(codec, wantHardware, { ...sampleBetween(first, last), late: sampleBetween(middle, last) }, options.tune, n), height,
+            warmup: warmup() };
     }
     catch (e) {
-        return failed(e instanceof GaveUp ? e.message : 'failed');
+        return gaveUp(e instanceof GaveUp ? e.message : 'failed');
     }
     finally {
         try {

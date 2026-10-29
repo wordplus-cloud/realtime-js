@@ -1,0 +1,65 @@
+{
+    "about": "Ready-made experts and clients to try the site with: npm run seed. The sign-up and sign-in pages offer them in one click when CONSULT_DEMO=1. Each appointment starts `in` minutes from now (negative for one in the past), lasts 30 minutes, and has the messages written about it as [who, what, minutes ago], and a past one has the expert's notes.",
+    "password": "consultations-demo-people",
+    "experts": [
+        { "key": "lena", "name": "Lena", "title": "Family doctor", "field": "Health", "about": "Twelve years in general practice. Colds that linger, test results, a second opinion before you see a specialist." },
+        { "key": "omar", "name": "Omar", "title": "Lawyer, housing and contracts", "field": "Legal", "about": "Leases, deposits, freelance contracts and the letters that come before a dispute." },
+        { "key": "mia", "name": "Mia", "title": "Counsellor", "field": "Wellbeing", "about": "Stress, sleep and the weeks when everything feels like too much. Calm, practical sessions." },
+        { "key": "noah", "name": "Noah", "title": "Tax advisor", "field": "Money", "about": "Self-employed returns, expenses you can claim, and what to keep for next year." },
+        { "key": "zoe", "name": "Zoe", "title": "Nutritionist", "field": "Health", "about": "Eating well on a busy week, training plans and food intolerances." },
+        { "key": "leo", "name": "Leo", "title": "Maths and physics tutor", "field": "Learning", "about": "Exam preparation for school and first-year university, one topic at a time." }
+    ],
+    "clients": [
+        { "key": "ava", "name": "Ava", "title": "Designer", "about": "Books a check-up now and then." },
+        { "key": "ethan", "name": "Ethan", "title": "Software engineer", "about": "New to freelancing." },
+        { "key": "sam", "name": "Sam", "title": "Coffee roaster", "about": "Runs a small roastery." },
+        { "key": "nora", "name": "Nora", "title": "Physics student", "about": "Studying for the finals." },
+        { "key": "lucas", "name": "Lucas", "title": "Runner", "about": "Training for a first marathon." }
+    ],
+    "appointments": [
+        {
+            "expert": "lena", "client": "ava", "in": 0, "topic": "A cough that won't go away",
+            "messages": [
+                ["ava", "Hi Lena, I've had a dry cough for about two weeks now. Worse at night. Anything I should do before we talk?", 50],
+                ["lena", "Hi Ava, thanks for the details. Nothing to take for now. If you can, note when it gets worse and whether you have a temperature. See you at the visit.", 35]
+            ]
+        },
+        {
+            "expert": "mia", "client": "ethan", "in": 0, "topic": "Sleep and a deadline-heavy month",
+            "messages": [
+                ["ethan", "Looking forward to it. Mostly about not switching off in the evenings.", 90]
+            ]
+        },
+        {
+            "expert": "omar", "client": "ava", "in": 150, "topic": "Reading my new lease before I sign",
+            "messages": [
+                ["ava", "I'll send the lease here before the visit. The part about repairs worries me.", 200],
+                ["omar", "Perfect, send it whenever it suits you. I'll read it before we meet.", 180]
+            ]
+        },
+        {
+            "expert": "lena", "client": "lucas", "in": 60, "topic": "A sore knee after long runs",
+            "messages": []
+        },
+        {
+            "expert": "noah", "client": "sam", "in": 1470, "topic": "My first self-employed return",
+            "messages": [
+                ["sam", "Should I bring the receipts for the roaster I bought?", 30]
+            ]
+        },
+        {
+            "expert": "zoe", "client": "ava", "in": -4320, "topic": "Eating well on long workdays",
+            "messages": [
+                ["ava", "Thanks again, the lunch plan is working.", 1400]
+            ],
+            "notes": "Ava skips breakfast and lunch on busy days, then eats late.\n\nWe agreed on:\n- a breakfast Ava can make in five minutes (oats, yoghurt, fruit)\n- one prepared lunch for the two longest days\n- water within reach at the desk\n\nCheck in again in three weeks."
+        },
+        {
+            "expert": "leo", "client": "nora", "in": -1440, "topic": "Circular motion before the finals",
+            "messages": [
+                ["nora", "Thank you! The worked example made it click.", 1380]
+            ],
+            "notes": "Covered centripetal force and why it is never a separate force on a diagram. Nora is solid on the formulas, less on choosing the frame.\n\nFor next time: past paper 2023, questions 4 and 7."
+        }
+    ]
+}

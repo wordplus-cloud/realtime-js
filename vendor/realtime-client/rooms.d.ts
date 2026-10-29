@@ -152,6 +152,8 @@ export declare class Rooms {
     /** Events waiting for a key, delivered in the order they came. */
     private queue;
     private waiting;
+    /** Gives the keyring back as this connection closes (keys.ts, lend()). */
+    private readonly releaseKeys;
     constructor(options: RoomsOptions);
     get connected(): boolean;
     /** The user the app vouched for on this page, or null. */

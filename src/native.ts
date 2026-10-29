@@ -12,7 +12,8 @@
  *         headers: { Authorization: 'Bearer ' + session.token },  // how the app's server knows its user
  *     } );
  *
- * Calls need a WebRTC module in React Native (react-native-webrtc), and come in a later version; calls() refuses here.
+ * Calls need a WebRTC module in React Native (react-native-webrtc), and come in a later version: calls() rejects with
+ * `no_webrtc` here, and the screens (callScreen(), streamScreen()) answer false, as an app has no page to draw them on.
  */
 import { connect as connectPage, connectNow as connectPageNow, settingsOf, type BrowserConfig, type ConnectOptions, type Realtime } from './browser.js';
 
@@ -20,12 +21,19 @@ export * from './browser.js';
 
 export async function connect(options: ConnectOptions | BrowserConfig): Promise<Realtime> {
     check(options);
-    return connectPage({ ...options, worker: null });
+    return withoutCalls(await connectPage({ ...options, worker: null }));
 }
 
 export function connectNow(options: ConnectOptions | BrowserConfig): Realtime {
     check(options);
-    return connectPageNow({ ...options, worker: null });
+    return withoutCalls(connectPageNow({ ...options, worker: null }));
+}
+
+// The call engine needs WebRTC (RTCPeerConnection, getUserMedia), which React Native has only through a module this
+// package doesn't bring yet: refused at once with a code, rather than failing deep inside the engine as a call starts.
+function withoutCalls(rt: Realtime): Realtime {
+    rt.calls = () => Promise.reject(Object.assign(new Error('no_webrtc'), { code: 'no_webrtc' }));
+    return rt;
 }
 
 function check(options: ConnectOptions | BrowserConfig): void {

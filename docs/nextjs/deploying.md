@@ -17,7 +17,7 @@ On Vercel, set them in the project Environment Variables, the same for Productio
 
 Add every address your pages are served from to the app in WordPlus Cloud: scheme, host and port exactly (`https://shop.example.com`, `https://www.shop.example.com`). A page anywhere else is refused with `wrong_origin`. Up to 20 addresses an app. If your server hears [webhooks](sending.md#webhooks), set their address there too.
 
-Each preview deployment has its own address. Add the ones you test from, such as the stable address of a branch (`https://shop-git-staging-you.vercel.app`), or keep a second app in WordPlus Cloud for previews, with its own key and secret in the Preview environment.
+An app is for one website and its subdomains, beside the addresses you develop on: `http://localhost:3000`, one on your own network, or a name ending in `.test` or `.local`. A preview at its own `*.vercel.app` address counts as another website, so give the branch you test a subdomain of yours (in Vercel, a domain assigned to a Git branch), such as `https://staging.shop.example.com`, and add it to the app like any other address. The Preview environment then takes the same settings as Production.
 
 ## Its files
 
@@ -27,6 +27,10 @@ Each preview deployment has its own address. Add the ones you test from, such as
 
 - **`config()` is per user:** render it in a dynamic layout or page (one that reads cookies is), never in a statically generated one, which would hand the keys of one user to everyone.
 - **Pages without a user** may connect with `config( null )`: the rooms declared `public: true` are theirs, with grants that may be cached with the page.
+
+## Several servers
+
+Any function or instance answers any request, and sending works from all of them. Only moving keys on keeps a little state, the key generations, in a store they all share, such as Redis: serverless functions share no memory of their own ([encryption](encryption.md#when-someone-loses-access)).
 
 ## Content Security Policy
 

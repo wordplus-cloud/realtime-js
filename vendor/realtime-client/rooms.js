@@ -90,9 +90,9 @@ export class Rooms {
         this.keyring = options.keyring ?? pageKeyring();
         this.keyring.add(options.keys?.entries ?? [], 'page');
         this.identity = options.keys?.identity?.token ? options.keys.identity : null;
-        // A plugin that asks the site for keys its own way (the Better Messages worker) has set how already.
-        if (options.keys?.endpoint && !this.keyring.hasResolver())
-            this.keyring.setResolver((labels) => this.askKeys(labels));
+        // Asks for keys with this connection's own credentials while it is open. A plugin that asks the site its own way
+        // (the Better Messages worker) sets how itself, and is asked first.
+        this.releaseKeys = holdKeyring(this.keyring, options.keys?.endpoint ? (labels) => this.askKeys(labels) : null);
         this.scheduleIdentity();
         this.online = new Online(this);
         const attach = options.attach ?? ((o) => realtime({ ...options, user: options.perUser ? this.user : options.user ?? null }).attach(o));
@@ -285,6 +285,7 @@ export class Rooms {
             room.ended();
         this.held.clear();
         this.socket.close();
+        this.releaseKeys();
     }
     /**
      * @internal Room.emit(): sealed with the room's newest key held, which those in it hold, binary parts carried in
@@ -977,6 +978,17 @@ export class Online {
     }
 }
 const KEPT = /^\d{1,16}-\d{1,20}$/;
+/**
+ * Holds the page's keyring while a connection is open, with its way to ask for keys (or none). A keyring an older copy
+ * of this package made has no lend(): that one is asked as before, by the first connection, and keeps its keys.
+ */
+function holdKeyring(keyring, ask) {
+    if (typeof keyring.lend === 'function')
+        return keyring.lend(ask);
+    if (ask && !keyring.hasResolver())
+        keyring.setResolver(ask);
+    return () => { };
+}
 function compareIds(a, b) {
     const [am, an] = a.split('-').map(Number);
     const [bm, bn] = b.split('-').map(Number);

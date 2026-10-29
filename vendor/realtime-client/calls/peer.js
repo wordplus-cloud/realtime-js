@@ -2,6 +2,7 @@ import { RemoteMediaTrack } from "./remote-track.js";
 import { answerOrder, applyCodecPreferences, chooseSendFamily, familyOf, fastDirection, negotiatedCodec, offerOrder } from "./codecs.js";
 import { VIEW_STEPS } from "./types.js";
 import { QualityWatch } from "./quality.js";
+import { selectedPair } from "./pair.js";
 // How a direct path that has died is left, and how fast.
 //
 // The measure of 19 to 21 Sep 2026 was that every failure took the same
@@ -2050,23 +2051,25 @@ export class P2PPeer {
                     if (at > counters.remoteAt)
                         counters.remoteAt = at;
                 }
-                else if (entry.type === 'candidate-pair' && entry.state === 'succeeded' && (entry.selected || entry.nominated)) {
-                    if (typeof entry.currentRoundTripTime === 'number') {
-                        rtt = entry.currentRoundTripTime;
-                    }
-                    const local = byId.get(entry.localCandidateId);
-                    const remote = byId.get(entry.remoteCandidateId);
-                    if (typeof entry.availableOutgoingBitrate === 'number')
-                        bweOut = entry.availableOutgoingBitrate;
-                    if (typeof entry.availableIncomingBitrate === 'number')
-                        bweIn = entry.availableIncomingBitrate;
-                    candidatePair = {
-                        local: local ? local.candidateType ?? null : null,
-                        remote: remote ? remote.candidateType ?? null : null,
-                        protocol: local ? (local.relayProtocol ?? local.protocol ?? null) : null
-                    };
-                }
             });
+            // The pair in use, not any pair once nominated (pair.ts).
+            const pair = selectedPair(report);
+            if (pair) {
+                if (typeof pair.currentRoundTripTime === 'number') {
+                    rtt = pair.currentRoundTripTime;
+                }
+                const local = byId.get(pair.localCandidateId);
+                const remote = byId.get(pair.remoteCandidateId);
+                if (typeof pair.availableOutgoingBitrate === 'number')
+                    bweOut = pair.availableOutgoingBitrate;
+                if (typeof pair.availableIncomingBitrate === 'number')
+                    bweIn = pair.availableIncomingBitrate;
+                candidatePair = {
+                    local: local ? local.candidateType ?? null : null,
+                    remote: remote ? remote.candidateType ?? null : null,
+                    protocol: local ? (local.relayProtocol ?? local.protocol ?? null) : null
+                };
+            }
             const now = Date.now();
             // The same report, for the quality reading the next pulse may
             // carry: only while connected, which is when there is a call to

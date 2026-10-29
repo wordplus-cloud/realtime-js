@@ -32,7 +32,7 @@ Every key your server uses is made the same way from your secret, each with a la
 | webhook | `wordplus-realtime webhook v1` | the webhooks you get ([webhooks](webhooks.md)) |
 | channels | `wordplus-realtime channels v1` | the room tokens and identities you give the browser ([your server routes](routes.md)) |
 | calls | `wordplus-realtime calls v1` | the call tokens you give the browser |
-| stream grants | `easy-stream grant v1` | the live stream grants you give the browser |
+| stream grants | `live-stream grant v1`, or `easy-stream grant v1` before it | the live stream grants you give the browser, each label with its own `aud` ([live streams](routes.md#live-streams)) |
 
 ## In your language
 

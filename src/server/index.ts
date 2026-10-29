@@ -77,7 +77,7 @@ export interface RoomOptions {
     presence?: boolean;
     /** A live count of the people in it, at any size. */
     count?: boolean;
-    /** Events kept: a number, or `{ last, days }`, within the cloud's 1,000 and 30 days. */
+    /** Events kept: a number, or `{ last, days }`, within the cloud's 1,000 events and 5 minutes (`days` a part of a day). */
     history?: number | { last: number; days?: number };
     /** The events browsers may send to it: names, or '*' for any. None by default. */
     emit?: string[] | '*';
@@ -298,7 +298,9 @@ export type WebhookEvent =
     | { id: string; at: number; type: 'room.occupied' | 'room.vacated'; room: string }
     | { id: string; at: number; type: 'member.joined' | 'member.left'; room: string; user: string }
     | { id: string; at: number; type: 'user.online' | 'user.offline'; user: string }
-    | { id: string; at: number; type: 'stream.live' | 'stream.ended'; stream: string; started_at: number | null; ended_at: number | null }
+    | { id: string; at: number; type: 'stream.live'; stream: string; started_at: number | null; ended_at: number | null }
+    // As it ends, the most who watched at once and the seconds watched by everyone together.
+    | { id: string; at: number; type: 'stream.ended'; stream: string; started_at: number | null; ended_at: number | null; peak?: number; viewer_seconds?: number }
     // What people used, for an app that charges by it: a call between two people that ended, with the seconds talked
     // from the answer to its end (0 for one never answered), someone in a group call, and a signed-in person watching
     // or on a live stream, with how long once they leave. Users are as your rules got them.
@@ -1550,7 +1552,10 @@ export class RoomQueries {
         return (await this.realtime.request('GET', '/wordplus/realtime/rooms/' + encodeURIComponent(this.room))).count;
     }
 
-    /** A presence room's members, their info opened: the first 1,000, the count, and `next` to page on. */
+    /**
+     * A presence room's members, their info opened: the first 1,000 and the count. `next` comes with a room of more, and
+     * no route of this API takes it back: a page reads on from its own `room.members` as people join and leave.
+     */
     async members(): Promise<{ count: number; list: Array<{ id: string; info: unknown }>; next?: string }> {
         const answer = await this.realtime.request('GET', '/wordplus/realtime/rooms/' + encodeURIComponent(this.room) + '?members=1');
         const members = answer.members ?? { count: 0, list: [] };

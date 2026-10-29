@@ -134,6 +134,17 @@ func TestTheStreamGrants(t *testing.T) {
 			t.Errorf("%s: got %s", test["name"], got)
 		}
 	}
+
+	// A grant StreamGrant signs: `stage` between `q` and `offline`, as the other languages put it.
+	no := false
+	token := app.StreamGrant(Stream{Name: "show:1", Role: "viewer", Quality: "720p", Stage: &no, Offline: "closed"})["token"].(string)
+	payload, err := b64.DecodeString(strings.Split(token, ".")[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(payload, []byte(`"q":"720p","stage":false,"offline":"closed"`)) {
+		t.Errorf("the stage claim: %s", payload)
+	}
 }
 
 // Users whose ids are text: the label each takes, the user calls take, and what keys and proofs are made of, as the

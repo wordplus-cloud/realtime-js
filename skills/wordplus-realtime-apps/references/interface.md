@@ -1,6 +1,6 @@
 # Your own interface
 
-The `<wordplus-*>` elements are the ready-made option: put one on a page and it works, with the Better Messages and Easy Stream screens. You never need them. Everything they do is the SDK underneath, and your own code can do all of it, drawn with your own components and your own design system.
+The elements, `<chat-room>`, `<online-list>`, `<call-button>`, `<live-stream>` and the others, are the ready-made option: put one on a page and it works, with the Better Messages and Easy Stream screens. You never need them. Everything they do is the SDK underneath, and your own code can do all of it, drawn with your own components and your own design system.
 
 This page shows, for each element, the API that does the same, in plain JavaScript. Your server rules stay exactly as they are: the API does only what they let the user do ([permissions](permissions.md)).
 
@@ -78,7 +78,7 @@ input.addEventListener( 'input', () => chat.volatile.emit( 'typing', { on: true 
 const older = await fetch( `/chat/34/42/messages?before=${ oldest.id }` ).then( ( r ) => r.json() );
 ```
 
-- **The same events** `<chat-room>` sends, so your interface and the ready-made chat talk with each other: `message` (`{ text }`), `typing` (`{ on }`), `read` (`{ id }`) and `reaction` (`{ id, key }`).
+- **The same events** `<chat-room>` sends, so your interface and the ready-made chat talk with each other: `message` (`{ text }`, and `files`, `[ { id, url, name, type, size } ]`, where it has any), `typing` (`{ on }`), `read` (`{ id }`) and `reaction` (`{ id, key }`).
 - **`emitWithAck()`** rejects with a code when the rule does not let the user send ([errors](errors.md#events-from-the-page)): show it in your composer.
 - **In React, the chat without its look:** `useChat()` from `@wordplus/realtime-ui/react` runs everything the ready-made chat does, its history, sending, typing, reactions and read ticks, and leaves the drawing to you:
 
@@ -164,6 +164,8 @@ leaveButton.onclick = () => group.leave();
 Group calls need the room client your app serves (`rooms` in `connect()`, [calls](calls.md#group-calls)).
 
 ## A live stream
+
+A live stream is not encrypted end to end ([live streams](streams.md)).
 
 **Watching:**
 

@@ -11,43 +11,85 @@ A room is a name pages and apps join to get its events. Your server declares you
 
 ## Declaring rooms
 
+Each room is named after what it carries: `order:42` for the updates of order 42, `chat:34:42` for the chat of users 34 and 42, the smaller id first, and `product:7` for the page of product 7. A page that joins a room asks your server first, and a rule answers: a function your server declares once for every room whose name fits a pattern, such as `order:{id}`. WordPlus Cloud then holds the page to the answer ([permissions](permissions.md)). These rules say:
+
+1. **An order** lets in its customer, and keeps its last 20 updates for a page that reconnects.
+2. **A chat of two** lets in the two people its name holds. They see who is in it and send messages, typing and read ticks to it, and your server gets the messages by webhook.
+3. **A product page** lets in anyone, signed in or not, with a live count of who is looking. It has no rule to run.
+
 **Node**
 
 ```ts
+// 1. The updates of an order, the last 20 kept.
 realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => {
+    // An order that is not there lets nobody in.
     const order = await findOrder( id );
-    return order !== null && order.userId === user;
+    if ( order === null ) return false;
+
+    // Its customer, and nobody else.
+    return order.userId === user;
 } );
 
-// A chat of two, named after them: chat:34:42 lets in users 34 and 42 alone.
-realtime.room( 'chat:{a}:{b}', { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] },
-    ( user, { a, b } ) => [ a, b ].includes( String( user ) ) );
+// 2. A chat of two, such as chat:34:42: the two in the name, and nobody else.
+realtime.room( 'chat:{a}:{b}', { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] }, ( user, { a, b } ) => {
+    return [ a, b ].includes( String( user ) );
+} );
 
-realtime.room( 'product:{id}', { public: true, count: true } );   // anyone, signed in or not, and a live count
+// 3. The page of a product: anyone, signed in or not, and a live count. No rule to run.
+realtime.room( 'product:{id}', { public: true, count: true } );
 ```
 
 **PHP**
 
 ```php
+// 1. The updates of an order, the last 20 kept.
 $realtime->room( 'order:{id}', function ( $user, array $p ) {
+    // An order that is not there lets nobody in.
     $order = find_order( $p['id'] );
-    return null !== $order && $order->user_id === $user;
+    if ( null === $order ) {
+        return false;
+    }
+
+    // Its customer, and nobody else.
+    return $order->user_id === $user;
 }, [ 'history' => 20 ] );
 
+// 2. A chat of two, such as chat:34:42: the two in the name, and nobody else.
+$realtime->room( 'chat:{a}:{b}', function ( $user, array $p ) {
+    return in_array( (string) $user, [ $p['a'], $p['b'] ], true );
+}, [ 'presence' => true, 'history' => 50, 'emit' => [ 'message', 'typing', 'read' ], 'webhook' => [ 'message' ] ] );
+
+// 3. The page of a product: anyone, signed in or not, and a live count. No rule to run.
 $realtime->room( 'product:{id}', null, [ 'public' => true, 'count' => true ] );
 
 // Laravel: routes/channels.php, with the options of the room as a third argument. PrivateChannel( 'orders.42' ) is orders.42.
-Broadcast::channel( 'orders.{id}', fn ( User $user, string $id ) => $user->id === Order::find( $id )?->user_id, [ 'history' => 20 ] );
+Broadcast::channel( 'orders.{id}', function ( User $user, string $id ) {
+    // 1. Its customer, and nobody else. A visitor never gets here.
+    return $user->id === Order::find( $id )?->user_id;
+}, [ 'history' => 20 ] );
 ```
 
 **Python**
 
 ```python
+# 1. The updates of an order, the last 20 kept.
 def may_follow_order(user, p):
+    # An order that is not there lets nobody in.
     order = find_order(p["id"])
-    return order is not None and order.user_id == user
+    if order is None:
+        return False
+
+    # Its customer, and nobody else.
+    return order.user_id == user
+
+# 2. A chat of two, such as chat:34:42: the two in the name, and nobody else.
+def may_join_chat(user, p):
+    return str(user) in (p["a"], p["b"])
 
 realtime.room("order:{id}", may_follow_order, history=20)
+realtime.room("chat:{a}:{b}", may_join_chat, presence=True, history=50, emit=["message", "typing", "read"], webhook=["message"])
+
+# 3. The page of a product: anyone, signed in or not, and a live count. No rule to run.
 realtime.room("product:{id}", public=True, count=True)
 ```
 
@@ -64,30 +106,49 @@ A chat's room can be named two ways, and its rule follows the name:
 - **After its two people,** `chat:{a}:{b}`, with their ids, the smaller first, so both of them name the same room: `chat:34:42`. The rule reads the two from the name and needs no table. This suits a conversation that is only ever those two, such as a customer and the agent helping them.
 - **By a number of its own,** `chat:{id}`, with its members in your database: `chat:7`. The rule asks whether the one asking is a member. Two people or a hundred, it is the same rule, and someone may join the chat later. The [dating site](nextjs/dating-site.md) names every chat this way.
 
-A numbered chat's rule, with `isMemberOf` your own lookup in your database:
+A numbered chat, `chat:7`, keeps its members in your database, and `isMemberOf` is your own lookup there. A page that joins it asks your server, and this rule answers:
+
+1. **Visitors** who are not signed in stay out.
+2. **The members of the chat** join, however many, and nobody else.
 
 **Node**
 
 ```ts
-// chat:7 lets in the members of chat 7, however many.
-realtime.room( 'chat:{id}', { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] },
-    async ( user, { id } ) => user !== null && ( await isMemberOf( id, user ) ) );
+realtime.room( 'chat:{id}', { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] }, async ( user, { id } ) => {
+    // 1. Visitors stay out.
+    if ( user === null ) return false;
+
+    // 2. The members of chat 7, however many, and nobody else.
+    return isMemberOf( id, user );
+} );
 ```
 
 **PHP**
 
 ```php
-// chat:7 lets in the members of chat 7, however many.
-$realtime->room( 'chat:{id}', fn ( $user, array $p ) => null !== $user && is_member_of( $p['id'], $user ),
-    [ 'presence' => true, 'history' => 50, 'emit' => [ 'message', 'typing', 'read' ], 'webhook' => [ 'message' ] ] );
+$realtime->room( 'chat:{id}', function ( $user, array $p ) {
+    // 1. Visitors stay out.
+    if ( null === $user ) {
+        return false;
+    }
+
+    // 2. The members of chat 7, however many, and nobody else.
+    return is_member_of( $p['id'], $user );
+}, [ 'presence' => true, 'history' => 50, 'emit' => [ 'message', 'typing', 'read' ], 'webhook' => [ 'message' ] ] );
 ```
 
 **Python**
 
 ```python
-# chat:7 lets in the members of chat 7, however many.
-realtime.room("chat:{id}", lambda user, p: user is not None and is_member_of(p["id"], user),
-              presence=True, history=50, emit=["message", "typing", "read"], webhook=["message"])
+def may_join_chat(user, p):
+    # 1. Visitors stay out.
+    if user is None:
+        return False
+
+    # 2. The members of chat 7, however many, and nobody else.
+    return is_member_of(p["id"], user)
+
+realtime.room("chat:{id}", may_join_chat, presence=True, history=50, emit=["message", "typing", "read"], webhook=["message"])
 ```
 
 A call in such a chat takes the name of its room, and its rule asks the same of both people ([calls](calls.md#a-call-in-a-chat)).
@@ -112,7 +173,7 @@ The options travel in the room token, signed by your server with the room name, 
 const order = rt.join( 'order:42' );
 order.on( 'updated', ( data, meta ) => refresh( data ) );   // meta: { from, id, at, replayed? }
 order.on( 'joined', () => console.log( 'in' ) );
-order.on( 'error', ( e ) => console.warn( e.code ) );      // forbidden, no_rule, full, expired …
+order.on( 'error', ( e ) => console.warn( e.code ) );      // forbidden, no_rule, expired …
 
 order.state;   // joining, joined, failed, left
 rt.leave( 'order:42' );
@@ -121,7 +182,7 @@ rt.leave( 'order:42' );
 - `join()` gives the same room for the same name. The tabs of a user ride one connection, each with its own rooms.
 - **Events reach a listener opened:** you never handle sealed values.
 - **`meta.from`** is the user who sent it from a page, as your server vouched for them, or nothing for your server. `meta.id` and `meta.at` are the kept event id and time.
-- **The events of the room itself** are `joined`, `join`, `leave`, `count` and `error`, and `connect` and `disconnect` on `rt`. Nobody can send them.
+- **Reserved names:** `joined`, `join`, `leave`, `count`, `error`, `kicked`, `connect`, `disconnect`, `connect_error`, `state` and `online` belong to the room and the connection, such as `connect` and `disconnect` on `rt`. Nobody can send them ([reserved names](errors.md#reserved-names)).
 
 ## History, and nothing lost on a reconnect
 
@@ -142,3 +203,11 @@ const older = await order.history( { before: events[ 0 ].id, limit: 50 } );
 ## Several servers, several packages
 
 Node, PHP and Python declare rooms the same way and sign the same tokens, from the same keys: a page served by one and a route answered by another work together. The [server reference](server.md), the [PHP reference](https://docs.wordplus.cloud/apps/php-reference/) and the [Python reference](https://docs.wordplus.cloud/apps/python-reference/) have every option.
+
+## Use cases
+
+Each with the rules of your server and the code of the page:
+
+- [Live updates and notifications](use-cases/live-updates.md): an order moving on, and a notice to one user in every tab
+- [Chat](use-cases/chat.md): conversations of two and of a group, kept by your server
+- [Editing together](use-cases/collaboration.md): who is in a document, their cursors and their changes

@@ -29,11 +29,11 @@ Node 20 or later, and every edge runtime: it runs on Web Crypto and `fetch`. For
 | Method | |
 |---|---|
 | `room( pattern, options?, ( user, params, room ) => answer )` | rooms by pattern (`order:{id}`). `false`, `true`, or `{ info, emit, readOnly }` ([rooms](rooms.md)) |
-| `calls( pattern, ( user, withUser, params, call, side ) => answer, { people }? )` | calls between two people, `side.role` `caller` or `callee`. `false`, `true`, or `{ info }`. `people( user, call )` answers the user ids the call screen offers to add ([calls](calls.md#who-may-call)) |
+| `calls( pattern, ( user, withUser, params, call, side ) => answer, { people }? )` | calls between two people, `side.role` `caller` or `callee`. `false`, `true`, or `{ info }`: a call between two people takes only `info`. `people( user, call )` answers the user ids the call screen offers to add ([calls](calls.md#who-may-call)) |
 | `groupCalls( pattern, ( user, params, name ) => answer, { encrypt }? )` | group calls. `false`, `true`, or `{ info, publish, subscribe, admin, hidden }`. `encrypt: true` encrypts their media end to end |
-| `streams( pattern, ( user, params, name ) => answer, settings? )` | live streams: `false`, a role (`host`, `viewer`), or `{ role, info, chat, mod, src, quality }`. A visitor (`user` null) is a viewer at most. `settings`: `reactions`, `people`, `chat: { offline, links, fresh }`, each a value or a function of the parts of the name ([live streams](streams.md#who-is-who)) |
+| `streams( pattern, ( user, params, name ) => answer, settings? )` | live streams: `false`, a role (`host`, `guest`, `viewer`), or `{ role, info, chat, mod, src, quality }`. A visitor (`user` null) is a viewer at most. `settings`: `stage`, `reactions`, `people`, `chat: { offline, links, fresh }`, each a value or a function of the parts of the name ([live streams](streams.md#who-is-who)) |
 | `kind( kind, ( rest, user, label ) => boolean, newest? )` | keys of your own kind ([encryption](encryption.md#your-own-sealed-values)) |
-| `on( type, handler )` | the events of a webhook: the name of an event from a page, `room.occupied`, `room.vacated`, `member.joined`, `member.left`, `user.online`, `user.offline`, `stream.live`, `stream.ended`, `call.ended`, `group.joined`, `group.left`, `stream.joined`, `stream.left`, or `*` ([webhooks](sending.md#webhooks)). In TypeScript each handler gets its event typed by that name (`WebhookEventOf`, and `PageEvent` for a page event, its `data` as sent) |
+| `on( type, handler )` | the events of a webhook: the name of an event from a page, `room.occupied`, `room.vacated`, `member.joined`, `member.left`, `user.online`, `user.offline`, `stream.live`, `stream.ended`, `call.ended`, `group.joined`, `group.left`, `stream.joined`, `stream.left`, `webhook.test`, or `*` ([webhooks](sending.md#webhooks)). In TypeScript each handler gets its event typed by that name (`WebhookEventOf`, and `PageEvent` for a page event, its `data` as sent) |
 
 Rules may be async. A `{name}` in a pattern matches one or more of the characters of a room name but `:` and `.`. The pattern with the most characters of its own decides. A name no pattern matches is refused with `no_rule`.
 
@@ -45,14 +45,14 @@ Room options: `presence`, `count`, `history` (a number, or `{ last, days }`), `e
 |---|---|
 | `to( rooms ).except( tab ).emit( event, data, { seal } )` | to up to 1,000 rooms ([sending](sending.md)) |
 | `toUser( users ).emit( … )` | to up to 1,000 users, every tab and device they have open. Chains with `to()` |
-| `batch( [ { rooms, users, event, data, except, seal } ] )` | 100 events a request |
-| `in( room )` | `.count()`, `.members()` → `{ count, list, next? }`, `.history( { before, after, limit, days } )` → `{ events, more }`, `.forget( id? )`, `.kick( user )` |
+| `batch( [ { rooms, users, event, data, except, seal } ] )` | several events, each sent as its own emit, one after another: any number. The kept ids, by room, for each |
+| `in( room )` | `.count()`, `.members()` → `{ count, list }` (the first 1,000 members of a presence room, their info opened), `.history( { before, after, limit, days } )` → `{ events, more }`, `.forget( id? )`, `.kick( user )` |
 | `online` | `.has( user )`, `.count()`, `.states( users )` → `[ { id, online, at? } ]`, `.list( { cursor, limit } )` → `{ ids, next }` ([who is online](presence.md#who-is-online-across-your-app)) |
 | `listRooms( { prefix, cursor, limit } )` | → `{ count, rooms: [ { name, count, connections } ], next? }`: the rooms someone is in now ([sending](sending.md#the-rooms-in-use)) |
-| `user( id )` | `.get()` → `{ id, online, at?, connections }`, `.disconnect()`, `.ask( event, data, { timeout, all, seal } )` → `[ { data, at } ]` ([a user](sending.md#a-user)) |
+| `user( id )` | `.get()` → `{ id, online, at?, connections }`, `.disconnect()`, `.ask( event, data, { timeout, all, seal } )` → `[ { data, at } ]`, `timeout` 1,000 to 60,000 ms, 10,000 by default ([a user](sending.md#a-user)) |
 | `usage()` | → `{ connections: { now, limit }, credits }` ([what your app uses](sending.md#what-your-app-uses)) |
-| `webhooks` | `.deliveries()`, `.resend( id )` → `{ delivered, status, error? }`, `.test()` ([deliveries](sending.md#deliveries-a-resend-and-a-test)) |
-| `listCalls()`, `call( name )` | the group calls going on, and `.get()`, `.mute( user, track )`, `.permit( user, { publish } )`, `.remove( user )`, `.end()` ([calls](calls.md#from-your-server)) |
+| `webhooks` | `.deliveries()`, the last 100 tries. `.resend( id )` → `{ delivered, status, error? }`. `.test()` → the same: one `webhook.test` event sent now, which `on( 'webhook.test', … )` hears ([deliveries](sending.md#deliveries-a-resend-and-a-test)) |
+| `listCalls()`, `call( name )` | the group calls going on, and `.get()`, `.mute( user, track )` (`microphone`, `camera` or `screen`, → whether it was on), `.permit( user, { publish, subscribe } )` (`publish` makes a listener a speaker or a speaker a listener, `subscribe` stops or starts what they get of the others, → whether they were in it), `.remove( user )` (→ whether they were in it), `.end()` ([calls](calls.md#from-your-server)) |
 | `listStreams()`, `stream( name )` | the streams live now, and `.get()`, `.people()`, `.chat( { limit } )`, `.say( text, { name, avatar } )`, `.deleteMessage( id )`, `.clearChat()`, `.pin( id )`, `.slow( seconds )`, `.timeout( user, seconds )`, `.untimeout( user )`, `.kick( user )`, `.ban( user )`, `.unban( user )`, `.bans()`, `.reactions( on )`, `.end()` ([live streams](streams.md#from-your-server)) |
 | `rotateRoom( room )`, `rotateUser( user )` | moves a key on |
 | `keys` | the `Keys`: `seal( text, label )`, `sealJson`, `open`, `entry( label )`, `dayLabel()`, `roomLabel( room )`, `userLabel( user )` |
@@ -69,12 +69,13 @@ An emit answers the kept event ids, by room. All throw `RealtimeError` (`code`, 
 | `handle( action, body, user )` | → `{ status, body }`: the auth, calls and keys routes, for a framework of your own |
 | `webhook( raw, headers, path )` | → `{ status, body }`: the webhook, checked and handed to the handlers of `on()` |
 
-The browser routes take JSON POSTs only (`415` otherwise): a page on another site cannot send one without asking first, which it is never allowed. A refusal is an answer (`denied`), not an HTTP error. The webhook answers `204` once every handler is done, `401` for a request WordPlus Cloud did not sign, and `500` when a handler threw, so it is sent again later.
+The browser routes take JSON POSTs only: another method gets `405`, and a body that is not JSON `415`. A page on another site cannot send JSON without asking first, which it is never allowed. A refusal is an answer (`denied`), not an HTTP error. The webhook answers `204` once every handler is done, `401` for a request WordPlus Cloud did not sign, and `500` when a handler threw, so it is sent again later.
 
 | Method | What it answers |
 |---|---|
 | `authorize( rooms, user )` | `{ token, exp, keys, denied }`: one token for the rooms allowed, their keys, and why each other was refused |
-| `authorizeCall( request, user )` | `{ token, exp, key, media_key, pair, member, ring? }` for a call, `{ token, exp, media_key? }` for a group call, `{ people }`, `{ may }` (whom the user may call, as the online list asks), `{ done }` (a host's act from the call screen), or `{ denied }` |
+| `mayJoin( room, user )` | whether the room's rule lets `user` in, as `authorize` would: for a route of yours about the room, such as one that takes a file for its chat ([files](use-cases/chat.md#files)) |
+| `authorizeCall( request, user )` | `{ token, exp, key, media_key, pair, member, ring? }` for a call, `{ token, exp, media_key? }` for a group call, `{ token, exp }` for a live stream, `{ people }`, `{ may }` (whom the user may call, as the online list asks), `{ done }` (an act of a host from the call screen), or `{ denied }` |
 | `keysAnswer( labels, user )` | `{ keys, identity? }` |
 | `identity( user )` | `{ token, exp }` or `null` |
 | `publicGrants()` | the grants for your public rooms, the same for every visitor |

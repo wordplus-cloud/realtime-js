@@ -9,7 +9,7 @@ import { useOnline } from '@wordplus/realtime/react';
 type Card = {
     title: string;
     about: string;
-    steps: Array<{ text: string; code?: { file: string | null; html: string } }>;
+    steps: Array<{ text: string; codes?: Array<{ file: string | null; html: string }> }>;
 };
 
 /** Which cards each page shows. */
@@ -105,12 +105,12 @@ export function HowItWorksCards({ cards }: { cards: Record<string, Card> }) {
                                     <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-rose-100 text-xs font-semibold text-rose-700">{i + 1}</span>
                                     <div className="flex min-w-0 flex-1 flex-col gap-2">
                                         <p className="how-it-works-text text-[15px] leading-relaxed" dangerouslySetInnerHTML={{ __html: fill(step.text, values) }} />
-                                        {step.code && (
-                                            <figure className="min-w-0">
-                                                {step.code.file && <figcaption className="mb-1 font-mono text-xs text-stone-500">{step.code.file}</figcaption>}
-                                                <div className="how-it-works-code" dangerouslySetInnerHTML={{ __html: fill(step.code.html, values) }} />
+                                        {step.codes?.map((code, j) => (
+                                            <figure key={j} className="min-w-0">
+                                                {code.file && <figcaption className="mb-1 font-mono text-xs text-stone-500">{code.file}</figcaption>}
+                                                <div className="how-it-works-code" dangerouslySetInnerHTML={{ __html: fill(code.html, values) }} />
                                             </figure>
-                                        )}
+                                        ))}
                                     </div>
                                 </li>
                             ))}

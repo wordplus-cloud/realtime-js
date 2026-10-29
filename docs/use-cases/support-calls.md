@@ -4,16 +4,18 @@ A customer presses Call support on your site, and it rings for their support age
 
 This page builds it with you from an empty folder: a small Node.js app where Ben, a customer, calls Ann, his support agent. Every file is here in full, and you run it in two browser windows at the end. Then [your own app](#into-your-own-app) changes three things.
 
+**In your stack:** [Next.js](../nextjs/calls.md) · [Express](../express/calls.md) · [Laravel](https://docs.wordplus.cloud/laravel/calls/) · [PHP](https://docs.wordplus.cloud/php/calls/) · [Django](https://docs.wordplus.cloud/django/calls/) · [FastAPI](https://docs.wordplus.cloud/fastapi/calls/) · [Flask](https://docs.wordplus.cloud/flask/calls/) · [WordPress](https://docs.wordplus.cloud/wordpress/calls/)
+
 ## How it goes
 
 Ann is a support agent, user `34` in your app. Ben is a customer, user `42`.
 
-1. **Ben presses Call support** on a page of your site. The button names Ann, and the call `support:34:42`: the ids of the two of them, the smaller first.
+1. **Ben presses Call support** on a page of your site. The button names Ann, and the call `support:34:42`: the ids of the two of them, the smaller first, and ids of text in text order.
 2. **His page asks your server** whether Ben may call Ann: the SDK sends a request to `/api/realtime/calls` on your own server, with his usual cookie. It is your own route, not ours: WordPlus Cloud never sees this request.
 3. **Your server runs your rule** for Ben and Ann. It says yes, and your server signs the answer with your secret.
 4. **With that answer, WordPlus Cloud rings Ann** in every tab she has open, for up to 45 seconds.
 5. **Ann presses Answer.** Her page asks your server the same way, and your rule says yes again.
-6. **They talk** on video, encrypted end to end. The call connects on any network: directly between their devices, through our relays when a firewall blocks that, or through our media servers when even the relays cannot reach ([how it connects](how-it-works.md#how-it-connects)).
+6. **They talk** on video, encrypted end to end. The call connects on any network, by one of three paths: directly between their devices, through our relays on the ports of the web, 443 and 80, when a firewall blocks that, or through our media servers when even the relays cannot reach. None of the three takes credits ([how it connects](how-it-works.md#how-it-connects)).
 7. **Either one hangs up,** and the call ends for both.
 
 You write none of these requests. The SDK in the page and the WordPlus package on your server make them. You write the rule, one line for the route, and a page with a button, as below.
@@ -281,7 +283,7 @@ The same four pieces, with three changes:
 2. **Your sign-in.** In `realtime.node( ( req ) => … )`, give the user your own sign-in found, in place of `req.session.user`.
 3. **The agent to call.** Your server writes into `to` the agent your app gives this customer, or one on duty ([variations](#variations)).
 
-On another stack, the guide of each sets up the route and the settings in the page: [Next.js](https://docs.wordplus.cloud/nextjs/getting-started/), [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/) and [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/). The rule is then the same in each language:
+On another stack, the guide of each sets up the route and the settings in the page: [Next.js](../nextjs/getting-started.md), [Express](../express/getting-started.md), [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [PHP](https://docs.wordplus.cloud/php/getting-started/), [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/), [Flask](https://docs.wordplus.cloud/flask/getting-started/) and [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/). The rule is then the same in each language:
 
 **Node**
 
@@ -371,13 +373,11 @@ wordplus_realtime()->calls( 'support:{a}:{b}', function ( $user_id, $with, array
 
 ## Your own interface instead
 
-The call screen and the button are optional. The same flow with screens of your own, on the calls API, after `connect()`:
-
-```js
-const calls = await rt.calls();
-```
+The call screen and the button are optional. The same flow with screens of your own, on the calls API: `const calls = await rt.calls()` after `connect()`, or `useCalls()` in React.
 
 On the page of Ben, steps 1 to 3:
+
+**Browser**
 
 ```js
 callButton.onclick = async () => {
@@ -386,28 +386,95 @@ callButton.onclick = async () => {
     call.setTrack( 'camera', camera.getVideoTracks()[ 0 ] );
     call.setTrack( 'microphone', camera.getAudioTracks()[ 0 ] );
     call.on( 'state', ( state ) => showState( state ) );    // ringing, connecting, connected, reconnecting, ended
-    call.on( 'remote', () => call.remote.camera?.attach( theirVideo ) );
+    call.on( 'remote', ( remote ) => {
+        remote.camera?.attach( theirVideo );                // a <video>
+        remote.microphone?.attach( theirAudio );            // an <audio>: the voice of Ann
+    } );
     hangUp.onclick = () => call.end();                      // step 7
 };
 ```
 
+**React**
+
+```tsx
+import { useRef, useState } from 'react';
+import type { Call } from '@wordplus/realtime';
+import { useCalls } from '@wordplus/realtime/react';
+
+export function CallSupport() {
+    const { calls } = useCalls();                           // null until the calls are loaded
+    const [ call, setCall ] = useState<Call | null>( null );
+    const theirVideo = useRef<HTMLVideoElement>( null );
+    const theirAudio = useRef<HTMLAudioElement>( null );
+
+    const start = async () => {
+        if ( !calls ) return;
+        const camera = await navigator.mediaDevices.getUserMedia( { video: true, audio: true } );
+        const placed = await calls.start( 'support:34:42', { to: 34, type: 'video' } );   // your rule runs here
+        placed.setTrack( 'camera', camera.getVideoTracks()[ 0 ] );
+        placed.setTrack( 'microphone', camera.getAudioTracks()[ 0 ] );
+        placed.on( 'state', ( state ) => showState( state ) );    // ringing, connecting, connected, reconnecting, ended
+        placed.on( 'remote', ( remote ) => {
+            if ( theirVideo.current ) remote.camera?.attach( theirVideo.current );
+            if ( theirAudio.current ) remote.microphone?.attach( theirAudio.current );
+        } );
+        setCall( placed );
+    };
+
+    return (
+        <>
+            <button disabled={ !calls } onClick={ start }>Call support</button>
+            <video ref={ theirVideo } autoPlay playsInline />
+            <audio ref={ theirAudio } autoPlay />
+            { call && <button onClick={ () => call.end() }>Hang up</button> }
+        </>
+    );
+}
+```
+
 On every page of Ann, steps 4 and 5:
+
+**Browser**
 
 ```js
 calls.on( 'incoming', ( incoming ) => {
     showRinging( incoming.info.name, incoming.type );                       // step 4
     answerButton.onclick = async () => showCall( await incoming.accept() ); // step 5, your rule runs again
-    declineButton.onclick = () => incoming.decline( 'busy' );
+    declineButton.onclick = () => incoming.decline();
 } );
+```
+
+**React**
+
+```tsx
+import { useCalls } from '@wordplus/realtime/react';
+
+// Step 4: each call ringing for Ann now, kept current. Step 5: Answer, and your rule runs again.
+export function Ringing() {
+    const { incoming } = useCalls();
+
+    return (
+        <>
+            { incoming.map( ( ring ) => (
+                <div key={ ring.id }>
+                    { ( ring.info as { name: string } ).name } calls you
+                    <button onClick={ async () => showCall( await ring.accept() ) }>Answer</button>
+                    <button onClick={ () => ring.decline() }>Decline</button>
+                </div>
+            ) ) }
+        </>
+    );
+}
 ```
 
 - **Adding a colleague:** `await call.add( 56 )` rings them in, and both sides get `group`, the call going on as a group call ([calls](../calls.md#adding-people)).
 - **A connection may drop for 45 seconds** during a call and come back without ending it.
-- **Why it ended:** `call.endReason`, such as `hangup`, `rejected`, `busy` or `no_answer` ([calls](../calls.md#why-a-call-ended)).
+- **Why it ended:** `call.endReason`, such as `hangup` or `no_answer` ([calls](../calls.md#why-a-call-ended)).
 
 ## Variations
 
 - **Voice only,** for a helpline: `type="audio"` on the button, and no camera asked for.
 - **A time limit** of your own: `calls.on( 'call', ( call ) => setTimeout( () => call.end(), 20 * 60 * 1000 ) )`.
 - **The agent on duty:** a presence room the agents join while they work, and the button calls one of them, shown while someone is in it ([who is online and who is here](online.md)).
-- **On the phone of the agent:** the iOS and Android apps ring and answer the same calls, with the native call screen of Better Messages ([iOS calls](https://docs.wordplus.cloud/ios/calls/), [Android calls](https://docs.wordplus.cloud/android/calls/)).
+- **On phones:** the iOS and Android apps ring and answer the same calls, with the native call screen of Better Messages ([iOS](https://docs.wordplus.cloud/ios/calls/), [Android](https://docs.wordplus.cloud/android/calls/)), and a Capacitor app does as a browser does ([mobile apps](../mobile/calls.md)).
+- **A whole site, in Next.js:** calls between two in the chat of a dating site ([dating site](../nextjs/dating-site.md#the-chat-and-its-video-date)), and between colleagues of a team intranet ([team intranet](../nextjs/team-intranet.md#a-conversation-with-a-colleague-and-its-call)).

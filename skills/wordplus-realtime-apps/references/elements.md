@@ -53,7 +53,7 @@ const rt = await connect( { ...config, screen: { prefix: 'shop' } } );
 | Attribute | |
 |---|---|
 | `to` | the user id to call |
-| `call` | the name of the call, as your `calls()` rule allows it. `{pair}` is the page user and `to` in order, so either of the two calling names the same call. `{me}` is the page user, `{id}` is `to` |
+| `call` | the name of the call, as your `calls()` rule allows it. `{pair}` is the page user and `to`, the smaller id first (text ids in text order), so either of the two calling names the same call. `{me}` is the page user, `{id}` is `to` |
 | `type` | `video` (the default) or `audio` |
 | `name`, `avatar` | who is called, for the call window while it rings |
 
@@ -117,7 +117,7 @@ How many are in a room that counts (`count` or `presence`), and nothing while it
 | Attribute | |
 |---|---|
 | `room` | the room of the conversation, whose rule lets the page send `message`, `typing`, `read` and `reaction` |
-| `messages` | your route for the messages your server kept, asked with the page cookies. `?before=<id>` asks for the page before that message. It answers `{ messages: [ { id, from, text, at, reactions } ], more }`, oldest first |
+| `messages` | your route for the messages your server kept, asked with the page cookies. `?before=<id>` asks for the page before that message. It answers `{ messages: [ { id, from, text, at, files, reactions } ], more }`, oldest first, `files` where a message has any |
 | `placeholder` | the words in the empty composer |
 | `reactions` | the reactions to pick from, emoji (`👍 ❤️`) or their code points (`1f44d 2764`), apart by spaces. Empty for none. 👍 ❤️ 😂 😮 😢 🙏 by default |
 | `max-length` | the most characters of a message |
@@ -125,6 +125,11 @@ How many are in a room that counts (`count` or `presence`), and nothing while it
 | `name`, `avatar` | the name and picture of `to`, as your page has them: on the bar, on their messages and in their call. Without them, your directory's, which has a person only for a day after they were last online |
 | `call` | the call of the conversation, shown in the chat while it is on. `call` alone is the call named as the room, which your `calls()` rule decides, and a value names another (`date:{pair}`). With `to`, the bar has a video and an audio call button |
 | `start-call` | `video` or `audio`: calls `to` as the chat opens, once, for a page that a Video button elsewhere links to, so the call starts in the chat |
+| `upload` | your route for files: with it, the composer has its paperclip, and takes files pasted or dropped on the chat. Each file goes to it as it is picked, `POST` with the page cookies, as a form of the `file` and the `room`, and it answers the file as your server keeps it: `{ id, url, name, type, size }`, or an error status with `{ error: "…" }`, whose words the file shows ([files](use-cases/chat.md#files)) |
+| `accept` | the files the picker offers, as an input's `accept`: `image/*,.pdf`. Every kind by default |
+| `max-file-size` | the largest file in bytes, refused before it goes up. Your route decides by default |
+| `max-files` | the most files in one message, 10 by default |
+| `file-hosts` | the hosts your files are kept on beside your site's own, such as your storage's, apart by spaces. A file elsewhere is not shown, as anyone may write any address into a message of their own |
 
 | Property | |
 |---|---|
@@ -132,13 +137,13 @@ How many are in a room that counts (`count` or `presence`), and nothing while it
 
 | Event | |
 |---|---|
-| `sent` | a message of this user the room took, `{ id, room, text, at }` as its `detail`: for your server to keep it and tell the other person where no webhook reaches it ([chat](use-cases/chat.md#telling-the-other-person)) |
+| `sent` | a message of this user the room took, `{ id, room, text, at, files }` as its `detail`, `files` where it has any: for your server to keep it and tell the other person where no webhook reaches it ([chat](use-cases/chat.md#telling-the-other-person)) |
 
 It fills the height the page gives it. With neither `messages` nor `load`, it shows what the room still keeps (5 minutes). What it sends ([events from the page](events.md#ready-made-the-chat)):
 
 | Event | Data |
 |---|---|
-| `message` | `{ text }`, with an ack |
+| `message` | `{ text }`, with an ack, and `files`, those your route took for it, where it has any |
 | `typing` | `{ on }`, volatile |
 | `read` | `{ id }`, the newest message seen, volatile |
 | `reaction` | `{ id, key }`, `key` empty to take it back, with an ack |
@@ -239,6 +244,7 @@ They come in with the camera and microphone off, and the browser asks for neithe
 - **The parts of one stream** share one join and one chat, wherever they are: `<live-stream name="show:mugs" view="player">` in the page, `view="chat"` in its side column.
 - **What the page user sees** follows the answer of your rule: the studio for its host, the player and the chat for everyone else, with what keeps the chat for its `mod`s.
 - **A refusal** shows its words in place of the stream: no access, or live streaming not in the plan.
+- **A live stream is not encrypted end to end,** the chat and the picture alike.
 - **Its look** is drawn in the page, not in a shadow root: style its `estream-` classes ([customizing](customizing.md#live-streams)).
 
 ## `<stream-studio>`
@@ -271,6 +277,6 @@ For a host who goes live often, a page of your own with nothing but the studio, 
 ## Their words and look
 
 - **Words:** in the language of the page `<html lang>`, in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew. `rt.callScreen( { lang, strings } )` and `rt.streamScreen( { lang, strings } )` choose another and change any of them by their English text.
-- **Light and dark:** they follow the system, or the page when it says which: `bm-messages-light` or `bm-messages-dark` on `<body>`, or a `color-scheme` naming one alone.
+- **Light and dark:** they follow the system, or the page when it says which: `wplus-messages-light` or `wplus-messages-dark` on `<body>`, or a `color-scheme` naming one alone.
 - **Right to left:** a page in Hebrew draws them mirrored.
-- **Design tokens,** such as `--bm-color-accent`, go on the elements themselves, since each keeps its own in its shadow root: `call-screen, chat-room, online-list { --bm-color-accent: 37, 99, 235; }`. Set there, they hold in light and dark alike ([customizing](customizing.md#1-the-look)). The streams have a look of their own, their `estream-` classes.
+- **Design tokens,** such as `--wplus-color-accent`, go on the elements themselves, since each keeps its own in its shadow root: `call-screen, chat-room, online-list { --wplus-color-accent: 37, 99, 235; }`. Set there, they hold in light and dark alike ([customizing](customizing.md#1-the-look)). The streams have a look of their own, their `estream-` classes.

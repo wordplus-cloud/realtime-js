@@ -38,6 +38,13 @@ That is all: the browser files of the SDK come from the realtime routes (step 3)
 
 ## 3. Your server
 
+Each room is named after what it carries: `order:1042` for the updates of order 1042. A page that joins it asks your server first, and a rule answers: a function your server declares once for every room whose name fits the pattern `order:{id}`. WordPlus Cloud then holds the page to the answer ([permissions](../permissions.md)). This rule says:
+
+1. **Visitors** who are not signed in stay out.
+2. **The customer of the order** joins, and nobody else.
+
+And the room keeps its last 20 updates, for a page that reconnects.
+
 ```js
 // server.mjs
 import express from 'express';
@@ -55,10 +62,14 @@ const realtime = createRealtime( {
     },
 } );
 
-// The room of an order: its customer may join, and the last 20 updates are kept.
+// The room of an order, order:1042, the last 20 updates kept.
 realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => {
+    // 1. Visitors stay out.
+    if ( user === null ) return false;
+
+    // 2. The customer of the order, and nobody else.
     const order = await db.orders.find( id );
-    return order !== null && order.customerId === user;
+    return order?.customerId === user;
 } );
 
 const app = express();
@@ -123,8 +134,12 @@ Everyone in the room gets `{ status }`, sealed with the room key on the way, and
 ## Next
 
 - [Rooms](rooms.md), [presence and who is online](presence.md), [sending from your server](sending.md) and [events from the page](events.md), with the ready-made chat
-- [Calls and group calls](calls.md), with the call screen
+- [Calls and group calls](calls.md), with the call screen, and [live streams](streams.md)
 - [Encryption and your users](encryption.md)
 - [Customizing the screens](customizing.md): their look, a piece of your own, or their whole code
 - [Deploying](deploying.md), and [the example app](example.md)
 - The [server reference](../server.md), the [browser reference](../browser.md), [errors](../errors.md) and [limits](../limits.md)
+
+## What to build next
+
+Each use case is a page of its own, with the rules of your server and the code of the page: [chat](../use-cases/chat.md), [who is online](../use-cases/online.md), [live updates and notifications](../use-cases/live-updates.md), [calls from a button](../use-cases/support-calls.md), [team meetings](../use-cases/meetings.md), [live streaming](../use-cases/live-streaming.md) and the rest in the [use cases](../use-cases/overview.md). Three of them build a small Express app from an empty folder, every file in full.

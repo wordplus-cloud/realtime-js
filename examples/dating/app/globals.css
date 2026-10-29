@@ -2,10 +2,10 @@
 
 body {
   /* The chat and the call screen in the site's colour and font: on body, over the package's own on :root. */
-  --bm-color-accent: 225, 29, 72; /* red, green, blue */
-  --bm-color-bubble-self-bg: 225, 29, 72; /* your own messages */
-  --bm-color-bubble-self-outline: 225, 29, 72;
-  --bm-messenger-font: var(--font-geist-sans), sans-serif;
+  --wplus-color-accent: 225, 29, 72; /* red, green, blue */
+  --wplus-color-bubble-self-bg: 225, 29, 72; /* your own messages */
+  --wplus-color-bubble-self-outline: 225, 29, 72;
+  --wplus-messenger-font: var(--font-geist-sans), sans-serif;
   background: #fafaf9;
   color: #1c1917;
   font-family: var(--font-geist-sans), sans-serif;

@@ -2,27 +2,74 @@
 
 Calls between two people that ring in every tab and device the callee has open, group calls on the WordPlus Cloud media servers, and the Better Messages call screen: the buttons, the ring and the call window, with no call code. The media of a call is encrypted end to end, with keys your server gives out.
 
+- **A call between two people** connects on three paths, tried in turn: directly between the two devices, through our relays (TURN) on the ports of the web, 443 and 80, when a network blocks that, and through our media servers when even the relays cannot reach. It moves from one to the next without hanging up, and takes no credits on any path.
+- **Group calls** have no limit on people. The people on video up to the floor of your plan take no credits, a person on audio counting half, and each one above takes a credit a minute from your account ([limits](../limits.md)).
+- **How a call and a group call start, run and end:** [how calls work](../use-cases/how-it-works.md).
+- **Step by step:** [calls from a button](../use-cases/support-calls.md), [team meetings](../use-cases/meetings.md), [consultations by booking](../use-cases/consultations.md), [classes, webinars and audio rooms](../use-cases/classes.md), and [waiting rooms and breakout rooms](../use-cases/waiting-rooms.md). Whole sites: [a dating site](dating-site.md), with video dates in the chat, and [a team intranet](team-intranet.md), with a meeting room for each team and calls between colleagues.
+
 ![Ben has pressed a video call button: his browser shows the call window calling Ann, over his own camera, and the browser of Ann rings, with buttons to answer and decline](https://docs.wordplus.cloud/img/apps/calls-ringing.webp)
 
 ## Who may call
 
-Your server declares calls as it declares rooms, by pattern:
+Every call has a name your app gives it: `support:34:42` for a call between agent 34 and customer 42, `meeting:daily` for the daily meeting. A page that calls, answers or joins asks your server first, through the realtime route, and a rule answers: a function your server declares once for every call whose name fits a pattern, as it declares rooms. WordPlus Cloud then holds the page to the answer ([permissions](../permissions.md#calls-between-two-people)).
+
+These rules say:
+
+1. **A support call,** `support:34:42`, is for the two people in its name.
+2. **One of them is staff.**
+3. **A call of a pro member,** `pro:42:7`, is for the two people in its name too.
+4. **Whoever is called may answer,** and only a pro member calls.
+5. **The daily meeting,** `meeting:daily`, a group call, is hosted by staff: they mute the others, let them speak or make them listeners, and take them out.
+6. **Everyone else signed in** joins it. A page with nobody signed in is refused before any rule runs.
 
 ```ts
 // lib/realtime.ts
-// Calls between two people, support:34:42: the two it names, one of them staff.
+// A support call, such as support:34:42.
 realtime.calls( 'support:{a}:{b}', async ( user, withUser, { a, b } ) => {
-    // The two ids in the name, as text: user 42 is "42" there, user_2abc itself.
+    // 1. The two people in the name: user 42 is "42" there, user_2abc itself.
     const pair = [ a, b ];
-    return pair.includes( String( user ) ) && pair.includes( String( withUser ) ) && ( ( await isStaff( user ) ) || ( await isStaff( withUser ) ) );
+    if ( ! pair.includes( String( user ) ) || ! pair.includes( String( withUser ) ) ) {
+        return false;
+    }
+
+    // 2. One of them is staff.
+    return ( await isStaff( user ) ) || ( await isStaff( withUser ) );
 } );
 
-// The daily meeting: a group call for everyone signed in.
-realtime.groupCalls( 'meeting:{id}', ( user ) => user !== null );
+// A call of a pro member, such as pro:42:7. `call` is its name, and `side` says which side asks.
+realtime.calls( 'pro:{a}:{b}', async ( user, withUser, { a, b }, call, side ) => {
+    // 3. The two people in the name.
+    const pair = [ a, b ];
+    if ( ! pair.includes( String( user ) ) || ! pair.includes( String( withUser ) ) ) {
+        return false;
+    }
+
+    // 4. Whoever is called may answer, and only a pro member calls.
+    if ( side.role === 'callee' ) {
+        return true;
+    }
+    return isPro( user );
+} );
+
+// The daily meeting, meeting:daily: a group call.
+realtime.groupCalls( 'meeting:{id}', async ( user ) => {
+    // 5. Staff host it.
+    if ( await isStaff( user ) ) {
+        return { admin: true };
+    }
+
+    // 6. Everyone else signed in joins it.
+    return true;
+} );
 ```
 
 - **`withUser`** is the other person: whom `user` calls, or who calls `user`. Your server is asked again when the callee answers, with the callee as `user`.
-- **The answer:** `false`, `true`, or `{ info, publish, subscribe, admin, hidden }`: what the others see of `user` (your `profile` by default), and in a group call whether they may send and receive, or stay unlisted. `admin` makes them its host: the call screen gives them mute, let speak or make a listener, and remove on the tile of each of the others, which your calls route takes only from a host ([permissions](../permissions.md#group-calls)).
+- **`side.role`**, the fifth argument, is `caller` or `callee`. A rule that says yes to every callee and checks only callers lets people answer calls they may not place.
+- **The answer:** `false`, `true`, or `{ info, publish, subscribe, admin, hidden }`: what the others see of `user` (your `profile` by default), and in a group call whether they may send and receive, or stay unlisted.
+- **`admin`** makes them its host, who mutes the others, lets them speak or makes them listeners, and takes them out. Your calls route asks this rule again for each of those, and does it only for a host ([permissions](../permissions.md#group-calls)).
+- **A host in the call screen** has the host buttons on the tile of each of the others: Manage Participant opens Mute Microphone, Stop Camera & Mic and Allow Camera & Mic (Demote to Viewer and Promote to Speaker in an audio call), and Remove from Call.
+- **A host on a page of your own** does the same with `group.moderate( act, user )`: `mute`, `speak`, `listen` or `remove` ([your own call interface](#your-own-call-interface)).
+- **Your server** does it with no page open: `realtime.call( name ).mute()`, `.permit()`, `.remove()` and `.end()` ([from your server](#from-your-server)).
 - **The rooms of a group call** can be encrypted end to end too: `realtime.groupCalls( 'meeting:{id}', rule, { encrypt: true } )`. The rooms that come from a call always are.
 - **User ids** are yours: a number, or text such as `user_2abc` or `auth0|5f7c`, up to 64 characters with no space. A rule gets an id of digits as a number and any other as text, so compare them with the name as text. An id calls cannot take is refused with `no_user`.
 
@@ -80,7 +127,7 @@ export function MemberChat( { room, member }: { room: string; member: { id: stri
 
 - **`to`** is the other person, and the bar shows whether they are online.
 - **`name` and `avatar`** are theirs, as your page has them: on the bar, on their messages and in the window of their call. Give them: without them, the chat takes those of your [directory](../encryption.md#your-users), which has a person only for a day after they were last online, so someone away longer shows with no name or picture.
-- **`call`** is the call of the conversation: `true` for the call named as the room, which your `calls()` rule for `chat:{a}:{b}` decides, or a name of its own, `date:{pair}`, `{pair}` being the two ids in order.
+- **`call`** is the call of the conversation: `true` for the call named as the room, which your `calls()` rule for `chat:{a}:{b}` decides, as the rule for `support:{a}:{b}` above, or a name of its own, `date:{pair}`, `{pair}` being the two ids in order.
 - **Beside the messages** where the chat is 600px wide or more, the messages in a column of 350px (`--realtime-chat-beside-call` changes it). In a narrower chat the call takes all of it, and Show Chat puts the messages under the call.
 - **Show Chat and Hide Chat** are in the call controls: hidden, the call fills the chat.
 - **It moves, and goes on,** as in a spot below: into the chat as its page opens, from the corner or a spot of your layout, and back out as the person leaves the page. The chat names its call, so it wins over a spot for every call.
@@ -101,6 +148,7 @@ return <Chat rt={ useRealtime() } room={ room } to={ to } call startCall={ start
 
 - **Your own top bar:** `components={ { ChatHeader: ( { person, online, call, calling } ) => … } }`, where `call( 'video' )` places the call.
 - **Without React,** the element does the same: `<chat-room room="chat:34:42" to="42" name="Ben" avatar="/photos/42.jpg" call style="height: 520px"></chat-room>` ([elements](../elements.md#chat-room)).
+- **Whole sites** that do it: [the chat and its video date](dating-site.md#the-chat-and-its-video-date) of the dating site, and [a conversation with a colleague, and its call](team-intranet.md#a-conversation-with-a-colleague-and-its-call) in the team intranet.
 
 ## The call in the page
 
@@ -201,7 +249,69 @@ realtime.calls( 'support:{a}:{b}', maySupport, {
 } );
 ```
 
-The screen then shows an Add person button, listing them with the names and pictures from your `profile`.
+The screen then shows an Add Person button, listing them with the names and pictures from your `profile`. The person added is asked of your rule as any call: `user` calling them about the call name, then them taking a call from `user`. The call goes on as a group call, and takes credits as one.
+
+## Speakers and listeners
+
+A class, a town hall or an audio room: a few speak and everyone else listens. Your rule makes the listeners (`publish: false`), and your server lets someone speak while the call runs ([classes, webinars and audio rooms](../use-cases/classes.md)). For one person live to a large audience, with guests on stage, see [live streams](streams.md) and [interviews and questions on stage](../use-cases/interviews.md).
+
+The rule of a class, `class:7`, says:
+
+1. **The teacher** speaks, and hosts the class.
+2. **Anyone who is not a student** is turned away.
+3. **A student** listens until the teacher lets them speak.
+
+```ts
+// lib/realtime.ts
+realtime.groupCalls( 'class:{id}', async ( user, { id } ) => {
+    // 1. The teacher speaks, and hosts the class.
+    if ( await isTeacherOf( id, user ) ) {
+        return { admin: true };
+    }
+
+    // 2. Anyone who is not a student.
+    if ( ! ( await isStudentOf( id, user ) ) ) {
+        return false;
+    }
+
+    // 3. A student listens until let speak.
+    return { publish: await maySpeak( id, user ) };
+} );
+```
+
+A Let speak button of your own, in a list of raised hands beside the call, calls a route handler, which:
+
+4. **Takes it from the teacher** alone.
+5. **Keeps the choice** where the rule reads it, for every join after.
+6. **Changes it in the call** at once.
+
+```ts
+// app/api/classes/[id]/speakers/route.ts: POST { user, speak }
+import { currentUserId } from '@/lib/auth';
+import { realtime } from '@/lib/realtime';
+
+export async function POST( req: Request, { params }: { params: Promise<{ id: string }> } ) {
+    const { id } = await params;
+    const { user, speak } = await req.json();
+
+    // 4. The teacher alone.
+    if ( ! ( await isTeacherOf( id, await currentUserId() ) ) ) {
+        return new Response( null, { status: 403 } );
+    }
+
+    // 5. Kept where the rule reads it, for every join after.
+    await setMaySpeak( id, user, speak );
+
+    // 6. At once in the call: their page hears `permissions`.
+    await realtime.call( `class:${ id }` ).permit( user, { publish: speak } );
+    return new Response( null, { status: 204 } );
+}
+```
+
+- **On the call screen,** the teacher, as host, has Manage Participant on the tile of each student: Promote to Speaker and Demote to Viewer in an audio call, Allow Camera & Mic and Stop Camera & Mic in a video call. They change the call as `permit()` does, through your calls route. Your route above also keeps the choice for the joins after.
+- **A student let speak** finds the microphone and camera in the call controls. Made a listener again, they go, and what the student sent stops.
+- **A token signed for them before** follows the change, so an older one cannot undo it. A token signed after follows your rule, so keep who may speak where the rule reads it, as `setMaySpeak()` does.
+- **Raised hands** are a room of the same name, which carries a `hand` event, and the page of your own call reads `group.can` and `person.publish` ([speakers and listeners](../calls.md#speakers-and-listeners)).
 
 ## Your own call interface
 
@@ -225,13 +335,37 @@ export function Ringing() {
 
 ```ts
 const call = await calls!.start( 'support:34:42', { to: 34, type: 'video' } );
-call.on( 'state', ( state ) => show( state ) );   // ringing, connecting, connected, reconnecting, ended
+call.on( 'state', ( state ) => show( state ) );       // ringing, connecting, connected, reconnecting, ended
+call.on( 'path', ( path ) => show( path ) );          // direct, relay or room: the path it connects on now
 call.on( 'remote', () => call.remote.camera?.attach( video ) );
+call.on( 'autoplay_blocked', () => showSoundButton() );   // the browser holds the sound back until a click
 
 const meeting = await calls!.group( 'meeting:daily', { type: 'video' } );
 meeting.on( 'person', ( person ) => person.camera?.attach( tileFor( person ) ) );
+if ( meeting.can.admin ) await meeting.moderate( 'mute', 43 );   // a host: mute, speak, listen or remove
 ```
 
 ![Ann, Ben and Cara in one group call from three browsers, with the call screen grid: each sees the other two and their own camera, then the call controls. The cameras are illustrations](https://docs.wordplus.cloud/img/apps/rooms-meeting.webp)
+
+## From your server
+
+Your server sees the group calls going on and runs them, with no page open: from route handlers, server components and server actions.
+
+```ts
+import { realtime } from '@/lib/realtime';
+
+await realtime.listCalls();                     // [ { name, people, started_at } ]
+const call = realtime.call( 'meeting:daily' );
+await call.get();                               // { people, started_at, list: [ { user, joined_at, camera, microphone, screen } ] }
+await call.permit( 43, { publish: true } );     // a listener let speak, publish: false back to listening
+await call.mute( 43, 'microphone' );            // 'camera' or 'screen' too: they may turn it on again
+await call.remove( 43 );                        // out now, their tokens from before refused
+await call.end();                               // out, everyone
+```
+
+- **A host's buttons** are on the call screen already, for whom the rule answers `admin`. Buttons of your own call a route handler that checks who asks, then these, as the Let speak route above.
+- **`get()`** with nobody in the call answers `people` 0, `started_at` null and an empty list, as [straight into a meeting](#straight-into-a-meeting) reads it. `started_at` is when this call began: one named again after everyone left begins again.
+- **A call between two people** runs between the two, so it is not in `listCalls()`. Once someone is added it is a group call, named `call:` and its id.
+- **A meeting starting,** told to its team as it happens, comes from your webhook: [a meeting starting, and who hears it](team-intranet.md#a-meeting-starting-and-who-hears-it).
 
 Every event, why a call ended, and what WordPlus Cloud sees: [calls in depth](../calls.md).

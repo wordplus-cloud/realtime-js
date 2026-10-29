@@ -4,6 +4,8 @@ One person live to everyone who opens the page: a launch, a class, a talk, a con
 
 This page builds it with you from an empty folder: a small Node.js app where Ann goes live, and Ben watches and writes in the chat, as does anyone who opens the page, signed in or not. Every file is here in full, and you run it in three browser windows at the end. Then [your own app](#into-your-own-app) changes three things.
 
+**In your stack:** [Next.js](../nextjs/streams.md) · [Express](../express/streams.md) · [Laravel](https://docs.wordplus.cloud/laravel/streams/) · [PHP](https://docs.wordplus.cloud/php/streams/) · [Django](https://docs.wordplus.cloud/django/streams/) · [FastAPI](https://docs.wordplus.cloud/fastapi/streams/) · [Flask](https://docs.wordplus.cloud/flask/streams/) · [WordPress](https://docs.wordplus.cloud/wordpress/streams/)
+
 ## How it goes
 
 Ann goes live, user `34` in your app. Ben watches, user `42`. A visitor has not signed in.
@@ -17,6 +19,8 @@ Ann goes live, user `34` in your app. Ben watches, user `42`. A visitor has not 
 7. **Ann presses End stream.** It ends for everyone. She may go live again later under the same name.
 
 You write none of the requests of steps 2 and 3: the SDK in the page and the WordPlus package on your server make them. You write the rule, one line for the route, and a page with the stream, as below.
+
+A stream is for everyone watching it, so its picture and chat are not encrypted end to end. They are encrypted on the way, and the media servers of WordPlus Cloud see them, as a stream needs ([live streams](../streams.md#what-wordplus-cloud-sees)).
 
 ## What you need
 
@@ -273,7 +277,7 @@ The same pieces, with three changes:
 2. **Your sign-in.** In `realtime.node( ( req ) => … )`, give the user your own sign-in found, in place of `req.session.user`.
 3. **Your streams.** Each stream has a name of its own, `live:` and its id, as `live:1` here: one for each event, channel or class of your app.
 
-On another stack, the guide of each sets up the route and the settings in the page: [Next.js](https://docs.wordplus.cloud/nextjs/getting-started/), [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/) and [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/). A fuller rule, in each language, also lets your moderators keep the chat, and makes the host go live in 1080p with a shared screen:
+On another stack, the guide of each sets up the route and the settings in the page: [Next.js](../nextjs/getting-started.md), [Express](../express/getting-started.md), [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [PHP](https://docs.wordplus.cloud/php/getting-started/), [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/), [Flask](https://docs.wordplus.cloud/flask/getting-started/) and [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/). A fuller rule, in each language, also lets your moderators keep the chat, and makes the host go live in 1080p with a shared screen:
 
 **Node**
 
@@ -371,21 +375,30 @@ wordplus_realtime()->streams( 'live:{id}', function ( $user_id, array $p ) {
 
 ## The element, in full
 
+`await rt.streamScreen()` once on the page draws it, as `page.js` does. In React, `<LiveStream>` loads its script itself.
+
+**Browser**
+
 ```html
 <live-stream name="live:1" title="Live with Ann" cover="https://example.com/live-1/cover.jpg"
                  login-url="/login?next=/live/1" sticky></live-stream>
 ```
 
-```js
-await rt.streamScreen();
+**React**
+
+```tsx
+import { LiveStream } from '@wordplus/realtime/react';
+
+// Inside your <RealtimeProvider>.
+export function Live() {
+    return <LiveStream name="live:1" title="Live with Ann" cover="https://example.com/live-1/cover.jpg" loginUrl="/login?next=/live/1" sticky />;
+}
 ```
 
 - **The host** sees the studio on the same element: the camera before going live, Go live, OBS, and End stream.
 - **`sticky`** keeps the player at the top of a phone while it is live, as the viewer scrolls the page.
-- **`login-url`** is where a visitor signs in to write.
+- **`login-url`** (`loginUrl` in React) is where a visitor signs in to write.
 - **In parts:** `view="player"` in the page, and `view="chat"` in the side column.
-
-In React, `<LiveStream name="live:1" title="Live with Ann" />`.
 
 ## Messages from your server
 
@@ -405,7 +418,8 @@ await show.slow( 10 );                 // one message every 10 seconds each, whi
 ```php
 $show = $realtime->stream( 'live:1' );
 $message = $show->say( 'Questions are open until 8 pm', 'The team', 'https://example.com/logo.png' );
-$show->pin( $message['id'] );
+$show->pin( $message['id'] );          // shown above the chat for everyone
+$show->slow( 10 );                     // one message every 10 seconds each, while questions pour in
 ```
 
 **Python**
@@ -413,7 +427,8 @@ $show->pin( $message['id'] );
 ```python
 show = realtime.stream("live:1")
 message = show.say("Questions are open until 8 pm", "The team", "https://example.com/logo.png")
-show.pin(message["id"])
+show.pin(message["id"])                # shown above the chat for everyone
+show.slow(10)                          # one message every 10 seconds each, while questions pour in
 ```
 
 **WordPress**
@@ -422,13 +437,16 @@ show.pin(message["id"])
 $show    = wordplus_realtime()->stream( 'live:1' );
 $message = $show->say( 'Questions are open until 8 pm', 'The team', 'https://example.com/logo.png' );
 if ( ! is_wp_error( $message ) ) {
-	$show->pin( $message['id'] );
+	$show->pin( $message['id'] );      // shown above the chat for everyone
 }
+$show->slow( 10 );                     // one message every 10 seconds each, while questions pour in
 ```
 
 `realtime.stream( 'live:1' ).get()` gives how many watch and the peak, and `people()` who of the signed-in viewers watches.
 
 ## A player of your own
+
+**Browser**
 
 ```js
 const calls = await rt.calls();
@@ -440,10 +458,39 @@ show.on( 'message', ( m ) => addLine( m.from.name, m.text ) );
 heart.onclick = () => show.react( '❤️' );
 ```
 
+**React**
+
+```tsx
+import { useEffect, useRef } from 'react';
+import { useStream } from '@wordplus/realtime/react';
+
+export function Player() {
+    const { stream: show, state } = useStream( 'live:1' );   // state: the stream as it changes
+    const player = useRef<HTMLVideoElement>( null );
+
+    // The picture and its sound, until the component goes.
+    useEffect( () => ( show && player.current ? show.watch( player.current ) : undefined ), [ show ] );
+
+    return (
+        <>
+            <video ref={ player } autoPlay playsInline />
+            { state?.audioBlocked && <button onClick={ () => show?.startAudio() }>Turn sound on</button> }
+            <p>{ state?.viewers ?? 0 } watching</p>
+            <ul>{ state?.chat.map( ( m ) => <li key={ m.id }>{ m.from.name }: { m.text }</li> ) }</ul>
+            <button onClick={ () => show?.react( '❤️' ) }>❤️</button>
+        </>
+    );
+}
+```
+
+- **Sound:** a browser plays it only once the viewer has clicked or typed on the page. `audioBlocked` says it waits for that, and `startAudio()` from a click turns it on.
+
 ## Variations
 
 - **A launch, a class, a concert or a match:** the same element, with the name of each stream.
 - **Several hosts,** such as a host and a guest: guests on stage ([interviews and questions on stage](interviews.md)).
 - **Only for some:** members, ticket holders or students ([members-only streams](members-only.md)).
 - **From OBS** for a studio camera: `show.ingest()` gives the address and key, in the studio as well ([live streams](../streams.md#going-live)).
-- **Credits:** up to 50 viewers at once are unmetered with 1,000 connections, and each viewer above takes a credit a minute. Each viewer holds one of the connections of your app ([limits](../limits.md)).
+- **Credits:** up to 50 viewers at once are unmetered with 1,000 connections, and 20 more for each 1,000 after them. Each viewer above takes a credit a minute, and each viewer holds one of the connections of your app ([limits](../limits.md)).
+- **On phones:** the iOS and Android apps watch and go live natively ([iOS](https://docs.wordplus.cloud/ios/streams/), [Android](https://docs.wordplus.cloud/android/streams/)), and a Capacitor app shows the same element as a browser does ([mobile apps](../mobile/streams.md)).
+- **A whole site, in Next.js:** live lessons, where teachers go live from the browser or OBS and their students hear on any page when a lesson starts ([live lessons site](../nextjs/live-lessons.md)), and a club whose members watch its events and come on stage with their own work ([community site](../nextjs/community.md#an-event)).

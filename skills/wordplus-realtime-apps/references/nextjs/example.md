@@ -21,7 +21,7 @@ A whole shop on Next.js (App Router), in the package `examples/nextjs`: sign in 
 ```bash
 cd examples/nextjs
 cp .env.example .env.local     # the key and secret of your app, with http://localhost:3000 among its addresses, and a local key
-npm install                    # copies the worker, the room client and the components into public/
+npm install                    # the browser files of the SDK come from the realtime route: nothing to copy
 npm run dev                    # http://localhost:3000
 ```
 

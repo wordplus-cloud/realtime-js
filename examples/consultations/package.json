@@ -1,0 +1,33 @@
+{
+  "name": "wordplus-realtime-consultations-example",
+  "private": true,
+  "scripts": {
+    "predev": "node scripts/how-it-works.mjs",
+    "dev": "next dev",
+    "prebuild": "node scripts/how-it-works.mjs",
+    "build": "next build",
+    "start": "next start",
+    "db": "auth migrate --yes && node --env-file=.env.local db/setup.mjs",
+    "seed": "node --env-file=.env.local db/seed.mjs"
+  },
+  "dependencies": {
+    "@wordplus/realtime": "^1.1.0",
+    "@wordplus/realtime-ui": "^1.1.0",
+    "better-auth": "1.7.11",
+    "next": "16.4.2",
+    "pg": "8.23.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "4.3.3",
+    "@types/node": "22.15.3",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "auth": "1.7.11",
+    "shiki": "4.5.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3"
+  }
+}

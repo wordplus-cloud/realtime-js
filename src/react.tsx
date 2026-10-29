@@ -422,8 +422,22 @@ export interface StoredMessage {
     from: string | number;
     text: string;
     at: number;
+    /** Its files, as the webhook brought them. */
+    files?: ChatFile[];
     /** By reaction key, who picked it. */
     reactions?: Record<string, Array<string | number>>;
+}
+
+/** A file in a message, as your server answered its upload (Chat's `upload`): where it opens, and what it is. */
+export interface ChatFile {
+    id: string;
+    url: string;
+    name: string;
+    type: string;
+    size: number;
+    width?: number;
+    height?: number;
+    thumb?: string;
 }
 
 /** A page of the messages your server kept, oldest first, and whether there are older ones. */
@@ -441,6 +455,8 @@ export interface SentMessage {
     room: string;
     text: string;
     at: number;
+    /** Its files, where it has any. */
+    files?: ChatFile[];
 }
 
 /**
@@ -451,10 +467,16 @@ export interface SentMessage {
  * `onSent` hears each message the room took, for your server to keep it and tell the other person where no webhook
  * reaches it. In a chat between two, `to` is the other person, on top with their calls (`name` and `avatar` theirs,
  * where the page has them), and `call` the call that shows in the chat while it is on: `true` for the call named as the
- * room, or its name. `startCall` calls them as the chat opens, once. Needs <CallScreen /> or <RealtimeUi /> on the
- * page, <CallScreen /> for the calls.
+ * room, or its name. `startCall` calls them as the chat opens, once. `upload` takes files, to your route for them
+ * (`POST`, a form of the `file` and the `room`, answered with the file as your server keeps it), with `accept`,
+ * `maxFileSize` in bytes, `maxFiles`, and `fileHosts`, the hosts beside your site's own its files are kept on. Needs
+ * <CallScreen /> or <RealtimeUi /> on the page, <CallScreen /> for the calls.
  */
-export function Chat({ room, placeholder, reactions, maxLength, messages, load, onSent, to, name, avatar, call, startCall }: { room: string; placeholder?: string; reactions?: string[]; maxLength?: number; messages?: string; load?: ChatLoader; onSent?: (message: SentMessage) => void; to?: number | string; name?: string; avatar?: string; call?: boolean | string; startCall?: 'video' | 'audio' }) {
+export function Chat({ room, placeholder, reactions, maxLength, messages, load, onSent, upload, accept, maxFileSize, maxFiles, fileHosts, to, name, avatar, call, startCall }: {
+    room: string; placeholder?: string; reactions?: string[]; maxLength?: number; messages?: string; load?: ChatLoader; onSent?: (message: SentMessage) => void;
+    upload?: string; accept?: string; maxFileSize?: number; maxFiles?: number; fileHosts?: string[];
+    to?: number | string; name?: string; avatar?: string; call?: boolean | string; startCall?: 'video' | 'audio';
+}) {
     const element = useRef<(HTMLElement & { load?: ChatLoader }) | null>(null);
     // The page's onSent as it gives it now: an inline function is another one at every render.
     const sent = useRef(onSent);
@@ -474,6 +496,8 @@ export function Chat({ room, placeholder, reactions, maxLength, messages, load, 
     }, []);
     return createElement(useTag('chat-room'), {
         ref, room, messages, placeholder, reactions: reactions?.join(' '), 'max-length': maxLength ? String(maxLength) : undefined,
+        upload, accept, 'max-file-size': maxFileSize ? String(maxFileSize) : undefined, 'max-files': maxFiles ? String(maxFiles) : undefined,
+        'file-hosts': fileHosts?.join(' ') || undefined,
         to: to === undefined ? undefined : String(to), name, avatar, call: call === true ? 'true' : call || undefined, 'start-call': startCall,
     });
 }

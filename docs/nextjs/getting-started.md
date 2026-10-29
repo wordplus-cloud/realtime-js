@@ -40,6 +40,13 @@ That is all: the browser files of the SDK come from your realtime route (step 3)
 
 ## 3. Your server
 
+Each room is named after what it carries: `order:1042` for the updates of order 1042. A page that joins it asks your server first, and a rule answers: a function your server declares once for every room whose name fits the pattern `order:{id}`. WordPlus Cloud then holds the page to the answer ([permissions](../permissions.md)). This rule says:
+
+1. **Visitors** who are not signed in stay out.
+2. **The customer of the order** joins, and nobody else. `ownerOf` is yours, from your data.
+
+And the room keeps its last 20 updates, for a page that reconnects.
+
 ```ts
 // lib/realtime.ts
 import { createRealtime } from '@wordplus/realtime/server';
@@ -55,8 +62,14 @@ export const realtime = createRealtime( {
     profile: ( user ) => profileOf( user ),
 } );
 
-// The room of an order: its customer may join, and the last 20 updates are kept. ownerOf() is yours, from your data.
-realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => user !== null && ( await ownerOf( id ) ) === user );
+// The room of an order, order:1042, the last 20 updates kept.
+realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => {
+    // 1. Visitors stay out.
+    if ( user === null ) return false;
+
+    // 2. The customer of the order, and nobody else.
+    return ( await ownerOf( id ) ) === user;
+} );
 ```
 
 ```ts
@@ -165,11 +178,21 @@ Everyone in the room gets `{ status }`, sealed with the room key on the way, and
 ## Next
 
 - [Rooms](rooms.md), [presence and who is online](presence.md), [sending from your server](sending.md) and [events from the page](events.md), with the ready-made chat
-- [Calls and group calls](calls.md), with the call screen
+- [Calls and group calls](calls.md), with the call screen, and [live streams](streams.md)
 - [Encryption and your users](encryption.md)
 - [Customizing the screens](customizing.md): their look, a piece of your own, or their whole code
 - [Deploying](deploying.md) (Vercel, or any Node host), and [the example app](example.md)
-- [Build a dating site](dating-site.md): a whole site, with who is online, chat and video dates in the chat
-- [Build a live lessons site](live-lessons.md): a whole site, with teachers live in their lessons, students on stage, and a notice when a lesson goes live
-- [Build a team intranet](team-intranet.md): a whole site, with a meeting room and channels for each team, who is online, calls between colleagues, and a notice when a meeting starts
 - The [React reference](../react.md), the [server reference](../server.md), [errors](../errors.md) and [limits](../limits.md)
+
+## What to build next
+
+**A whole site,** run from the package and gone through a part at a time, with its realtime code:
+
+- [Build a dating site](dating-site.md): who is online, chat, and video dates in the chat
+- [Build a live lessons site](live-lessons.md): teachers live in their lessons, students on stage, and a notice when a lesson goes live
+- [Build a team intranet](team-intranet.md): a meeting room and channels for each team, who is online, calls between colleagues, and a notice when a meeting starts
+- [Build a private consultations site](consultations.md): times booked with experts, a waiting room, and a visit by video encrypted end to end, with messages and files beside it
+- [Build a community site](community.md): channels with photos, lounges by voice or camera, live events with members on stage, and what is on now
+- [Build a marketplace](marketplace.md): a buyer talks to the seller about an item, sees it on a call and makes an offer, and every page shows who is looking and what changed
+
+**One feature at a time,** each use case a page of its own, with the rules of your server and the code of the page: [chat](../use-cases/chat.md), [who is online](../use-cases/online.md), [live updates and notifications](../use-cases/live-updates.md), [calls from a button](../use-cases/support-calls.md), [team meetings](../use-cases/meetings.md), [live streaming](../use-cases/live-streaming.md) and the rest in the [use cases](../use-cases/overview.md).

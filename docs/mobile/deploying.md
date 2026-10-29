@@ -38,4 +38,15 @@ In Laravel, `config/cors.php` with those `allowed_origins`. In Django, `django-c
 
 ## The app files (Capacitor)
 
-`realtime-worker.js`, `realtime-rooms.min.js`, `realtime-rooms-e2ee.worker.js`, `realtime-ui.min.js` and `realtime-ui-streams.min.js` go in the app web folder (`npx wordplus-realtime copy www/`) in every build, so the app carries the ones its package came with.
+`realtime-worker.js`, `realtime-rooms.min.js`, `realtime-rooms-e2ee.worker.js`, `realtime-ui.min.js` and `realtime-ui-streams.min.js` go in the app web folder (`npx wordplus-realtime copy www/`) in every build, so the app carries the ones its package came with. A page runs a worker only from its own address, so `connect()` names them there: `worker: '/realtime-worker.js'` and `rooms: '/realtime-rooms.min.js'` ([getting started](getting-started.md#4-capacitor-and-ionic)).
+
+## Content Security Policy
+
+If the page of a Capacitor app sends one, as a `<meta http-equiv="Content-Security-Policy">` in its `index.html`, let it reach your server and the WordPlus Cloud servers (the realtime servers, which may move a connection to another of them, and the media servers for calls), and run the workers from the files of the app:
+
+```text
+connect-src 'self' https://shop.example.com https://*.wordplus.cloud wss://*.wordplus.cloud;
+worker-src 'self';
+```
+
+React Native has none to set.

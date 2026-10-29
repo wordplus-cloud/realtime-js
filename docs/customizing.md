@@ -13,13 +13,14 @@ Take the first step that does what you need. The further you go, the more of the
 
 ## 1. The look
 
-- **Design tokens:** `--bm-color-accent: 37, 99, 235` (red, green and blue), `--bm-messenger-font`, `--bm-radius-card`, `--bm-radius-avatar`, `--bm-color-bg`, `--bm-color-text-primary` and the rest of the Better Messages tokens. For the React components, on the page (`:root`). For the [elements](elements.md), on the elements themselves, since each keeps its own in its shadow root:
+- **Design tokens:** `--wplus-color-accent: 37, 99, 235` (red, green and blue), `--wplus-messenger-font`, `--wplus-radius-card`, `--wplus-radius-avatar`, `--wplus-color-bg`, `--wplus-color-text-primary` and the rest of the Better Messages tokens. For the React components, on the page (`:root`). For the [elements](elements.md), on the elements themselves, since each keeps its own in its shadow root:
 
 ```css
-call-screen, chat-room, online-list, typing-line { --bm-color-accent: 37, 99, 235; --bm-radius-card: 12px; }
+call-screen, chat-room, online-list, typing-line { --wplus-color-accent: 37, 99, 235; --wplus-radius-card: 12px; }
 ```
-- **Light and dark** follow the system. `bm-messages-light` or `bm-messages-dark` on `<body>` keeps one. The elements also keep the one your page names alone in its `color-scheme`: on a page drawn only light, `:root { color-scheme: light }` has them light.
-- **Words:** `strings: { 'End Call': 'Hang up' }`, by the English text, on `<CallScreen strings>`, `rt.callScreen( { strings } )` or `configureUi()`. The screens come in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew.
+- **Light and dark** follow the system. `wplus-messages-light` or `wplus-messages-dark` on `<body>` keeps one. The elements also keep the one your page names alone in its `color-scheme`: on a page drawn only light, `:root { color-scheme: light }` has them light.
+- **Words:** `strings: { 'End Call': 'Hang up' }`, by the English text, on `<CallScreen strings>`, `rt.callScreen( { strings } )` or `configureUi()`. The screens come in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew, in the language of the page (`<html lang>`), or the one `lang` names: `rt.callScreen( { lang: 'de' } )`, or `screen: { lang }` in `connect()` for every screen.
+- **Right to left:** in Hebrew they draw mirrored, by the language they show.
 
 ## 2. A piece of your own
 

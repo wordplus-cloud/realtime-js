@@ -9,7 +9,7 @@ The realtime SDK gives your app four building blocks. Each is an API to build on
 | **[Calls](calls.md)** | Video and voice calls between two people that ring in every tab and app of the one called. Adding people, which turns a call into a group call. Group calls for a team, a class or a meeting | the call screen, `<call-button>`, `<room-button>` |
 | **[Live streams](streams.md)** | One host live to an audience from the browser, a phone or OBS, with a chat, reactions, a live count of viewers, and moderation. Visitors watch without signing in | `<live-stream>`, `<stream-studio>` |
 
-Your server decides who may do each of them, in rules of its own ([permissions](permissions.md)). What travels through WordPlus Cloud is sealed with keys your server makes, which WordPlus Cloud never holds ([encryption](encryption.md)).
+Your server decides who may do each of them, in rules of its own ([permissions](permissions.md)). What your app sends through rooms is sealed with keys your server makes, which WordPlus Cloud never holds, and so is the media of calls between two people. A group call is encrypted end to end when its rule says so, and a live stream, which is for everyone watching, is encrypted on the way only ([encryption](encryption.md#calls-and-live-streams)).
 
 ## Examples
 
@@ -23,7 +23,7 @@ Each of these has a page of its own, with the code of your server and of the pag
 
 **Classes and events.** A teacher live to a class, with assistants who keep the chat (`mod`) and slow mode while questions pour in. Office hours as a group call the teacher hosts (`admin`: mute, let speak and remove from the call screen) while the students watch and listen (`publish: false`).
 
-**Consulting and support.** Calls between two people, on the direct path between their browsers where there is one, their media encrypted end to end, and a ring in every tab and app of the one called.
+**Consulting and support.** Calls between two people that ring in every tab and app of the one called. Each takes one of three paths: direct between the two, through our relays (TURN on ports 443 and 80), or through our media servers. Its media is encrypted end to end on every path, and none of them takes credits ([how calls and live streams work](use-cases/how-it-works.md)).
 
 ## Where it runs
 

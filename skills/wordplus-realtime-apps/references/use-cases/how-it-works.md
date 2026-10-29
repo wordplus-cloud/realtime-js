@@ -2,6 +2,10 @@
 
 How a call, a group call and a live stream start, who gets in, how you run them while they last, and how they end. Every use case builds on this page.
 
+**In your stack:** calls in [Next.js](../nextjs/calls.md) · [Express](../express/calls.md) · [Laravel](https://docs.wordplus.cloud/laravel/calls/) · [PHP](https://docs.wordplus.cloud/php/calls/) · [Django](https://docs.wordplus.cloud/django/calls/) · [FastAPI](https://docs.wordplus.cloud/fastapi/calls/) · [Flask](https://docs.wordplus.cloud/flask/calls/) · [WordPress](https://docs.wordplus.cloud/wordpress/calls/), and live streams in [Next.js](../nextjs/streams.md) · [Express](../express/streams.md) · [Laravel](https://docs.wordplus.cloud/laravel/streams/) · [PHP](https://docs.wordplus.cloud/php/streams/) · [Django](https://docs.wordplus.cloud/django/streams/) · [FastAPI](https://docs.wordplus.cloud/fastapi/streams/) · [Flask](https://docs.wordplus.cloud/flask/streams/) · [WordPress](https://docs.wordplus.cloud/wordpress/streams/)
+
+The code of the page here is that of the browser, with React beside it where React differs. In React, the same calls and streams come from hooks, `useCalls()` and `useStream( name )`, and do the same from there ([React](../react.md#hooks)).
+
 ## Nothing to create or delete
 
 A call, a group call and a live stream each have a name your app picks, such as `support:34:42`, `team:7` or `launch:mug-2`. There is nothing to create before and nothing to delete after:
@@ -186,19 +190,57 @@ Moved the webhook, with `base` or in `routes`? Then also change the webhook addr
 
 The page calls someone, by the name of the call and their user id:
 
+**Browser**
+
 ```js
 const calls = await rt.calls();
 const call = await calls.start( 'support:34:42', { to: 42, type: 'video' } );
 ```
 
-Or a ready-made button, with the call screen once on the page: `<call-button to="42" call="support:{pair}" type="video">Call support</call-button>` and `await rt.callScreen()`.
+**React**
+
+```tsx
+import { useCalls } from '@wordplus/realtime/react';
+
+export function CallSupport() {
+    const { calls } = useCalls();   // the calls of the page, once loaded
+    const start = () => calls?.start( 'support:34:42', { to: 42, type: 'video' } );
+
+    return <button disabled={ !calls } onClick={ start }>Call support</button>;
+}
+```
+
+Or a ready-made button, with the call screen once on the page: `<call-button to="42" call="support:{pair}" type="video">Call support</call-button>` and `await rt.callScreen()`, or in React `<CallButton to={ 42 } call="support:{pair}">` and `<CallScreen />`. `{pair}` is the two ids, the smaller first, and ids of text in text order.
 
 It rings on every page and app user 42 has open with the call screen or `calls.on( 'incoming' )`, and stops ringing everywhere once one answers:
 
+**Browser**
+
 ```js
 calls.on( 'incoming', async ( incoming ) => {
-    const call = await incoming.accept();   // or incoming.decline( 'busy' )
+    const call = await incoming.accept();   // or incoming.decline()
 } );
+```
+
+**React**
+
+```tsx
+import { useCalls } from '@wordplus/realtime/react';
+
+export function Ringing() {
+    const { incoming } = useCalls();   // the calls ringing here now, kept current
+
+    return (
+        <>
+            { incoming.map( ( ring ) => (
+                <p key={ ring.id }>
+                    <button onClick={ () => ring.accept() }>Answer</button>
+                    <button onClick={ () => ring.decline() }>Decline</button>
+                </p>
+            ) ) }
+        </>
+    );
+}
 ```
 
 ### Who may call
@@ -237,11 +279,33 @@ It also ends on its own when nobody answers within 45 seconds, when a page close
 
 There is nothing to create: the first person who joins a name opens the call, and everyone else joins the same name.
 
+**Browser**
+
 ```js
 const meeting = await calls.group( 'team:7', { type: 'video' } );
 ```
 
-Or a ready-made button: `<room-button room="team:7" type="video" title="Design team">Join the meeting</room-button>`.
+**React**
+
+```tsx
+import { useState } from 'react';
+import type { GroupCall } from '@wordplus/realtime';
+import { useCalls } from '@wordplus/realtime/react';
+
+export function JoinMeeting() {
+    const { calls } = useCalls();
+    const [ meeting, setMeeting ] = useState<GroupCall | null>( null );
+    const join = async () => setMeeting( ( await calls?.group( 'team:7', { type: 'video' } ) ) ?? null );
+    const leave = () => {
+        meeting?.leave();
+        setMeeting( null );
+    };
+
+    return meeting ? <button onClick={ leave }>Leave</button> : <button disabled={ !calls } onClick={ join }>Join the meeting</button>;
+}
+```
+
+Or a ready-made button: `<room-button room="team:7" type="video" title="Design team">Join the meeting</room-button>`, `<GroupCallButton name="team:7">` in React.
 
 To bring people in, show the button on their page, or tell them from your server, and their page joins:
 
@@ -269,8 +333,26 @@ realtime.to_user([43, 56]).emit("meeting", {"name": "team:7"})
 wordplus_realtime()->to_user( array( 43, 56 ) )->emit( 'meeting', array( 'name' => 'team:7' ) );
 ```
 
+The page of each of them joins when told:
+
+**Browser**
+
 ```js
 rt.on( 'meeting', async ( { name } ) => showMeeting( await calls.group( name, { type: 'video' } ) ) );
+```
+
+**React**
+
+```tsx
+import { useCalls, useUserEvent } from '@wordplus/realtime/react';
+
+// In the layout of your signed-in pages, inside the provider.
+export function MeetingInvites() {
+    const { calls } = useCalls();
+    useUserEvent( 'meeting', async ( { name } ) => showMeeting( await calls?.group( name, { type: 'video' } ) ) );
+
+    return null;
+}
 ```
 
 ### Who may join
@@ -284,6 +366,8 @@ Your `groupCalls()` rule, each time someone joins:
 | `{ publish: false }` | join as a listener: they see and hear, and send nothing |
 | `{ admin: true }` | join as its host: they may mute the others, let them speak or make them listeners, and take them out |
 | `{ hidden: true }` | join unseen, listed to nobody |
+
+A group call is encrypted end to end when its rule says so, `groupCalls( pattern, rule, { encrypt: true } )`: every frame is encrypted in the browser with a key your server makes and gives only to those the rule lets in, and the media servers forward what they cannot read ([team meetings](meetings.md)). Without `encrypt`, its media is encrypted on the way, and not end to end.
 
 ### Running it
 
@@ -311,35 +395,38 @@ await realtime.listCalls();                       // every group call going on
 
 ```php
 $meeting = $realtime->call( 'team:7' );
-$meeting->permit( 43, [ 'publish' => true ] );
-$meeting->mute( 43, 'microphone' );
-$meeting->remove( 43 );
-$realtime->listCalls();
+$meeting->get();                               // who is in it, and what each sends
+$meeting->permit( 43, [ 'publish' => true ] ); // let 43 speak, and false makes them a listener again
+$meeting->mute( 43, 'microphone' );            // a microphone left on
+$meeting->remove( 43 );                        // out now
+$realtime->listCalls();                        // every group call going on
 ```
 
 **Python**
 
 ```python
 meeting = realtime.call("team:7")
-meeting.permit(43, publish=True)
-meeting.mute(43, "microphone")
-meeting.remove(43)
-realtime.list_calls()
+meeting.get()                       # who is in it, and what each sends
+meeting.permit(43, publish=True)    # let 43 speak, and False makes them a listener again
+meeting.mute(43, "microphone")      # a microphone left on
+meeting.remove(43)                  # out now
+realtime.list_calls()               # every group call going on
 ```
 
 **WordPress**
 
 ```php
 $meeting = wordplus_realtime()->call( 'team:7' );
-$meeting->permit( 43, array( 'publish' => true ) );
-$meeting->mute( 43, 'microphone' );
-$meeting->remove( 43 );
-wordplus_realtime()->list_calls();
+$meeting->get();                                    // who is in it, and what each sends
+$meeting->permit( 43, array( 'publish' => true ) ); // let 43 speak, and false makes them a listener again
+$meeting->mute( 43, 'microphone' );                 // a microphone left on
+$meeting->remove( 43 );                             // out now
+wordplus_realtime()->list_calls();                  // every group call going on
 ```
 
 ### Buttons for the host
 
-The ready-made call screen has them already, for the host your rule answered `{ admin: true }`: Mute Microphone, Block and Allow Broadcast, and Kick User on the tile of each of the others. Each goes to your calls route, which asks your rule again and acts only for a host, so there is nothing to add. On a call screen of your own, `group.moderate( act, user )` does the same ([group calls](../calls.md)).
+The ready-made call screen has them already, for the host your rule answered `{ admin: true }`: Manage Participant on the tile of each of the others opens Mute Microphone, Stop Camera & Mic and Allow Camera & Mic (Demote to Viewer and Promote to Speaker in an audio call), and Remove from Call. Each goes to your calls route, which asks your rule again and acts only for a host, so there is nothing to add. On a call screen of your own, `group.moderate( act, user )` does the same ([group calls](../calls.md)).
 
 Buttons of your own elsewhere, such as a host panel beside the call, call a route of yours, which checks who asks and does it:
 
@@ -437,15 +524,36 @@ Everyone is out, and the tokens signed before do not open it again. The same nam
 
 The host opens the stream by its name, sees their camera, then goes live:
 
+**Browser**
+
 ```js
 const show = await calls.stream( 'launch:mug-2' );
 await show.preview();   // the camera and microphone, for the host alone
 await show.goLive();    // everyone watching sees it now
 ```
 
-Or ready-made: `<live-stream name="launch:mug-2" title="The new mug"></live-stream>` is the player for viewers, and for the host the studio, with Go live and End stream. From OBS, `const { url, key } = await show.ingest()`.
+**React**
 
-Viewers open the same name with the same element, or `calls.stream( name )` and `show.watch( video )`. Before the host goes live, they see it waiting.
+```tsx
+import { useStream } from '@wordplus/realtime/react';
+
+export function Studio() {
+    const { stream: show } = useStream( 'launch:mug-2' );   // drawn again as the stream changes
+
+    return (
+        <>
+            <button onClick={ () => show?.preview() }>Camera on</button>
+            <button disabled={ show?.state === 'live' } onClick={ () => show?.goLive() }>Go live</button>
+        </>
+    );
+}
+```
+
+Or ready-made: `<live-stream name="launch:mug-2" title="The new mug"></live-stream>` is the player for viewers, and for the host the studio, with Go live and End stream, `<LiveStream name="launch:mug-2">` in React. From OBS, `const { url, key } = await show.ingest()`.
+
+Viewers open the same name with the same element, or `calls.stream( name )` and `show.watch( video )`, `useStream( name )` in React. Before the host goes live, they see it waiting.
+
+A stream is for everyone watching it, so its picture and chat are not encrypted end to end. They are encrypted on the way, and the media servers of WordPlus Cloud see them, as a stream needs ([live streams](../streams.md#what-wordplus-cloud-sees)).
 
 ### Who is who
 
@@ -489,27 +597,30 @@ await realtime.listStreams();                            // every stream live no
 
 ```php
 $show = $realtime->stream( 'launch:mug-2' );
+$show->get();                                           // live or not, and how many watch
 $show->say( 'Free shipping until 8 pm', 'Mug Shop' );
 $show->ban( 88 );
-$realtime->listStreams();
+$realtime->listStreams();                               // every stream live now
 ```
 
 **Python**
 
 ```python
 show = realtime.stream("launch:mug-2")
+show.get()                                          # live or not, and how many watch
 show.say("Free shipping until 8 pm", "Mug Shop")
 show.ban(88)
-realtime.list_streams()
+realtime.list_streams()                             # every stream live now
 ```
 
 **WordPress**
 
 ```php
 $show = wordplus_realtime()->stream( 'launch:mug-2' );
+$show->get();                                           // live or not, and how many watch
 $show->say( 'Free shipping until 8 pm', 'Mug Shop' );
 $show->ban( 88 );
-wordplus_realtime()->list_streams();
+wordplus_realtime()->list_streams();                    // every stream live now
 ```
 
 Your server hears each stream go live and end, from the webhook: `stream.live` and `stream.ended` ([live streams](../streams.md#who-is-who)).

@@ -31,7 +31,13 @@ A webhook is signed as a request to the API is, with the webhook key, `HMAC-SHA2
 2. `X-WordPlus-Timestamp` is within 5 minutes of your clock.
 3. `X-WordPlus-Signature` is the hex HMAC-SHA256, under the webhook key, of `"{timestamp}\nPOST\n{path with query}\n{sha256 hex of the body}"`: the path your address has, and the body exactly as it came, before any parsing.
 
-Then take the events. The helpers on [signing requests](signing.md) do all three:
+**The packages for Node, PHP and Python check all three for you.** Their webhook route does it before any handler of `on()` runs, and answers `401` to a request WordPlus Cloud did not sign:
+
+- In Node, `realtime.route` and `realtime.node()`, or `realtime.webhook( raw, headers, path )` for a framework of your own.
+- In PHP, `$realtime->respond( 'webhook', null )`, the webhook route of the Laravel package, or `$realtime->webhook( $raw, $headers, $path )`.
+- In Python, the webhook route of the Django, FastAPI and Flask packages, or `realtime.webhook( raw, headers, path )`.
+
+With none of them, the helpers on [signing requests](signing.md) do all three, then hand you the events:
 
 **Node**
 
@@ -113,7 +119,7 @@ http.HandleFunc("/api/realtime/webhook", func(w http.ResponseWriter, r *http.Req
 | `room.occupied`, `room.vacated` | `room` | the first one in, the last one out |
 | `member.joined`, `member.left` | `room`, `user` | in a presence room |
 | `user.online`, `user.offline` | `user` | a user connected anywhere in your app, and gone 10 seconds after their last connection |
-| `stream.live`, `stream.ended` | `stream`, `started_at`, `ended_at` | a live stream went live and ended, the times in milliseconds |
+| `stream.live`, `stream.ended` | `stream`, `started_at`, `ended_at`, and on its end `peak` and `viewer_seconds` | a live stream went live and ended, the times in milliseconds. `peak` is the most watching at once while it was live, and `viewer_seconds` the time of everyone watching it live, added up |
 | `call.ended` | `call`, `call_id`, `from`, `to`, `media`, `started_at`, `answered_at`, `ended_at`, `seconds`, `reason` | a call between two people ended. `seconds` is the time they talked, from the answer to the end, 0 for a call never answered. Its `id` is the same however often it is sent |
 | `group.joined`, `group.left` | `call`, `user`, `media`, `joined_at`, and on leaving `left_at` and `seconds` | someone joined or left a group call, by the name your rules gave it |
 | `stream.joined`, `stream.left` | `stream`, `user`, `role`, `watch`, `joined_at`, and on leaving `left_at` and `seconds` | a signed-in person started or stopped watching or presenting while the stream was live: `stream.joined` as they open it live or it goes live with them on it, `stream.left` as they leave or it ends, `seconds` the live time alone. `watch` and `joined_at` pair the two, and going live again starts another pair. Visitors are not told |

@@ -23,8 +23,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      {/* bm-messages-light: the chat and the call screen stay light, as the site is */}
-      <body className="min-h-full flex flex-col bm-messages-light">{children}</body>
+      {/* wplus-messages-light: the chat and the call screen stay light, as the site is */}
+      <body className="min-h-full flex flex-col wplus-messages-light">{children}</body>
     </html>
   );
 }

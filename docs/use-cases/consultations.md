@@ -2,6 +2,8 @@
 
 A video visit with a doctor, a lawyer, a tutor or a coach: two people meet at a booked time from a link on the page of the appointment. It opens only to those two, only from shortly before its time until its end, and its media is encrypted end to end, so the media servers forward what they cannot read. Whoever comes first waits in it for the other, and nothing rings.
 
+**In your stack:** [Next.js](../nextjs/calls.md) · [Express](../express/calls.md) · [Laravel](https://docs.wordplus.cloud/laravel/calls/) · [PHP](https://docs.wordplus.cloud/php/calls/) · [Django](https://docs.wordplus.cloud/django/calls/) · [FastAPI](https://docs.wordplus.cloud/fastapi/calls/) · [Flask](https://docs.wordplus.cloud/flask/calls/) · [WordPress](https://docs.wordplus.cloud/wordpress/group-calls/)
+
 ## The rule
 
 A group call for each booking, named after it: `visit:81`. The doctor and the patient join it from the page of the appointment.
@@ -79,13 +81,27 @@ wordplus_realtime()->group_calls( 'visit:{id}', function ( $user_id, array $p ) 
 
 ## The page of the appointment
 
-Ready-made, with the call screen of Better Messages:
+Ready-made, with the call screen of Better Messages once on the page (`rt.callScreen()`, or `<CallScreen />` in React):
+
+**Browser**
 
 ```html
 <room-button room="visit:81" type="video" title="Your appointment with Dr. Lee">Join the visit</room-button>
 ```
 
+**React**
+
+```tsx
+import { GroupCallButton } from '@wordplus/realtime/react';
+
+export function JoinVisit() {
+    return <GroupCallButton name="visit:81" type="video" title="Your appointment with Dr. Lee">Join the visit</GroupCallButton>;
+}
+```
+
 Or your own:
+
+**Browser**
 
 ```js
 const calls = await rt.calls();
@@ -100,6 +116,53 @@ visit.on( 'person', ( person ) => {          // the other one arrived, or what t
 } );
 visit.on( 'person_left', () => showWaiting() );
 leaveButton.onclick = () => visit.leave();
+```
+
+**React**
+
+```tsx
+import { useEffect, useRef, useState } from 'react';
+import type { GroupCall } from '@wordplus/realtime';
+import { useCalls } from '@wordplus/realtime/react';
+
+export function Visit() {
+    const { calls } = useCalls();
+    const [ visit, setVisit ] = useState<GroupCall | null>( null );
+    const [ refused, setRefused ] = useState<string | null>( null );
+    const theirVideo = useRef<HTMLVideoElement>( null );
+    const theirAudio = useRef<HTMLAudioElement>( null );
+
+    const join = async () => {
+        if ( !calls ) return;
+        try {
+            const call = await calls.group( 'visit:81', { type: 'video' } );   // rejects with forbidden outside its time
+            const media = await navigator.mediaDevices.getUserMedia( { video: true, audio: true } );
+            await call.setTrack( 'camera', media.getVideoTracks()[ 0 ] );
+            await call.setTrack( 'microphone', media.getAudioTracks()[ 0 ] );
+            call.on( 'person', ( person ) => {                                 // the other one arrived, or what they send changed
+                if ( theirVideo.current ) person.camera?.attach( theirVideo.current );
+                if ( theirAudio.current ) person.microphone?.attach( theirAudio.current );
+            } );
+            call.on( 'person_left', () => showWaiting() );
+            setVisit( call );
+        } catch ( error ) {
+            setRefused( ( error as { code?: string } ).code ?? 'failed' );
+        }
+    };
+
+    // Left as the component goes, and as Leave is pressed.
+    useEffect( () => () => visit?.leave(), [ visit ] );
+
+    return (
+        <>
+            <video ref={ theirVideo } autoPlay playsInline />
+            <audio ref={ theirAudio } autoPlay />
+            { visit?.encrypted && <p>Encrypted end to end</p> }
+            { refused === 'forbidden' && <p>The visit opens ten minutes before its time.</p> }
+            { visit ? <button onClick={ () => setVisit( null ) }>Leave</button> : <button disabled={ !calls } onClick={ join }>Join the visit</button> }
+        </>
+    );
+}
 ```
 
 `visit.encrypted` is true, which the page may show with a lock.
@@ -140,4 +203,5 @@ wordplus_realtime()->call( 'visit:81' )->end();
 - **The doctor lets the patient in** when ready, from a waiting room ([waiting rooms](waiting-rooms.md)).
 - **Notes and files during the visit:** a room of the same name with `emit: [ 'message' ]`, kept by your server from the webhook ([chat](chat.md)).
 - **A call that rings,** for an appointment by phone: a call between the two at the time, with the same rule on `calls()` ([calls from a button](support-calls.md)).
-- **A visit from the app of the patient:** the iOS and Android SDKs join the same group call ([iOS calls](https://docs.wordplus.cloud/ios/calls/#group-calls), [Android calls](https://docs.wordplus.cloud/android/calls/#group-calls)).
+- **On phones:** the iOS and Android SDKs join the same group call, for a visit from the app of the patient ([iOS](https://docs.wordplus.cloud/ios/calls/#group-calls), [Android](https://docs.wordplus.cloud/android/calls/#group-calls)), and a Capacitor app joins it as a browser does ([mobile apps](../mobile/calls.md)).
+- **A whole site, in Next.js:** times booked with experts, a waiting room, and a visit encrypted end to end with its messages and files beside it ([consultations site](../nextjs/consultations.md#the-visit)).

@@ -6,32 +6,65 @@ Pages and apps send events to the rooms they are in, straight through WordPlus C
 
 ## What a room allows
 
+A chat of two is named after its two people, `chat:34:42`, the smaller id first. A page that joins it asks your server first, and a rule answers: a function your server declares once for every room whose name fits `chat:{a}:{b}`. WordPlus Cloud then holds the page to the answer, and to the events the room lets it send ([permissions](permissions.md)). This rule says:
+
+1. **The pages send** messages, typing, reactions and read ticks to it, and nothing else.
+2. **Your server gets** the messages and reactions too, by webhook, to keep the conversation, and the room keeps its last 50 events for a page that reconnects.
+3. **The two people** in the name join, and nobody else.
+
 **Node**
 
 ```ts
-realtime.room( 'chat:{a}:{b}', { history: 50, emit: [ 'message', 'typing', 'reaction', 'read' ], webhook: [ 'message', 'reaction' ] },
-    ( user, { a, b } ) => [ a, b ].includes( String( user ) ) );
+realtime.room( 'chat:{a}:{b}', {
+    // 1. What the pages may send to it.
+    emit: [ 'message', 'typing', 'reaction', 'read' ],
+    // 2. What your server gets too, and the last 50 kept for a page that reconnects.
+    webhook: [ 'message', 'reaction' ],
+    history: 50,
+}, ( user, { a, b } ) => {
+    // 3. The two people in the name, and nobody else.
+    return [ a, b ].includes( String( user ) );
+} );
 ```
 
 **PHP**
 
 ```php
-$realtime->room( 'chat:{a}:{b}', fn ( $user, array $p ) => in_array( (string) $user, [ $p['a'], $p['b'] ], true ),
-    [ 'history' => 50, 'emit' => [ 'message', 'typing', 'reaction', 'read' ], 'webhook' => [ 'message', 'reaction' ] ] );
+$realtime->room( 'chat:{a}:{b}', function ( $user, array $p ) {
+    // 3. The two people in the name, and nobody else.
+    return in_array( (string) $user, [ $p['a'], $p['b'] ], true );
+}, [
+    // 1. What the pages may send to it.
+    'emit' => [ 'message', 'typing', 'reaction', 'read' ],
+    // 2. What your server gets too, and the last 50 kept for a page that reconnects.
+    'webhook' => [ 'message', 'reaction' ],
+    'history' => 50,
+] );
 ```
 
 **Python**
 
 ```python
-realtime.room("chat:{a}:{b}", lambda user, p: str(user) in (p["a"], p["b"]),
-              history=50, emit=["message", "typing", "reaction", "read"], webhook=["message", "reaction"])
+def may_join_chat(user, p):
+    # 3. The two people in the name, and nobody else.
+    return str(user) in (p["a"], p["b"])
+
+realtime.room(
+    "chat:{a}:{b}",
+    may_join_chat,
+    # 1. What the pages may send to it.
+    emit=["message", "typing", "reaction", "read"],
+    # 2. What your server gets too, and the last 50 kept for a page that reconnects.
+    webhook=["message", "reaction"],
+    history=50,
+)
 ```
 
 - **`emit`** lists the names, or `'*'` for any. None by default: a room your server alone sends to.
 - **`webhook`** names those your server gets too, to keep them ([below](#keeping-the-conversation)).
 - **`history`** keeps the last events of the room for 5 minutes: what a page that reconnects missed comes again from it.
 - **The answer for one user** can narrow it: `{ emit: [ 'typing' ] }`, or `{ readOnly: true }` for none.
-- **The names kept for the room itself** (`joined`, `join`, `leave`, `count`, `error`) are never allowed.
+- **The reserved names** of the room and the connection (`joined`, `join`, `leave`, `count`, `error`, `kicked`, `connect`, `disconnect`, `connect_error`, `state`, `online`) are never allowed ([reserved names](errors.md#reserved-names)).
 
 ## Sending
 
@@ -62,20 +95,41 @@ The conversation is for your app to keep, in its own database, as Better Message
 **Node**
 
 ```ts
-// A guest in a public room sends with no `from`: kept here from signed-in people alone.
-realtime.on( 'message', ( { room, from, data, event_id, at } ) => from && db.messages.upsert( { id: event_id, room, from, text: data.text, at } ) );
+realtime.on( 'message', async ( { room, from, data, event_id, at } ) => {
+    // A guest in a public room sends with no `from`: kept here from signed-in people alone.
+    if ( ! from ) return;
+
+    // Kept once, by the id the pages saw, however many times the webhook brings it.
+    await db.messages.upsert( { id: event_id, room, from, text: data.text, at } );
+} );
 ```
 
 **PHP**
 
 ```php
-$realtime->on( 'message', fn ( array $e ) => save_message( $e['event_id'], $e['room'], $e['from'], $e['data']['text'], $e['at'] ) );
+$realtime->on( 'message', function ( array $e ) {
+    // A guest in a public room sends with no `from`: kept here from signed-in people alone.
+    if ( ! isset( $e['from'] ) ) {
+        return;
+    }
+
+    // Kept once, by the id the pages saw, however many times the webhook brings it.
+    save_message( $e['event_id'], $e['room'], $e['from'], $e['data']['text'], $e['at'] );
+} );
 ```
 
 **Python**
 
 ```python
-realtime.on("message", lambda e: save_message(e["event_id"], e["room"], e["from"], e["data"]["text"], e["at"]))
+def keep_message(e):
+    # A guest in a public room sends with no "from": kept here from signed-in people alone.
+    if "from" not in e:
+        return
+
+    # Kept once, by the id the pages saw, however many times the webhook brings it.
+    save_message(e["event_id"], e["room"], e["from"], e["data"]["text"], e["at"])
+
+realtime.on("message", keep_message)
 ```
 
 - **Check there anything that matters:** the events do not go through your server before they are sent on.
@@ -98,14 +152,22 @@ The Better Messages conversation on a room, with what a chat needs: your server 
 - **`messages`** is your route, asked with the page cookies.
 - **`chat.load`** replaces it, for a token or another shape: `async ( before ) => ( { messages, more } )`, where `before` is `null` for the newest page, or the oldest message shown (`{ id, at }`).
 - **With neither,** the chat shows what the room still has.
+- **`upload`** takes files, to your route for them: picked, pasted or dropped on the chat, each goes to your server as it is picked, and the message carries only where it is ([files](use-cases/chat.md#files)).
 
 It sends what an app of your own would, so the two read each other:
 
 | Event | Data | |
 |---|---|---|
-| `message` | `{ text }` | with an ack. Your server keeps it |
+| `message` | `{ text }`, with `files: [ { id, url, name, type, size } ]` where it has any | with an ack. Your server keeps it |
 | `typing` | `{ on }` | volatile |
 | `read` | `{ id }`, the newest message seen | volatile, for the sender ticks |
 | `reaction` | `{ id, key }`, `key` empty to take it back | with an ack. Your server keeps it |
 
 `await rt.callScreen()` loads it with the call screen, `rt.ui()` without. In React, `<Chat rt={ rt } room="…" messages="…" />` of `@wordplus/realtime-ui/react`, or `load={ … }` ([React](react.md#ready-made-screens)). Names and pictures come from your [directory](encryption.md#your-users).
+
+## Use cases
+
+Each with the rules of your server and the code of the page:
+
+- [Chat](use-cases/chat.md): conversations of two and of a group, kept by your server
+- [Editing together](use-cases/collaboration.md): cursors as volatile events, and changes kept for a page that reconnects

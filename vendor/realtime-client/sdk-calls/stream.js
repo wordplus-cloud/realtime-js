@@ -73,7 +73,7 @@ export class Stream {
     get messages() {
         return this.last.chat;
     }
-    /** Whether this page waits for a place: the stream is full, and the join goes on by itself. */
+    /** Whether this page waits to take the picture: the join goes on by itself once it may. */
     get waiting() {
         return this.last.media === 'waiting';
     }
@@ -88,7 +88,7 @@ export class Stream {
     /**
      * `state` (StreamState), `viewers` (n), `tiles` (StreamTile[]), `message` (ChatMessage, each one new), `hands`
      * (StreamHand[], for its hosts), `invited` (a host asks this user on stage: `joinStage()`), `stage` (whether this page
-     * is on stage now), `waiting` ({ until }: full), `error` ({ code }), `change` (any of it).
+     * is on stage now), `waiting` ({ until }: the join goes on by itself then), `error` ({ code }), `change` (any of it).
      */
     on(event, fn) {
         this.listeners.on(event, fn);

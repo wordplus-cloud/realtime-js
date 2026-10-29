@@ -135,7 +135,7 @@ export declare class Stream {
     get tiles(): StreamTile[];
     /** The chat's last messages, oldest first. */
     get messages(): ChatMessage[];
-    /** Whether this page waits for a place: the stream is full, and the join goes on by itself. */
+    /** Whether this page waits to take the picture: the join goes on by itself once it may. */
     get waiting(): boolean;
     /** The hands raised to come on stage, the oldest first: its hosts see them, a viewer none but their own (`handRaised`). */
     get hands(): StreamHand[];
@@ -147,7 +147,7 @@ export declare class Stream {
     /**
      * `state` (StreamState), `viewers` (n), `tiles` (StreamTile[]), `message` (ChatMessage, each one new), `hands`
      * (StreamHand[], for its hosts), `invited` (a host asks this user on stage: `joinStage()`), `stage` (whether this page
-     * is on stage now), `waiting` ({ until }: full), `error` ({ code }), `change` (any of it).
+     * is on stage now), `waiting` ({ until }: the join goes on by itself then), `error` ({ code }), `change` (any of it).
      */
     on(event: StreamEvent, fn: Listener): this;
     off(event?: StreamEvent, fn?: Listener): this;

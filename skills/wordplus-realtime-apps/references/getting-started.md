@@ -56,7 +56,12 @@ There is nothing to copy: the worker, which lets the tabs of a user share one co
 
 ## 3. Your server
 
-Say who your users are, and declare your rooms:
+Say who your users are, and declare your rooms. Each room is named after what it carries: `order:42` for the updates of order 42. A page that joins it asks your server first, and a rule answers: a function your server declares once for every room whose name fits the pattern `order:{id}`. WordPlus Cloud then holds the page to the answer ([permissions](permissions.md)). This rule says:
+
+1. **Visitors** who are not signed in stay out.
+2. **The customer of the order** joins, and nobody else. `ownerOf` is yours, from your data.
+
+And the room keeps its last 20 updates, for a page that reconnects.
 
 **Node**
 
@@ -74,8 +79,14 @@ export const realtime = createRealtime( {
     profile: async ( user ) => ( { name: await nameOf( user ), avatar: await avatarOf( user ) } ),
 } );
 
-// The room of an order: its customer may join, and the last 20 updates are kept. ownerOf() is yours, from your data.
-realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => user !== null && ( await ownerOf( id ) ) === user );
+// The room of an order, order:42, the last 20 updates kept.
+realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => {
+    // 1. Visitors stay out.
+    if ( user === null ) return false;
+
+    // 2. The customer of the order, and nobody else.
+    return ( await ownerOf( id ) ) === user;
+} );
 ```
 
 **PHP**
@@ -90,8 +101,16 @@ $realtime = Realtime::fromEnvironment( [
     'profile' => fn ( $user ) => [ 'name' => name_of( $user ), 'avatar' => avatar_of( $user ) ],
 ] );
 
-// The room of an order: its customer may join, and the last 20 updates are kept. owner_of() is yours, from your data.
-$realtime->room( 'order:{id}', fn ( $user, array $p ) => null !== $user && owner_of( $p['id'] ) === $user, [ 'history' => 20 ] );
+// The room of an order, order:42, the last 20 updates kept.
+$realtime->room( 'order:{id}', function ( $user, array $p ) {
+    // 1. Visitors stay out.
+    if ( null === $user ) {
+        return false;
+    }
+
+    // 2. The customer of the order, and nobody else.
+    return owner_of( $p['id'] ) === $user;
+}, [ 'history' => 20 ] );
 ```
 
 **Python**
@@ -105,8 +124,16 @@ realtime = Realtime.from_environment(
     profile=lambda user: {"name": name_of(user), "avatar": avatar_of(user)},
 )
 
-# The room of an order: its customer may join, and the last 20 updates are kept. owner_of() is yours, from your data.
-realtime.room("order:{id}", lambda user, p: user is not None and owner_of(p["id"]) == user, history=20)
+# The room of an order, order:42, the last 20 updates kept.
+def may_follow_order(user, p):
+    # 1. Visitors stay out.
+    if user is None:
+        return False
+
+    # 2. The customer of the order, and nobody else.
+    return owner_of(p["id"]) == user
+
+realtime.room("order:{id}", may_follow_order, history=20)
 ```
 
 The user is the signed-in user id, a number or a string, or `null` (`None`) for nobody. Next, answer the browser at `/api/realtime/auth`, `/calls` and `/keys`, the WordPlus Cloud [webhook](sending.md#webhooks) at `/webhook`, and the browser files at `/api/realtime/files/…`:
@@ -229,9 +256,14 @@ Everyone in the room gets `{ status: 'paid' }`, sealed on the way with the room 
 ## Next
 
 - [Rooms](rooms.md), [presence and who is online](presence.md), [sending from your server](sending.md) and [events from the page](events.md)
-- [Calls, group calls and the call screen](calls.md)
+- [Calls, group calls and the call screen](calls.md), and [live streams](streams.md)
 - [React and React Native](react.md)
 - [Encryption and your users](encryption.md)
+- [Making the screens your own](customizing.md): their look, a piece of your own, or their whole code
 - A whole guide, with an example app, for [Next.js](nextjs/getting-started.md), [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/), [Express](express/getting-started.md), [PHP](https://docs.wordplus.cloud/php/getting-started/), [Flask](https://docs.wordplus.cloud/flask/getting-started/), [mobile apps](mobile/getting-started.md), [iOS](https://docs.wordplus.cloud/ios/getting-started/) and [Android](https://docs.wordplus.cloud/android/getting-started/)
 - The server references for [Node](server.md), [PHP](https://docs.wordplus.cloud/apps/php-reference/) and [Python](https://docs.wordplus.cloud/apps/python-reference/), and the [browser reference](browser.md)
 - [Errors](errors.md) and [limits](limits.md)
+
+## What to build next
+
+Each use case is a page of its own, with the rules of your server in Node, PHP and Python and the code of the page: [chat](use-cases/chat.md), [who is online](use-cases/online.md), [live updates and notifications](use-cases/live-updates.md), [calls from a button](use-cases/support-calls.md), [team meetings](use-cases/meetings.md), [live streaming](use-cases/live-streaming.md) and the rest in the [use cases](use-cases/overview.md). Three of them build a small app from an empty folder, every file in full.

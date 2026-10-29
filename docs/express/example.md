@@ -21,7 +21,7 @@ A whole shop on Express, in the package `examples/express`: sign in as Ann (supp
 ```bash
 cd examples/express
 cp .env.example .env       # the key and secret of your app, with http://localhost:3000 among its addresses, and a local key
-npm install                # copies the worker, the room client and the components into public/, and bundles the page
+npm install                # bundles the page into public/: the browser files of the SDK come from the realtime routes
 npm start                  # http://localhost:3000
 ```
 

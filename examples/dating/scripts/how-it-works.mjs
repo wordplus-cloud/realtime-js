@@ -79,7 +79,8 @@ for (const section of source.split(/^## /m).slice(1)) {
             // The page fills each __value__ in: one the colouring split would stay as it is.
             const split = [...code.join('\n').matchAll(/__[a-z0-9_]+__/g)].map(([v]) => v).filter((v) => !html.includes(v));
             if (split.length) throw new Error(`how-it-works.md, ${key}: ${split.join(', ')} split by the colouring: put it in a string or a comment`);
-            blocks.at(-1).code = { file: fence[3] ?? null, html };
+            // A step may show several files, one under the other.
+            (blocks.at(-1).codes ??= []).push({ file: fence[3] ?? null, html });
         } else if (rest[i].trim()) {
             paragraph.push(rest[i].trim());
         } else {
@@ -88,6 +89,7 @@ for (const section of source.split(/^## /m).slice(1)) {
     }
     endParagraph();
     const [about, ...steps] = blocks;
+    if (about.codes) throw new Error(`how-it-works.md, ${key}: its first paragraph says what the card is about, with no code under it`);
     cards[key] = { title, about: about.text, steps };
 }
 

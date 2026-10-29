@@ -512,6 +512,7 @@ type Stream struct {
 	Mod     bool     // keeps the chat
 	Src     []string // what a host may send: camera, microphone, screen
 	Quality string   // q: 720p or 1080p
+	Stage   *bool    // false: no guests on stage (a hand raised, a host's invitation)
 	Offline string   // the chat while not live: open or closed
 	Links   *bool    // false: links only from those who keep the chat
 	Fresh   *bool    // true: the chat emptied each time it goes live
@@ -549,6 +550,9 @@ func (a App) StreamGrant(s Stream) map[string]any {
 	}
 	if s.Quality != "" {
 		claims.add("q", s.Quality)
+	}
+	if s.Stage != nil {
+		claims.add("stage", *s.Stage)
 	}
 	if s.Offline != "" {
 		claims.add("offline", s.Offline)

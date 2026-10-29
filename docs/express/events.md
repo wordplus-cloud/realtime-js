@@ -6,18 +6,30 @@ Pages send events to the rooms they are in, straight through WordPlus Cloud, wit
 
 ## What a room allows
 
+The chat of Ann and Ben is named after them, `chat:34:42`, the smaller id first. A page that joins it asks your server first, and a rule answers: a function your server declares once for every room whose name fits `chat:{a}:{b}`. WordPlus Cloud then holds the page to the answer, and to the events the room lets it send ([permissions](../permissions.md)). This rule says:
+
+1. **The pages send** messages, typing, reactions and read ticks to it, and nothing else.
+2. **Your server gets** the messages and reactions too, by webhook, to keep the conversation, and the room keeps its last 50 events for a page that reconnects.
+3. **The two people** in the name join, and nobody else.
+
 ```js
-// The chat of Ann and Ben: they send messages, typing, reactions and read ticks. The messages and reactions reach this
-// server by webhook, which keeps the conversation.
-realtime.room( 'chat:{a}:{b}', { history: 50, emit: [ 'message', 'typing', 'reaction', 'read' ], webhook: [ 'message', 'reaction' ] },
-    ( user, { a, b } ) => [ a, b ].includes( String( user ) ) );
+realtime.room( 'chat:{a}:{b}', {
+    // 1. What the pages may send to it.
+    emit: [ 'message', 'typing', 'reaction', 'read' ],
+    // 2. What your server gets too, and the last 50 kept for a page that reconnects.
+    webhook: [ 'message', 'reaction' ],
+    history: 50,
+}, ( user, { a, b } ) => {
+    // 3. The two people in the name, and nobody else.
+    return [ a, b ].includes( String( user ) );
+} );
 ```
 
 - **`emit`** lists the names, or `'*'` for any. None by default: a room your server alone sends to.
 - **`webhook`** names those your server gets too, to keep them ([below](#keeping-the-conversation)).
 - **`history`** keeps the last events of the room for 5 minutes: what a page that reconnects missed comes again from it.
 - **The answer for one user** can narrow it: `{ emit: [ 'typing' ] }`, or `{ readOnly: true }`.
-- **Reserved:** `joined`, `join`, `leave`, `count` and `error` are the names kept for the room itself.
+- **Reserved:** `joined`, `join`, `leave`, `count`, `error`, `kicked`, `connect`, `disconnect`, `connect_error`, `state` and `online` belong to the room and the connection, and are never allowed ([reserved names](../errors.md#reserved-names)).
 
 ## Sending
 
@@ -55,16 +67,26 @@ chat.on( 'typing', ( data, meta ) => showTyping( meta.from, data.on ) );   // an
 
 ## Keeping the conversation
 
-The conversation is for your app to keep, in its own database, as Better Messages keeps its own in the WordPress database. A room keeps its events for 5 minutes, for pages that reconnect. Your server gets the events the rule names in `webhook` ([webhooks](sending.md#webhooks)) and saves them by `event_id`, the id the pages saw as `meta.id`. A route gives them back, a page at a time:
+The conversation is for your app to keep, in its own database, as Better Messages keeps its own in the WordPress database. A room keeps its events for 5 minutes, for pages that reconnect. Your server gets the events the rule names in `webhook` ([webhooks](sending.md#webhooks)) and saves them by `event_id`, the id the pages saw as `meta.id`. A route of yours gives them back, a page at a time: `/chat/34/42/messages` for the chat `chat:34:42`. Here:
+
+1. **Each message** is kept once, by its `event_id`, from signed-in people alone.
+2. **The route** gives the newest 50, or with `?before=<id>` the 50 before that one, oldest first.
+3. **Only the two people** of the chat may read it.
 
 ```js
-// A guest in a public room sends with no `from`: kept here from signed-in people alone.
-realtime.on( 'message', ( { room, from, data, event_id, at } ) => from && db.messages.upsert( { id: event_id, room, from, text: data.text, at } ) );
+// 1. Each message, kept once by its event_id: a repeat has the same one.
+realtime.on( 'message', async ( { room, from, data, event_id, at } ) => {
+    // A guest in a public room sends with no `from`: kept from signed-in people alone.
+    if ( ! from ) return;
+    await db.messages.upsert( { id: event_id, room, from, text: data.text, at } );
+} );
 
-// The newest 50, or with ?before=<id> the 50 before that one, oldest first. Only its two people may read it.
+// 2. The newest 50, or with ?before=<id> the 50 before that one, oldest first.
 app.get( '/chat/:a/:b/messages', async ( req, res ) => {
+    // 3. Only the two people of the chat.
     const { a, b } = req.params;
     if ( ! [ a, b ].includes( String( req.session.userId ) ) ) return res.status( 403 ).end();
+
     res.json( await db.messages.page( `chat:${ a }:${ b }`, req.query.before, 50 ) );   // { messages: [ { id, from, text, at, reactions } ], more }
 } );
 ```
@@ -90,11 +112,19 @@ await rt.callScreen();   // loads the elements and the call screen, rt.ui() the 
 
 - **`messages`** is your route, asked with the page cookies. `chat.load = async ( before ) => ( { messages, more } )` replaces it, for a token or another shape: `before` is `null` for the newest page, or the oldest message shown (`{ id, at }`). With neither, it shows what the room still has.
 - **Its room rule** lets it send what it uses: `emit: [ 'message', 'typing', 'reaction', 'read' ]`, and names `message` and `reaction` in `webhook` for your server to keep.
-- **What it sends** is what you would: `message` as `{ text }` with an ack, `typing` as `{ on }` and `read` as `{ id }`, both volatile, and `reaction` as `{ id, key }`. Your own pages and apps on the same room read it.
+- **What it sends** is what you would: `message` as `{ text }` with an ack, with its `files` where it has any, `typing` as `{ on }` and `read` as `{ id }`, both volatile, and `reaction` as `{ id, key }`. Your own pages and apps on the same room read it.
+- **`upload`** takes files, to your route for them, which asks the room's own rule with `realtime.mayJoin( room, user )` and keeps each file: WordPlus Cloud carries only where it is ([files](../use-cases/chat.md#files)).
 - **Names and pictures** come from your [directory](encryption.md#your-users).
 - **`reactions`** sets the reactions offered (`reactions="1f44d 2764 1f602"`), and `max-length` the longest message.
 - **It fills** the height its place gives it. Its look is that of Better Messages, in a shadow root. Its colours are CSS custom properties your page sets.
 
 `<typing-line room="…">` is the typing line alone, for a page that draws its own messages.
+
+## Use cases
+
+Each with the rules of your server and the code of the page:
+
+- [Chat](../use-cases/chat.md): conversations of two and of a group, kept by your server
+- [Editing together](../use-cases/collaboration.md): cursors as volatile events, and changes kept for a page that reconnects
 
 More, with PHP and Python side by side: [events in depth](../events.md).

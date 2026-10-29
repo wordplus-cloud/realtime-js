@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+body {
+  /* The messages and the visit in the site's colour and font: on body, over the package's own on :root. */
+  --wplus-color-accent: 15, 118, 110; /* red, green, blue: Tailwind's teal-700 */
+  --wplus-color-bubble-self-bg: 15, 118, 110; /* your own messages */
+  --wplus-color-bubble-self-outline: 15, 118, 110;
+  --wplus-messenger-font: var(--font-geist-sans), sans-serif;
+  background: #fafaf9;
+  color: #1c1917;
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+/* "How this page works" on the demo (app/how-it-works-cards.tsx): the code as shiki coloured it, with the values
+   of the page, and the code named in a step. */
+.how-it-works-code pre {
+  margin: 0;
+  padding: 12px 14px;
+  /* A line too long for the screen wraps at a space, so no name is cut in two, and inside a word only when it has none. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 10px;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+@media (max-width: 640px) {
+  .how-it-works-code pre {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+}
+.how-it-works-text code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #f5f5f4;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.9em;
+}

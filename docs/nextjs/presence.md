@@ -6,11 +6,21 @@ Three ways to show people: a presence room lists who is in it to everyone in it 
 
 ## A presence room
 
+One room for the whole shop, named `shop`, lists who is in it to everyone in it. A page that joins it asks your server first, and a rule answers: a function your server declares once for the room. WordPlus Cloud then holds the page to the answer ([permissions](../permissions.md)). This rule says:
+
+1. **Signed-in users** join, and visitors do not.
+2. **Each one is shown** to the others with their name and their role.
+
 ```ts
-// lib/realtime.ts: who is in the shop, everyone signed in, with their name and role.
+// lib/realtime.ts
 realtime.room( 'shop', { presence: true }, async ( user ) => {
-    const person = user === null ? null : await db.user.findUnique( { where: { id: user } } );
-    return person ? { info: { name: person.name, role: person.role } } : false;
+    // 1. Signed-in users only.
+    if ( user === null ) return false;
+    const person = await db.user.findUnique( { where: { id: user } } );
+    if ( person === null ) return false;
+
+    // 2. What the others see of them.
+    return { info: { name: person.name, role: person.role } };
 } );
 ```
 
@@ -32,7 +42,7 @@ A user is a member once, however many tabs and devices they have in the room, an
 
 ## Counting
 
-`count: true` gives a room a live count, without a list:
+`count: true` gives a room a live count, without a list. The page of product 7 joins `product:7`, a public room: anyone may join it, signed in or not, and no rule runs.
 
 ```ts
 realtime.room( 'product:{id}', { public: true, count: true } );
@@ -93,5 +103,12 @@ export function InTheShop( { id }: { id: string } ) {
 - **Names and pictures** come from the member info, then from your [directory](encryption.md#your-users).
 - **Its look** is that of Better Messages, in your own tree: its colours are CSS custom properties your page sets, and your CSS reaches its classes (`bm-…`) to change more ([customizing](customizing.md)).
 - **`actions={ ( member ) => … }`** draws your own buttons on each row instead, given the `id`, `name` and `avatar` of the member.
+
+## Use cases
+
+Each with the rules of your server and the code of the page:
+
+- [Who is online and who is here](../use-cases/online.md): a dot on every avatar, the people in a room, and a live count
+- [Editing together](../use-cases/collaboration.md): who is in a document, their cursors and their changes
 
 More, with PHP and Python side by side: [presence in depth](../presence.md).
