@@ -4,80 +4,85 @@ A video visit with a doctor, a lawyer, a tutor or a coach: two people meet at a 
 
 **In your stack:** [Next.js](../nextjs/calls.md) · [Express](../express/calls.md) · [Laravel](https://docs.wordplus.cloud/laravel/calls/) · [PHP](https://docs.wordplus.cloud/php/calls/) · [Django](https://docs.wordplus.cloud/django/calls/) · [FastAPI](https://docs.wordplus.cloud/fastapi/calls/) · [Flask](https://docs.wordplus.cloud/flask/calls/) · [WordPress](https://docs.wordplus.cloud/wordpress/group-calls/)
 
-## The rule
+## Your route
 
 A group call for each booking, named after it: `visit:81`. The doctor and the patient join it from the page of the appointment.
 
-Your server decides who may join, and when. A page that joins asks your server first, and a rule answers: a function your server registers once for every call whose name fits `visit:{id}`. WordPlus Cloud then holds the page to the answer ([permissions](../permissions.md)). This rule says yes when:
+Your app decides who may join, and when, in a route of its own. The page asks it for a token as the person joins, and your route makes your own check, then answers a token for that visit, or 403. This route says yes when:
 
 1. **The person is the doctor or the patient** of the booking.
 2. **It is time:** from ten minutes before the start until the end.
 
+And every token for the visit encrypts it end to end. `findBooking()` is yours:
+
 **Node**
 
 ```ts
-realtime.groupCalls( 'visit:{id}', async ( user, { id } ) => {
-    const booking = await findBooking( id );
+// Your route, GET /api/visit-token?id=81. Express here, the same in any framework.
+app.get( '/api/visit-token', async ( req, res ) => {
+    const me = userOf( req );
+    const booking = await findBooking( req.query.id );
 
     // 1. The doctor or the patient of the booking.
-    if ( !booking || ![ booking.doctorId, booking.patientId ].includes( user ) ) return false;
+    if ( ! me || ! booking || ! [ booking.doctorId, booking.patientId ].includes( me ) ) return res.sendStatus( 403 );
 
     // 2. From ten minutes before it starts until it ends.
-    return Date.now() >= booking.start - 10 * 60 * 1000 && Date.now() <= booking.end;
-}, { encrypt: true } );   // encrypted end to end
+    if ( Date.now() < booking.start - 10 * 60 * 1000 || Date.now() > booking.end ) return res.sendStatus( 403 );
+
+    // Encrypted end to end: the same in every token for the visit.
+    res.json( { token: await realtime.groupCallToken( me, 'visit:' + booking.id, { encrypt: true } ) } );
+} );
 ```
 
 **PHP**
 
 ```php
-$realtime->groupCalls( 'visit:{id}', function ( $user, array $p ) {
-    $booking = find_booking( $p['id'] );
+// Your route, GET /api/visit-token?id=81. Laravel: the same in a route, with Realtime::groupCallToken().
+$me = current_user_id();
+$booking = find_booking( $_GET['id'] ?? '' );
 
-    // 1. The doctor or the patient of the booking.
-    if ( null === $booking || ! in_array( $user, [ $booking->doctor_id, $booking->patient_id ], true ) ) {
-        return false;
-    }
+// 1. The doctor or the patient of the booking.
+if ( ! $me || null === $booking || ! in_array( $me, [ $booking->doctor_id, $booking->patient_id ], true ) ) {
+    http_response_code( 403 );
+    exit;
+}
 
-    // 2. From ten minutes before it starts until it ends.
-    return time() >= $booking->start - 600 && time() <= $booking->end;
-}, [ 'encrypt' => true ] );   // encrypted end to end
+// 2. From ten minutes before it starts until it ends.
+if ( time() < $booking->start - 600 || time() > $booking->end ) {
+    http_response_code( 403 );
+    exit;
+}
+
+// Encrypted end to end: the same in every token for the visit.
+header( 'Content-Type: application/json' );
+echo json_encode( [ 'token' => $realtime->groupCallToken( $me, 'visit:' . $booking->id, [ 'encrypt' => true ] ) ] );
 ```
 
 **Python**
 
 ```python
-def may_join_visit(user, p):
-    booking = find_booking(p["id"])
+# Your route, GET /api/visit-token?id=81. Flask here, the same in any framework.
+@app.get("/api/visit-token")
+def visit_token():
+    me = session.get("user_id")
+    booking = find_booking(request.args["id"])
 
     # 1. The doctor or the patient of the booking.
-    if booking is None or user not in (booking.doctor_id, booking.patient_id):
-        return False
+    if not me or booking is None or me not in (booking.doctor_id, booking.patient_id):
+        abort(403)
 
     # 2. From ten minutes before it starts until it ends.
-    return booking.start - 600 <= time.time() <= booking.end
+    if not booking.start - 600 <= time.time() <= booking.end:
+        abort(403)
 
-realtime.group_calls("visit:{id}", may_join_visit, encrypt=True)   # encrypted end to end
+    # Encrypted end to end: the same in every token for the visit.
+    return {"token": realtime.group_call_token(me, "visit:" + booking.id, encrypt=True)}
 ```
 
-**WordPress**
-
-```php
-wordplus_realtime()->group_calls( 'visit:{id}', function ( $user_id, array $p ) {
-	$booking = my_clinic_booking( (int) $p['id'] );
-
-	// 1. The doctor or the patient of the booking.
-	if ( null === $booking || ! in_array( $user_id, array( $booking->doctor_id, $booking->patient_id ), true ) ) {
-		return false;
-	}
-
-	// 2. From ten minutes before it starts until it ends.
-	return time() >= $booking->start - 10 * MINUTE_IN_SECONDS && time() <= $booking->end;
-}, array( 'encrypt' => true ) );   // encrypted end to end
-```
-
-- **Only its two people,** and only in its time: anyone else, or the patient a day early, is refused with `forbidden`.
-- **`encrypt: true`** encrypts every frame in the browser with a key your server makes, which only those your rule lets in get.
-- **The rule runs when someone joins.** Those in the call stay until they leave or your server ends it.
+- **Only its two people,** and only in its time: anyone else, or the patient a day early, is refused, and the page hears `forbidden`.
+- **`encrypt: true`** encrypts every frame in the browser with a key your server makes, which only those your route gave a token get.
+- **Your route runs when someone joins.** Those in the call stay until they leave or your server ends it.
+- **On WordPress,** its package decides who joins by a rule of its own ([WordPress group calls](https://docs.wordplus.cloud/wordpress/group-calls/)).
 
 ## The page of the appointment
 
@@ -86,7 +91,7 @@ Ready-made, with the call screen of Better Messages once on the page (`rt.callSc
 **Browser**
 
 ```html
-<room-button room="visit:81" type="video" title="Your appointment with Dr. Lee">Join the visit</room-button>
+<group-call-button call="visit:81" token-url="/api/visit-token?id=81" type="video" title="Your appointment with Dr. Lee">Join the visit</group-call-button>
 ```
 
 **React**
@@ -95,20 +100,26 @@ Ready-made, with the call screen of Better Messages once on the page (`rt.callSc
 import { GroupCallButton } from '@wordplus/realtime/react';
 
 export function JoinVisit() {
-    return <GroupCallButton name="visit:81" type="video" title="Your appointment with Dr. Lee">Join the visit</GroupCallButton>;
+    return <GroupCallButton call="visit:81" tokenUrl="/api/visit-token?id=81" type="video" title="Your appointment with Dr. Lee">Join the visit</GroupCallButton>;
 }
 ```
 
-Or your own:
+A press asks your route with `?id=81&call=visit:81&type=video`. Or your own:
 
 **Browser**
 
 ```js
-const calls = await rt.calls();
-const visit = await calls.group( 'visit:81', { type: 'video' } );   // rejects with forbidden outside its time
-const media = await navigator.mediaDevices.getUserMedia( { video: true, audio: true } );
-await visit.setTrack( 'camera', media.getVideoTracks()[ 0 ] );
-await visit.setTrack( 'microphone', media.getAudioTracks()[ 0 ] );
+// Asks your route for a token: GET /api/visit-token, as above.
+async function visitToken( id ) {
+    const answer = await fetch( '/api/visit-token?id=' + id );
+    if ( ! answer.ok ) throw new Error( 'forbidden' );   // outside its time, or not theirs
+
+    return ( await answer.json() ).token;
+}
+
+const visit = await rt.joinGroupCall( await visitToken( 81 ) );
+await visit.setCamera( true );
+await visit.setMicrophone( true );
 
 visit.on( 'person', ( person ) => {          // the other one arrived, or what they send changed
     person.camera?.attach( theirVideo );
@@ -123,22 +134,29 @@ leaveButton.onclick = () => visit.leave();
 ```tsx
 import { useEffect, useRef, useState } from 'react';
 import type { GroupCall } from '@wordplus/realtime';
-import { useCalls } from '@wordplus/realtime/react';
+import { useRealtime } from '@wordplus/realtime/react';
+
+// Asks your route for a token: GET /api/visit-token, as above.
+async function visitToken( id: number ) {
+    const answer = await fetch( '/api/visit-token?id=' + id );
+    if ( ! answer.ok ) throw Object.assign( new Error( 'Your server said no' ), { code: 'forbidden' } );   // outside its time, or not theirs
+
+    return ( await answer.json() ).token as string;
+}
 
 export function Visit() {
-    const { calls } = useCalls();
+    const rt = useRealtime();
     const [ visit, setVisit ] = useState<GroupCall | null>( null );
     const [ refused, setRefused ] = useState<string | null>( null );
     const theirVideo = useRef<HTMLVideoElement>( null );
     const theirAudio = useRef<HTMLAudioElement>( null );
 
     const join = async () => {
-        if ( !calls ) return;
+        if ( !rt ) return;
         try {
-            const call = await calls.group( 'visit:81', { type: 'video' } );   // rejects with forbidden outside its time
-            const media = await navigator.mediaDevices.getUserMedia( { video: true, audio: true } );
-            await call.setTrack( 'camera', media.getVideoTracks()[ 0 ] );
-            await call.setTrack( 'microphone', media.getAudioTracks()[ 0 ] );
+            const call = await rt.joinGroupCall( await visitToken( 81 ) );
+            await call.setCamera( true );
+            await call.setMicrophone( true );
             call.on( 'person', ( person ) => {                                 // the other one arrived, or what they send changed
                 if ( theirVideo.current ) person.camera?.attach( theirVideo.current );
                 if ( theirAudio.current ) person.microphone?.attach( theirAudio.current );
@@ -151,7 +169,7 @@ export function Visit() {
     };
 
     // Left as the component goes, and as Leave is pressed.
-    useEffect( () => () => visit?.leave(), [ visit ] );
+    useEffect( () => () => { void visit?.leave(); }, [ visit ] );
 
     return (
         <>
@@ -159,7 +177,7 @@ export function Visit() {
             <audio ref={ theirAudio } autoPlay />
             { visit?.encrypted && <p>Encrypted end to end</p> }
             { refused === 'forbidden' && <p>The visit opens ten minutes before its time.</p> }
-            { visit ? <button onClick={ () => setVisit( null ) }>Leave</button> : <button disabled={ !calls } onClick={ join }>Join the visit</button> }
+            { visit ? <button onClick={ () => setVisit( null ) }>Leave</button> : <button disabled={ !rt } onClick={ join }>Join the visit</button> }
         </>
     );
 }
@@ -199,9 +217,9 @@ wordplus_realtime()->call( 'visit:81' )->end();
 
 ## Variations
 
-- **A patient without an account:** the link in the booking email signs its holder in for that visit alone, as a user your server names, such as `guest:81`, and your rule takes that id as the patient. Calls take any id of up to 64 characters with no space ([calls](../calls.md)).
+- **A patient without an account:** the link in the booking email signs its holder in for that visit alone, as a user your server names, such as `guest:81`, and your route takes that id as the patient. Calls take any id of up to 64 characters with no space ([calls](../calls.md)).
 - **The doctor lets the patient in** when ready, from a waiting room ([waiting rooms](waiting-rooms.md)).
 - **Notes and files during the visit:** a room of the same name with `emit: [ 'message' ]`, kept by your server from the webhook ([chat](chat.md)).
-- **A call that rings,** for an appointment by phone: a call between the two at the time, with the same rule on `calls()` ([calls from a button](support-calls.md)).
+- **A call that rings,** for an appointment by phone: a call between the two at the time, its token from a route with the same check ([calls from a button](support-calls.md)).
 - **On phones:** the iOS and Android SDKs join the same group call, for a visit from the app of the patient ([iOS](https://docs.wordplus.cloud/ios/calls/#group-calls), [Android](https://docs.wordplus.cloud/android/calls/#group-calls)), and a Capacitor app joins it as a browser does ([mobile apps](../mobile/calls.md)).
 - **A whole site, in Next.js:** times booked with experts, a waiting room, and a visit encrypted end to end with its messages and files beside it ([consultations site](../nextjs/consultations.md#the-visit)).

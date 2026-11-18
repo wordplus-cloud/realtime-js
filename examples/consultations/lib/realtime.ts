@@ -1,15 +1,13 @@
 import { createRealtime } from '@wordplus/realtime/server';
 import { currentUserId } from './auth';
 import {
-    appointmentIn, appointmentOf, filesFor, isParty, keepMessage, markEnded, markStarted, mayChat, mayJoinVisit, nameOf, personOf, photoOf, react,
+    appointmentIn, appointmentOf, filesFor, isParty, keepMessage, markEnded, markStarted, mayChat, nameOf, personOf, photoOf, react,
     visitOf, type Appointment, type Message,
 } from './clinic';
 import { DEMO_VISIT_MINUTES, WORLDS, webhooksInEveryWorld } from './worlds';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
+    // The app's key, secret and local key come from the environment: WORDPLUS_SITE, WORDPLUS_SECRET, WORDPLUS_LOCAL_KEY.
     // Who is asking: the signed-in user, or null.
     user: () => currentUserId(),
     // What people see of each other: in the messages, the waiting room and the visit.
@@ -26,23 +24,20 @@ if (WORLDS) webhooksInEveryWorld(realtime);
 // sealed, and the messages and reactions come here too (below), to be kept. A page asks to join at /api/realtime/auth.
 realtime.room(
     'chat:{id}',
+    async (user, { id }) => mayChat(user, id),
     {
         history: 50,
         emit: ['message', 'typing', 'reaction', 'read'],
         webhook: ['message', 'reaction'],
     },
-    async (user, { id }) => mayChat(user, id),
 );
 
 // Its waiting room: waiting:{id}, a presence room. The client waits there once they are ready, and the expert's pages
 // see them in it, as they come and go.
-realtime.room('waiting:{id}', { presence: true }, async (user, { id }) => mayChat(user, id));
+realtime.room('waiting:{id}', async (user, { id }) => mayChat(user, id), { presence: true });
 
-// Its visit: visit:{id}, a group call on WordPlus Cloud's media servers, encrypted end to end: each browser encrypts
-// what it sends with a key this server makes, which only those the rule lets in get, so the media servers forward
-// what they can't see or hear. Its expert comes in while it is open, from ten minutes before it starts, and its client
-// once the expert let them in (lib/clinic.ts). A page asks to join at /api/realtime/calls.
-realtime.groupCalls('visit:{id}', async (user, { id }) => mayJoinVisit(user, id), { encrypt: true });
+// Its visit, visit:{id}, a group call, starts from a token the site's own route answers after its check:
+// app/api/visit-token/route.ts.
 
 // Who is free: every signed-in page joins it, and hears when a visit starts or ends, or a time is booked, to show the
 // experts as they are now. Only the server says anything in it.

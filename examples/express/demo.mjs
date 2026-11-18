@@ -62,6 +62,13 @@ export function installDemo(app, { shops, openShop, peopleOf, sign, stack }) {
         return s;
     };
 
+    // A new visitor opening the start page: their shop there and then, with no redirect to /login and back, which a
+    // search engine, keeping no cookie, would follow without end.
+    app.use((req, res, next) => {
+        if (req.method === 'GET' && req.path === '/' && !req.session.user) req.session.user = shopFor(req.ip) * 100 + 34;
+        next();
+    });
+
     // A window as someone else: the page at /as/<token> is the shop page for the person of the token. No search engine
     // keeps a window (noindex): each new shop has new tokens, so it would find new addresses without end.
     app.use((req, res, next) => {

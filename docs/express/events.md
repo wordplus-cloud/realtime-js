@@ -13,15 +13,15 @@ The chat of Ann and Ben is named after them, `chat:34:42`, the smaller id first.
 3. **The two people** in the name join, and nobody else.
 
 ```js
-realtime.room( 'chat:{a}:{b}', {
+realtime.room( 'chat:{a}:{b}', ( user, { a, b } ) => {
+    // 3. The two people in the name, and nobody else.
+    return [ a, b ].includes( String( user ) );
+}, {
     // 1. What the pages may send to it.
     emit: [ 'message', 'typing', 'reaction', 'read' ],
     // 2. What your server gets too, and the last 50 kept for a page that reconnects.
     webhook: [ 'message', 'reaction' ],
     history: 50,
-}, ( user, { a, b } ) => {
-    // 3. The two people in the name, and nobody else.
-    return [ a, b ].includes( String( user ) );
 } );
 ```
 
@@ -92,7 +92,7 @@ app.get( '/chat/:a/:b/messages', async ( req, res ) => {
 ```
 
 - **Check there anything that matters:** the events do not go through your server before they are sent on.
-- **On localhost** no webhook reaches your server, as a webhook needs an address on the internet. While you build there, the ready-made chat tells your server of each message it sent with its `sent` event, for a route of yours to keep by the same id ([without a webhook](../use-cases/chat.md#without-a-webhook-as-on-localhost)). Or a tunnel gives your computer an address ([while you develop](../sending.md#while-you-develop)).
+- **On localhost** no webhook reaches your server, as a webhook needs an address on the internet. While you build there, the ready-made conversation window (`<chat-room>`) tells your server of each message it sent with its `sent` event, for a route of yours to keep by the same id ([without a webhook](../use-cases/chat.md#without-a-webhook-as-on-localhost)). Or a tunnel gives your computer an address ([while you develop](../sending.md#while-you-develop)).
 - **`at`** is in milliseconds, and `reactions` maps each reaction to who chose it. A reaction comes as `{ id, key }`: the one reaction of the user to message `id`, an empty `key` taking it back.
 - **A gap:** a page back after the 5 minutes a room keeps its events, or after more came than it keeps, gets what the room still had, then `error` on the room with `{ code: 'gap' }`, still joined. Some events are lost to it, so ask your route for the newest page again: `chat.on( 'error', ( e ) => e.code === 'gap' && reload() )`.
 

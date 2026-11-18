@@ -7,9 +7,14 @@ import { WordplusConnector } from '../src/echo.js';
 
 type Fn = (...args: any[]) => void;
 
-/** A room as @wordplus/realtime has one: its listeners, what it sent, its members. */
+/**
+ * A room as @wordplus/realtime has one: its listeners, what it sent, its members. `fire` is any event as its listeners
+ * hear it, `deliver` an event of the app's, which its `onAny` listeners hear too, as the room's own (`joined`, `join`,
+ * `leave`, `count`, `error`, `kicked`) never reach them.
+ */
 function fakeRoom(name: string) {
     const listeners = new Map<string, Fn[]>();
+    let any: Fn[] = [];
     const room = {
         name,
         state: 'joining',
@@ -17,9 +22,16 @@ function fakeRoom(name: string) {
         sent: [] as Array<[string, unknown]>,
         on(event: string, fn: Fn) { listeners.set(event, [...(listeners.get(event) ?? []), fn]); return room; },
         off(event: string, fn: Fn) { listeners.set(event, (listeners.get(event) ?? []).filter((f) => f !== fn)); return room; },
+        onAny(fn: Fn) { any.push(fn); return room; },
+        offAny(fn?: Fn) { any = fn ? any.filter((f) => f !== fn) : []; return room; },
         volatile: { emit: (event: string, data: unknown) => room.sent.push([event, data]) },
         fire(event: string, ...args: unknown[]) { for (const fn of listeners.get(event) ?? []) fn(...args); },
+        deliver(event: string, data: unknown, meta: unknown = {}) {
+            for (const fn of [...any]) fn(event, data, meta);
+            room.fire(event, data, meta);
+        },
         count(event: string) { return (listeners.get(event) ?? []).length; },
+        countAny() { return any.length; },
     };
     return room;
 }
@@ -64,6 +76,68 @@ describe('Laravel Echo on the connector', () => {
         room.fire('updated', { status: 'delivered' });
         expect(updated).toHaveBeenCalledTimes(1);
         expect(room.count('App\\Events\\OrderUpdated')).toBe(1);
+    });
+
+    it('hears every event of a channel with listenToAll, named as listen() takes them, and stops with stopListeningToAll', () => {
+        // As Echo's Pusher channel does: the namespace taken off an event of it, a dot before any other, the
+        // connection's own events left out, and one callback, or all of them, stopped.
+        const rt = fakeRealtime();
+        const echo = echoOn(rt);
+        const all = vi.fn();
+        const other = vi.fn();
+        const present = vi.fn();
+
+        const orders = echo.private('orders.1042') as any;
+        orders.listenToAll(all).listenToAll(other);
+        (echo.join('orders.1042') as any).listenToAll(present);   // the same room, under Echo's presence name
+        const room = rt.rooms.get('orders.1042')!;
+        room.deliver('App\\Events\\OrderUpdated', { id: 1042 }, { from: null });
+        room.deliver('App\\Events\\Orders\\Shipped', { id: 1042 });
+        room.deliver('updated', { status: 'shipped' }, { from: '34', at: 1 });
+        room.deliver('typing', { on: true });
+        room.deliver('Illuminate\\Notifications\\Events\\BroadcastNotificationCreated', { type: 'shipped' });
+        room.fire('joined', []);
+        room.fire('count', 3);
+        expect(all.mock.calls).toEqual([
+            ['OrderUpdated', { id: 1042 }],
+            ['Orders\\Shipped', { id: 1042 }],
+            ['.updated', { status: 'shipped' }],
+            ['.typing', { on: true }],
+            ['.Illuminate\\Notifications\\Events\\BroadcastNotificationCreated', { type: 'shipped' }],
+        ]);
+
+        // A name it gives is one listen() hears.
+        const updated = vi.fn();
+        orders.listen(all.mock.calls[2][0], updated);
+        room.deliver('updated', { status: 'delivered' });
+        expect(updated).toHaveBeenCalledWith({ status: 'delivered' });
+
+        orders.stopListeningToAll(all);
+        room.deliver('updated', { status: 'returned' });
+        expect(all).toHaveBeenCalledTimes(6);
+        expect(other).toHaveBeenCalledTimes(7);
+
+        // All of this channel's, and the presence channel of the same room keeps its own.
+        orders.stopListeningToAll();
+        room.deliver('updated', { status: 'lost' });
+        expect(other).toHaveBeenCalledTimes(7);
+        expect(present).toHaveBeenCalledTimes(8);
+        expect(room.countAny()).toBe(1);
+    });
+
+    it('gives every event with a dot before it when there is no namespace, and a namespace of its own taken off', () => {
+        const rt = fakeRealtime();
+        const none = vi.fn();
+        (new Echo({ broadcaster: WordplusConnector as any, realtime: rt, namespace: false } as any).private('a') as any).listenToAll(none);
+        rt.rooms.get('a')!.deliver('App\\Events\\OrderUpdated', 1);
+        expect(none).toHaveBeenCalledWith('.App\\Events\\OrderUpdated', 1);
+
+        const rt2 = fakeRealtime();
+        const own = vi.fn();
+        (new Echo({ broadcaster: WordplusConnector as any, realtime: rt2, namespace: 'Domain.Orders' } as any).private('a') as any).listenToAll(own);
+        rt2.rooms.get('a')!.deliver('Domain\\Orders\\Shipped', 1);
+        rt2.rooms.get('a')!.deliver('App\\Events\\OrderUpdated', 2);
+        expect(own.mock.calls).toEqual([['Shipped', 1], ['.App\\Events\\OrderUpdated', 2]]);
     });
 
     it('whispers to the others, hears their whispers, and hears the user\'s notifications', () => {
@@ -154,6 +228,25 @@ describe('Laravel Echo on the connector', () => {
         const rt = (echo.connector as WordplusConnector).rt;
         expect(rt.settings.auth.endpoint).toBe('/wordplus/realtime/auth');
         expect(rt.settings.site).toBe('s1500000007');
+        echo.disconnect();
+    });
+
+    it('signs its requests with Echo\'s own auth headers, bearerToken and csrfToken, with connect()\'s options', () => {
+        // Echo's `auth: { headers }` was taken for a server's config() and read its missing endpoint: a TypeError.
+        const echo = new Echo({
+            broadcaster: WordplusConnector as any,
+            app: 's1500000007',
+            endpoint: '/api/realtime',
+            auth: { headers: { 'X-Team': '4' } },
+            bearerToken: 'session-token',
+            csrfToken: 'csrf-1',
+            headers: { 'X-Team': '5' },
+            worker: null,
+        } as any);
+        const rt = (echo.connector as WordplusConnector).rt;
+        expect(rt.settings.auth.endpoint).toBe('/api/realtime/auth');
+        expect(rt.settings.auth.headers).toEqual({ 'X-Team': '5', Authorization: 'Bearer session-token', 'X-CSRF-TOKEN': 'csrf-1' });
+        expect(rt.settings.keys.headers).toEqual(rt.settings.auth.headers);
         echo.disconnect();
     });
 });

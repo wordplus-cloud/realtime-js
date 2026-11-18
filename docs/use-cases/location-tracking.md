@@ -18,7 +18,7 @@ Your server decides who may watch and who may send. A page that joins asks your 
 **Node**
 
 ```ts
-realtime.room( 'delivery:{id}', { history: 20, webhook: [ 'position' ] }, async ( user, { id } ) => {
+realtime.room( 'delivery:{id}', async ( user, { id } ) => {
     const delivery = await findDelivery( id );
     if ( !delivery ) return false;
 
@@ -30,7 +30,7 @@ realtime.room( 'delivery:{id}', { history: 20, webhook: [ 'position' ] }, async 
 
     // 3. Your dispatch team. 4. Anyone else is refused.
     return isDispatcher( user );
-} );
+}, { history: 20, webhook: [ 'position' ] } );
 ```
 
 **PHP**
@@ -177,7 +177,7 @@ realtime.on( 'position', async ( { room, from, data, at } ) => {
 async function delivered( id ) {
     const delivery = await markDelivered( id );
     await realtime.to( 'delivery:' + id ).emit( 'status', { status: 'delivered' } );
-    await realtime.in( 'delivery:' + id ).kick( delivery.customerId );
+    await realtime.room( 'delivery:' + id ).remove( delivery.customerId );
 }
 ```
 
@@ -199,7 +199,7 @@ function delivered( Realtime $realtime, string $id ): void
 {
     $delivery = mark_delivered( $id );
     $realtime->to( 'delivery:' . $id )->emit( 'status', [ 'status' => 'delivered' ] );
-    $realtime->in( 'delivery:' . $id )->kick( $delivery->customer_id );
+    $realtime->room( 'delivery:' . $id )->remove( $delivery->customer_id );
 }
 ```
 
@@ -219,7 +219,7 @@ def on_position(e):
 def delivered(id):
     delivery = mark_delivered(id)
     realtime.to(f"delivery:{id}").emit("status", {"status": "delivered"})
-    realtime.in_room(f"delivery:{id}").kick(delivery.customer_id)
+    realtime.room(f"delivery:{id}").remove(delivery.customer_id)
 
 realtime.on("position", on_position)
 ```
@@ -246,7 +246,7 @@ function my_delivery_delivered( $id ) {
 ```
 
 - **Only the kept positions** reach your server: a volatile event goes to no webhook. One every 30 seconds is enough for a time to arrive, and keeps your server out of the way of the positions.
-- **`kick()`** takes the customer out at once and refuses their token from then on, so a page left open on the order no longer sees the courier ([taking access away](how-it-works.md#taking-access-away)).
+- **`remove()`** (`kick()` on WordPress) takes the customer out at once and refuses their token from then on, so a page left open on the order no longer sees the courier ([taking access away](how-it-works.md#taking-access-away)).
 
 ## The page of the customer
 

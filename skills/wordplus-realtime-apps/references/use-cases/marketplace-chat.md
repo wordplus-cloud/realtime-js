@@ -18,10 +18,10 @@ Your server decides who may read. A page that joins asks your server first, and 
 **Node**
 
 ```ts
-// What every conversation carries: what the ready-made chat sends, explained below the code.
+// What every conversation carries: what the ready-made conversation window (`<chat-room>`) sends, explained below the code.
 const conversation = { history: 50, emit: [ 'message', 'typing', 'read', 'reaction' ], webhook: [ 'message', 'reaction' ] };
 
-realtime.room( 'listing:{listing}:{buyer}', conversation, async ( user, { listing, buyer } ) => {
+realtime.room( 'listing:{listing}:{buyer}', async ( user, { listing, buyer } ) => {
     const item = await findListing( listing );
     if ( !item || item.sellerId === buyer ) return false;
 
@@ -36,13 +36,13 @@ realtime.room( 'listing:{listing}:{buyer}', conversation, async ( user, { listin
 
     // 4. Anyone else.
     return false;
-} );
+}, conversation );
 ```
 
 **PHP**
 
 ```php
-// What every conversation carries: what the ready-made chat sends, explained below the code.
+// What every conversation carries: what the ready-made conversation window (`<chat-room>`) sends, explained below the code.
 $conversation = [ 'history' => 50, 'emit' => [ 'message', 'typing', 'read', 'reaction' ], 'webhook' => [ 'message', 'reaction' ] ];
 
 $realtime->room( 'listing:{listing}:{buyer}', function ( $user, array $p ) {
@@ -74,7 +74,7 @@ $realtime->room( 'listing:{listing}:{buyer}', function ( $user, array $p ) {
 **Python**
 
 ```python
-# What every conversation carries: what the ready-made chat sends, explained below the code.
+# What every conversation carries: what the ready-made conversation window (`<chat-room>`) sends, explained below the code.
 conversation = {"history": 50, "emit": ["message", "typing", "read", "reaction"], "webhook": ["message", "reaction"]}
 
 def may_read_conversation(user, p):
@@ -103,7 +103,7 @@ realtime.room("listing:{listing}:{buyer}", may_read_conversation, **conversation
 **WordPress**
 
 ```php
-// What every conversation carries: what the ready-made chat sends, explained below the code.
+// What every conversation carries: what the ready-made conversation window (`<chat-room>`) sends, explained below the code.
 $conversation = array( 'history' => 50, 'emit' => array( 'message', 'typing', 'read', 'reaction' ), 'webhook' => array( 'message', 'reaction' ) );
 
 // A listing is a post of your plugin, and its seller the author of the post.
@@ -134,7 +134,7 @@ wordplus_realtime()->room( 'listing:{listing}:{buyer}', function ( $user_id, arr
 }, $conversation );
 ```
 
-- **`emit`** lists what the ready-made chat sends: messages, typing, read ticks and reactions. A reader the rule answered `readOnly` sends none of them.
+- **`emit`** lists what the ready-made conversation window (`<chat-room>`) sends: messages, typing, read ticks and reactions. A reader the rule answered `readOnly` sends none of them.
 - **`webhook`** sends messages and reactions to your server too, to keep them.
 - **`history`** carries the last 50 for 5 minutes, for a page that reconnects. Your database keeps the conversation.
 - **Sealed:** what the two write is sealed with a key of the room, which only those your rule lets in get, your team among them ([encryption](../encryption.md)).
@@ -240,7 +240,7 @@ wordplus_realtime()->on( 'message', function ( array $e ) {
 } );
 ```
 
-Your app also answers each conversation from a route, as `{ messages: [ { id, from, text, at, reactions } ], more }`, to its two people and your team alone, for the chat to show as it opens ([chat](chat.md#keeping-the-conversation)). The inbox of a seller is a route of yours too: their conversations, newest first, from your database.
+Your app also answers each conversation from a route, as `{ messages: [ { id, from, text, at, reactions } ], more }`, to its two people and your team alone, for the chat to show as it opens ([chat](chat.md#keeping-the-conversation)). The inbox of a seller is a route of yours too: their conversations, newest first, from your database, with how many are unread in each ([what your server keeps](chat-server.md)).
 
 ## The listing page
 
@@ -274,7 +274,6 @@ The seller online or last seen, and the conversation with them, with the seller 
 import { Chat } from '@wordplus/realtime-ui/react';
 
 function Listing( { listing, seller, me } ) {
-    const rt = useRealtime();
     const room = `listing:${ listing.id }:${ me }`;
     const { online, lastSeen } = useOnline( [ seller.id ] );
     useUserEvent( 'new_message', ( m ) => m.room !== room && toast( m.title, m.text, `/messages/${ m.room }` ) );
@@ -282,7 +281,7 @@ function Listing( { listing, seller, me } ) {
     return (
         <>
             <p>Sold by { seller.name } { online[ seller.id ] ? 'online now' : lastSeen[ seller.id ] && `last seen ${ new Date( lastSeen[ seller.id ] ).toLocaleString() }` }</p>
-            <Chat rt={ rt } room={ room } to={ seller.id } name={ seller.name } avatar={ seller.avatar }
+            <Chat room={ room } to={ seller.id } name={ seller.name } avatar={ seller.avatar }
                   messages={ `/listings/${ listing.id }/chats/${ me }/messages` } placeholder={ `Ask ${ seller.name } about it` } />
         </>
     );
@@ -291,7 +290,7 @@ function Listing( { listing, seller, me } ) {
 
 - **`rt.ui()`** loads the chat and the other ready-made parts with no calls. A page that rings for calls starts `rt.callScreen()` instead, which brings them too.
 - **`to`** puts the seller on the top bar of the chat, online or not ([the chat](../elements.md#chat-room)).
-- **The page of the seller** is the same chat on the same room, with the buyer in `to`. Their inbox lists the conversations from your route, and adds one to the count of each as `new_message` comes.
+- **The page of the seller** is the same chat on the same room, with the buyer in `to`. Their inbox lists the conversations from your route, each with its unread count from where the seller read up to, and adds one to the count of each as `new_message` comes ([counting unread](chat-server.md#counting-unread)).
 - **Online** is any page or app of theirs open now, and offline 10 seconds after the last one closes. A seller who chose to hide it is never shown online: your server says so with `hidden`, and WordPress with the `wordplus_realtime_hidden` filter ([who is online](online.md#online-anywhere)).
 - **On WordPress,** a REST route knows the user only with the REST nonce, which `messages` does not send: give the chat `load` in its place, with `wp.apiFetch` ([WordPress events](https://docs.wordplus.cloud/wordpress/events/#ready-made-the-chat)).
 
@@ -302,8 +301,8 @@ function Listing( { listing, seller, me } ) {
 ```ts
 await realtime.online.has( 34 );                        // whether the seller has any page or app open now
 await realtime.user( 34 ).get();                        // { id, online, at, connections }
-await realtime.in( 'listing:77:42' ).kick( 42 );        // the seller blocked the buyer: out at once
-await realtime.in( 'listing:77:42' ).forget( eventId ); // a message your team removed, out of the history too
+await realtime.room( 'listing:77:42' ).remove( 42 );      // the seller blocked the buyer: out at once
+await realtime.room( 'listing:77:42' ).forget( eventId ); // a message your team removed, out of the history too
 ```
 
 **PHP**
@@ -311,8 +310,8 @@ await realtime.in( 'listing:77:42' ).forget( eventId ); // a message your team r
 ```php
 $realtime->online()->has( 34 );
 $realtime->user( 34 )->get();
-$realtime->in( 'listing:77:42' )->kick( 42 );
-$realtime->in( 'listing:77:42' )->forget( $event_id );
+$realtime->room( 'listing:77:42' )->remove( 42 );
+$realtime->room( 'listing:77:42' )->forget( $event_id );
 ```
 
 **Python**
@@ -320,8 +319,8 @@ $realtime->in( 'listing:77:42' )->forget( $event_id );
 ```python
 realtime.online.has(34)
 realtime.user(34).get()
-realtime.in_room("listing:77:42").kick(42)
-realtime.in_room("listing:77:42").forget(event_id)
+realtime.room("listing:77:42").remove(42)
+realtime.room("listing:77:42").forget(event_id)
 ```
 
 **WordPress**
@@ -333,14 +332,15 @@ wordplus_realtime()->in( 'listing:77:42' )->kick( 42 );
 wordplus_realtime()->in( 'listing:77:42' )->forget( $event_id );
 ```
 
-- **Blocking a buyer:** keep the block in your data, so rule 1 says no, then `kick()` takes them out at once, and their token is refused from then on ([taking access away](how-it-works.md#taking-access-away)).
+- **Blocking a buyer:** keep the block in your data, so rule 1 says no, then `remove()` takes them out at once (`kick()` on WordPress), and their token is refused from then on ([taking access away](how-it-works.md#taking-access-away)).
 - **Removing a message** on a report: delete it in your database, and `forget()` takes it out of the history the room still keeps, for a page that reconnects.
 
 ## Variations
 
-- **A call between the two,** to see the item on video: a `calls()` rule on the same name, for the buyer and the seller alone, and `call` on the chat ([chat](../elements.md#chat-room), [calls](../calls.md#a-call-in-a-chat)).
+- **A call between the two,** to see the item on video: a route of yours that checks the two are the buyer and the seller of the listing, then answers `realtime.callToken( me, to, { type, name } )` with the room's name, and `token-url` on the chat for that route, so the call shows in it ([a call in a chat](../calls.md#a-call-in-a-chat), [chat](../elements.md#chat-room)).
 - **An offer or a sale in the conversation:** your route makes it, keeps it, and sends it into the room with `realtime.to( room ).emit( 'offer', … )`, which no page may send, as `offer` is not in the `emit` of the room.
 - **The same conversations in iOS and Android apps,** on the same rooms ([iOS events](https://docs.wordplus.cloud/ios/events/), [Android events](https://docs.wordplus.cloud/android/events/)).
+- **A push to the phone** of whoever has nothing open, in place of the email or beside it ([sending a push](chat-server.md#sending-a-push-for-a-message)).
 - **Groups and other kinds of conversation:** [chat](chat.md).
 - **A whole site, in Next.js:** a marketplace, where a buyer writes to the seller from the item, sends photos, sees it on a call and makes an offer the seller takes with one click ([marketplace](../nextjs/marketplace.md#offers)).
 - **On another stack,** the guide of each sets up the routes, the webhook and the page: [Next.js](../nextjs/events.md), [Express](../express/events.md), [Laravel](https://docs.wordplus.cloud/laravel/events/), [Django](https://docs.wordplus.cloud/django/events/), [FastAPI](https://docs.wordplus.cloud/fastapi/events/), [WordPress](https://docs.wordplus.cloud/wordpress/events/).

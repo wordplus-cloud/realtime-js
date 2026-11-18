@@ -200,6 +200,18 @@ func calls(w http.ResponseWriter, r *http.Request, user string) {
 	role, _ := body["role"].(string)
 	otherOf := map[string]string{"caller": "to", "callee": "from"}[role]
 	other, found := wordplus.CallUser(body[otherOf])
+	// A ring into a group call, from a token of this server's own: the proof it brought says so.
+	if id != "" && found && other != me && role == "callee" {
+		if answer, ok := app.ProvenRing(body, call, id, kind, me, other, profile(user)); ok {
+			reply(w, answer)
+			return
+		}
+	}
+	// A call from a token of this server's own (callToken below): it said yes already.
+	if id != "" && found && other != me && body["group"] == nil && app.ProvenSide(body, call, id, role, me, other) {
+		reply(w, app.CallSide(call, id, role, kind, me, other, profile(user)))
+		return
+	}
 	m := support.FindStringSubmatch(call)
 	if m == nil || id == "" || !found || other == me || body["group"] != nil {
 		reply(w, map[string]string{"denied": "bad_request"})
@@ -213,6 +225,27 @@ func calls(w http.ResponseWriter, r *http.Request, user string) {
 	}
 	reply(w, app.CallSide(call, id, role, kind, me, other, profile(user)))
 }
+
+// The route of the app's own that gives a page its token for a call. Whether someone may call is the app's logic.
+func callToken(w http.ResponseWriter, r *http.Request) {
+	me := r.Header.Get("X-User")
+	to := r.URL.Query().Get("to")
+
+	// Your own check, whatever your app needs.
+	if me == "" || !mayCall(me, to) {
+		w.WriteHeader(403)
+		return
+	}
+
+	kind := r.URL.Query().Get("type")
+
+	reply(w, map[string]string{
+		"token": app.CallToken(me, to, kind, profile(me)),
+	})
+}
+
+// Anyone signed in may call anyone else, in this example.
+func mayCall(me, to string) bool { return to != "" && to != me }
 
 // --- The webhook, and what the check asks for -----------------------------------------------------------------------
 
@@ -292,6 +325,7 @@ func main() {
 			w.WriteHeader(404)
 		}
 	})
+	http.HandleFunc("GET /api/call-token", callToken)
 	http.HandleFunc("/check/", check)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		name := filepath.Base(r.URL.Path)

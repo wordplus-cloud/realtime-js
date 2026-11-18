@@ -51,7 +51,7 @@ export const realtime = createRealtime( {
 ```ts
 'use server';
 
-await realtime.in( 'chat:34:42' ).kick( 43 );   // out of the room now, and its key moves on
+await realtime.room( 'chat:34:42' ).remove( 43 );   // out of the room now, and its key moves on
 await realtime.rotateRoom( 'order:1042' );      // the order moved to another customer
 await realtime.rotateUser( userId );            // their own key moves on
 ```
@@ -66,7 +66,7 @@ Those still let in get the new key from your server with the next event, and kee
 
 A directory of your users, each profile sealed with the day key, that every page of your app reads. `profile` in `createRealtime()` says what the profile of a user is:
 
-```ts
+```ts fragment
 profile: async ( user ) => {
     const person = await db.user.findUnique( { where: { id: user } } );
     return person ? { name: person.name, avatar: person.image, url: `/people/${ person.id }` } : null;
@@ -108,7 +108,8 @@ const sealed = await realtime.keys.seal( JSON.stringify( note ), 'note:' + note.
 ```ts
 import { keyring, labelOf } from '@wordplus/realtime';
 
-await keyring().ensure( [ labelOf( sealed ) ] );   // asks your keys route for `note:…` if the page lacks it
+const label = labelOf( sealed );                   // `note:…`, or null for what isn't sealed
+if ( label ) await keyring().ensure( [ label ] );  // asks your keys route for it if the page lacks it
 const note = keyring().openJson( sealed );         // undefined when this user may not have it
 ```
 

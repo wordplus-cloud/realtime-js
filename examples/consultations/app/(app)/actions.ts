@@ -28,7 +28,7 @@ export async function imHere(id: string) {
     await realtime.toUser(appointment.expert).emit('waiting', { appointment: id, name: appointment.clientName });
 }
 
-/** The expert lets the client in: from now on the visit's rule lets the client come in, and the client hears so. */
+/** The expert lets the client in: from now on the visit's token route lets the client come in, and the client hears so. */
 export async function letIn(id: string): Promise<boolean> {
     const me = await currentUserId();
     const appointment = me ? await admit(id, me) : null;

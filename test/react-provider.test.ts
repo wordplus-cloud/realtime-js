@@ -3,10 +3,10 @@ import { act, create } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The connection as the provider makes it: each connect() a connection of its own, closed or not.
-const made: Array<{ close: ReturnType<typeof vi.fn> }> = [];
+const made: Array<{ on(): void; close: ReturnType<typeof vi.fn> }> = [];
 vi.mock('../src/browser.js', () => ({
     connect: vi.fn(async () => {
-        const rt = { close: vi.fn() };
+        const rt = { on() {}, close: vi.fn() };
         made.push(rt);
         return rt;
     }),
@@ -40,6 +40,16 @@ describe('RealtimeProvider', () => {
         await act(async () => { root = create(createElement(RealtimeProvider, { options: config('8') })); });
         await act(async () => { root.update(createElement(RealtimeProvider, { options: config('8') })); });
         await act(async () => { root.update(createElement(RealtimeProvider, { options: config('8') })); });
+
+        expect(made).toHaveLength(1);
+        expect(made[0].close).not.toHaveBeenCalled();
+    });
+
+    it('keeps its connection across a new day, whose hash differs only in its last 8 digits', async () => {
+        const profile = 'a'.repeat(56);
+        let root!: ReturnType<typeof create>;
+        await act(async () => { root = create(createElement(RealtimeProvider, { options: config('8', profile + '00004fab') })); });
+        await act(async () => { root.update(createElement(RealtimeProvider, { options: config('8', profile + '00004fac') })); });
 
         expect(made).toHaveLength(1);
         expect(made[0].close).not.toHaveBeenCalled();

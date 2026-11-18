@@ -1,12 +1,10 @@
 import { createRealtime } from '@wordplus/realtime/server';
 import { currentUserId } from './auth';
-import { eventOf, filesFor, idIn, isHost, isMember, keepMessage, mayWrite, members, membersOf, nameOf, personOf, photoOf, react, type Message } from './club';
+import { eventOf, filesFor, idIn, isMember, keepMessage, mayWrite, members, membersOf, nameOf, personOf, photoOf, react, type Message } from './club';
 import { DEMO_LIVE_MINUTES, WORLDS, endCallOnDemo, webhooksInEveryWorld } from './worlds';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
+    // The app's key, secret and local key come from the environment: WORDPLUS_SITE, WORDPLUS_SECRET, WORDPLUS_LOCAL_KEY.
     // Who is asking: the signed-in member, or null.
     user: () => currentUserId(),
     // What members see of each other: in the channels, the lounges, on stage and in who is online.
@@ -22,30 +20,11 @@ if (WORLDS) webhooksInEveryWorld(realtime);
 // lib/club.ts). Messages with their photos, typing, reactions and read ticks go from page to page sealed, and the
 // messages and reactions come here too (below), to be kept. A page asks to join at /api/realtime/auth.
 const MESSAGES = { history: 50, emit: ['message', 'typing', 'reaction', 'read'], webhook: ['message', 'reaction'] };
-realtime.room('channel:{id}', MESSAGES, async (user, _params, room) => mayWrite(user, room));
-realtime.room('chat:{id}', MESSAGES, async (user, _params, room) => mayWrite(user, room));
+realtime.room('channel:{id}', async (user, _params, room) => mayWrite(user, room), MESSAGES);
+realtime.room('chat:{id}', async (user, _params, room) => mayWrite(user, room), MESSAGES);
 
-// The call of a conversation between two, by the name of its room: both of them may use it.
-realtime.calls('chat:{id}', async (user, other, _params, room) => (await mayWrite(user, room)) && (await mayWrite(other, room)));
-
-// The lounges, lounge:{id}: group calls any member drops into, by voice or with their camera, for as long as they like.
-// The hosts look after them: the call screen gives them mute and remove on everyone's tile.
-realtime.groupCalls('lounge:{id}', async (user) => {
-    if (!(await isMember(user))) return false;
-    return (await isHost(user)) ? { admin: true } : true;
-});
-
-// The events, event:{id}: a live stream its host goes live in, from the studio, and every member watches. A member may
-// raise a hand from the player, and the host brings them on stage with their camera and microphone.
-realtime.streams(
-    'event:{id}',
-    async (user, { id }) => {
-        const event = await eventOf(id);
-        if (!event || !(await isMember(user))) return false;
-        return String(user) === event.host ? { role: 'host', quality: '1080p' } : 'viewer';
-    },
-    { stage: true, reactions: true },
-);
+// The calls of a conversation, the group calls of the lounges and the live streams of the events start from a token,
+// which the site's own routes answer after their own check: app/api/chat-call-token, lounge-token and event-token.
 
 // What is on in the club: every page of a member joins it, to hear when someone drops into a lounge or leaves it, or an
 // event goes live or ends, and show it as it is now. Only the server says anything in it.

@@ -1,16 +1,34 @@
 # Permissions
 
-Who may do what is decided by your server, in rules it declares by name pattern: who joins a room and what they may send there, who calls whom, who runs a group call, who hosts a live stream and who keeps its chat. A rule is a function of yours, with your database at hand. WordPlus Cloud enforces its answer, and a page can neither skip a rule nor change what it answered.
+Who may do what is decided by your server, and WordPlus Cloud enforces it. A page can neither skip your decision nor change it.
+
+- **Rooms** have rules your server declares by name pattern: who joins and what they may send. A rule is a function of yours, with your database at hand.
+- **Calls, group calls and live streams** start with a token from a route of your own: who calls whom, who runs a group call, who hosts a live stream and who keeps its chat. That is your app's own logic, and the SDK holds none of it.
 
 ## How a rule runs
 
-1. **A page asks your server.** Joining a room, placing or answering a call, joining a group call or opening a stream, the page asks the routes of the package on your server (`/api/realtime` by default). The page asks for every room it joins at the same moment in one request.
+For a room:
+
+1. **A page asks your server.** Joining a room, the page asks the routes of the package on your server (`/api/realtime` by default). The page asks for every room it joins at the same moment in one request.
 2. **Your server finds the user** the way your app does, with `user( request )` (the session in Django, `auth()` in Laravel, your own in Next.js), and runs the rule for that user and name. `user` is `null` (`None`) for a visitor who is not signed in.
 3. **The answer travels signed.** Your server signs it into a token with your secret, and WordPlus Cloud lets the page do what the token says, nothing more.
-4. **It runs again on renewal.** A token lasts 6 hours by default (`tokenTtl`, at most a day, and 6 hours at most for a call). The page renews it before it expires, and your rule runs again then. To take access away at once, see [below](#taking-access-away).
+4. **It runs again on renewal.** A token lasts 6 hours by default (`tokenTtl`, at most a day). The page renews it before it expires, and your rule runs again then. To take access away at once, see [below](#taking-access-away).
 
 - **A name** matches the pattern with the most characters of its own (`order:{id}` before `{kind}:{id}`). A `{part}` matches anything but `:` and `.`. A name no pattern matches is refused with `no_rule`.
 - **In Node** a rule may be async. In PHP and Python it is a plain function, which queries your database the usual way. In Laravel, `routes/channels.php` declares the rooms, as for any broadcasting driver.
+
+## How a token from your route works
+
+For a call, a group call and a live stream:
+
+1. **A page asks a route you write,** with a request of your own, or by the `token-url` of a ready-made button.
+2. **Your route finds the user and checks what it needs,** as for any other route of your app.
+3. **Your route answers a token,** from `realtime.callToken()`, `realtime.groupCallToken()` or `realtime.streamToken()`, which sign what they are asked to. To refuse, it answers 401 or 403.
+4. **WordPlus Cloud lets the page do what the token says,** nothing more. With no token from your server nothing starts, so nobody gets around your route.
+
+- **A call token** rings once. The person called needs no token of their own.
+- **A group call token** lasts 6 hours at most (`callTokenTtl`), and someone removed from the call needs a new one to come back.
+- **A stream token** lasts ten minutes, and the page asks your route again as each runs out, so your route may say no while they watch.
 
 ## Rooms
 
@@ -24,7 +42,7 @@ A chat of two is named after its two people, `chat:34:42`, and the page of a pro
 **Node**
 
 ```ts
-realtime.room( 'chat:{a}:{b}', { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] }, async ( user, { a, b } ) => {
+realtime.room( 'chat:{a}:{b}', async ( user, { a, b } ) => {
     // 1. The two people in the name.
     if ( [ a, b ].includes( String( user ) ) ) return true;
 
@@ -33,7 +51,7 @@ realtime.room( 'chat:{a}:{b}', { presence: true, history: 50, emit: [ 'message',
 
     // 3. Everyone else stays out.
     return false;
-} );
+}, { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] } );
 
 // 4. The page of a product: anyone, signed in or not, and a live count. No rule to run.
 realtime.room( 'product:{id}', { public: true, count: true } );
@@ -112,87 +130,87 @@ What the room itself allows, the same for everyone in it ([rooms](rooms.md#what-
 
 ## Calls between two people
 
-A call between two people is named after them too, with their ids: `support:34:42` for a customer, 42, and the agent helping them, 34. When one calls the other, the page asks your server, and this rule answers, once for the one calling and again for the one who answers. How a call then starts, runs and ends: [how calls and live streams work](use-cases/how-it-works.md). The rule says:
+Your app decides who may call whom. Here a customer may call an agent, and an agent anyone. When someone calls Ann, the agent who is user 34, your page asks your route, and your route says:
 
-1. **Only the two people** in the name are in the call.
+1. **Visitors** who are not signed in may not call.
 2. **One of the two is staff:** a customer may call an agent, and an agent anyone.
-3. **Add Person** offers an agent the other agents, and a customer nobody.
+3. **The token names the call** after the customer's ticket, which the webhooks give back.
+
+How a call then starts, runs and ends: [how calls and live streams work](use-cases/how-it-works.md).
 
 **Node**
 
 ```ts
-realtime.calls( 'support:{a}:{b}', async ( user, withUser, { a, b } ) => {
-    // 1. The two in the name, as text: user 42 is "42" there, user_2abc itself.
-    const pair = [ a, b ];
-    if ( ! pair.includes( String( user ) ) ) return false;
-    if ( ! pair.includes( String( withUser ) ) ) return false;
+// Your route, GET /api/call-token?to=34&ticket=17. Express here, the same in any framework.
+app.get( '/api/call-token', async ( req, res ) => {
+    const me = userOf( req );
+    const { to, ticket } = req.query;
+
+    // 1. Visitors may not call.
+    if ( ! me ) return res.sendStatus( 403 );
 
     // 2. One of the two is staff.
-    if ( await isStaff( user ) ) return true;
-    return isStaff( withUser );
-}, {
-    // 3. Whom Add Person offers: the other agents, to an agent.
-    people: async ( user ) => ( ( await isStaff( user ) ) ? await staffIds() : [] ),
+    if ( ! ( await isStaff( me ) ) && ! ( await isStaff( to ) ) ) return res.sendStatus( 403 );
+
+    // 3. The call is named after the ticket.
+    res.json( { token: await realtime.callToken( me, to, { name: 'support:' + ticket } ) } );
 } );
 ```
 
 **PHP**
 
 ```php
-$realtime->calls( 'support:{a}:{b}', function ( $user, $with, array $p ) {
-    // 1. The two in the name, as text.
-    $pair = [ $p['a'], $p['b'] ];
-    if ( ! in_array( (string) $user, $pair, true ) ) {
-        return false;
-    }
-    if ( ! in_array( (string) $with, $pair, true ) ) {
-        return false;
-    }
+// Your route, GET /api/call-token?to=34&ticket=17. Laravel: the same in a route, with Realtime::callToken().
+$me = current_user_id();
+$to = $_GET['to'] ?? '';
 
-    // 2. One of the two is staff.
-    if ( is_staff( $user ) ) {
-        return true;
-    }
+// 1. Visitors may not call.
+if ( ! $me ) {
+    http_response_code( 403 );
+    exit;
+}
 
-    return is_staff( $with );
-}, [
-    // 3. Whom Add Person offers: the other agents, to an agent.
-    'people' => fn ( $user ) => is_staff( $user ) ? staff_ids() : [],
-] );
+// 2. One of the two is staff.
+if ( ! is_staff( $me ) && ! is_staff( $to ) ) {
+    http_response_code( 403 );
+    exit;
+}
+
+// 3. The call is named after the ticket.
+header( 'Content-Type: application/json' );
+echo json_encode( [ 'token' => $realtime->callToken( $me, $to, [ 'name' => 'support:' . ( $_GET['ticket'] ?? '' ) ] ) ] );
 ```
 
 **Python**
 
 ```python
-def may_call_support(user, with_user, p):
-    # 1. The two in the name, as text.
-    pair = [p["a"], p["b"]]
-    if str(user) not in pair:
-        return False
-    if str(with_user) not in pair:
-        return False
+# Your route, GET /api/call-token?to=34&ticket=17. Flask here, the same in any framework.
+@app.get("/api/call-token")
+def call_token():
+    me = session.get("user_id")
+    to = request.args["to"]
+
+    # 1. Visitors may not call.
+    if not me:
+        abort(403)
 
     # 2. One of the two is staff.
-    if is_staff(user):
-        return True
-    return is_staff(with_user)
+    if not is_staff(me) and not is_staff(to):
+        abort(403)
 
-# 3. Whom Add Person offers: the other agents, to an agent.
-def people_to_add(user, call):
-    return staff_ids() if is_staff(user) else []
-
-realtime.calls("support:{a}:{b}", may_call_support, people=people_to_add)
+    # 3. The call is named after the ticket.
+    return {"token": realtime.call_token(me, to, name="support:" + request.args["ticket"])}
 ```
 
-- **Asked twice:** when `user` calls `withUser`, and again when the one called answers, with them as `user`. Each side has to be let in. The fifth argument, `side.role`, says which side asks (`caller` or `callee`), so a rule may let someone answer calls they may not place.
-- **The answer:** `false`, `true`, or `{ info }`, what the other side sees of `user` (your `profile()` by default).
-- **Adding people:** either side may ring someone into the call, which goes on as a group call. Your rule decides that as any call: the one adding calling the person about the call name, then the person taking it. A customer your rule lets call only an agent can add nobody else.
-- **`people( user, call )`** is whom the call screen offers to add. Each one still has to pass the rule.
+- **Asked once:** the person called answers with no token of their own, as the token that rang them proves your server said yes. A token rings once.
+- **`info`** is what the other side sees of the caller, your `profile()` by default.
+- **Adding people:** either side may ring someone into the call, which goes on as a group call. Your route decides whom, given the `call.ref` the page sends ([adding people](calls.md#adding-people)).
 - **Who is in a call** is proved by your server, with keys made from your local key: WordPlus Cloud carries the proofs and cannot make one.
+- **Apps with rules:** `realtime.calls()` keeps working, and a rule that owns the name of a call is still asked as someone answers it.
 
 ## Group calls
 
-A group call is named after where people meet: `class:7` for the office hours of class 7. Each person who joins asks your server, and this rule answers:
+A group call is named after where people meet: `class:7` for the office hours of class 7. Each person who joins asks your route, which says:
 
 1. **The teacher** speaks, and hosts the call: mutes, lets speak, removes.
 2. **An observer** watches and listens, and is listed to nobody.
@@ -204,82 +222,134 @@ And the media of these calls is encrypted end to end (`encrypt`, below the table
 **Node**
 
 ```ts
-realtime.groupCalls( 'class:{id}', async ( user, { id } ) => {
+// What someone may do in a class, from your own data, or null to stay out.
+async function placeIn( id, me ) {
     // 1. The teacher speaks, and hosts.
-    if ( await isTeacherOf( id, user ) ) return { admin: true };
+    if ( await isTeacherOf( id, me ) ) return { admin: true };
 
     // 2. An observer watches and listens, listed to nobody.
-    if ( await isObserverOf( id, user ) ) return { publish: false, hidden: true };
+    if ( await isObserverOf( id, me ) ) return { publish: false, hidden: true };
 
     // 3. A student watches and listens.
-    if ( await isStudentOf( id, user ) ) return { publish: false };
+    if ( await isStudentOf( id, me ) ) return { publish: false };
 
     // 4. Everyone else stays out.
-    return false;
-}, { encrypt: true } );
+    return null;
+}
+
+// Your route, GET /api/class-token?id=7. Express here, the same in any framework.
+app.get( '/api/class-token', async ( req, res ) => {
+    const me = userOf( req );
+    const { id } = req.query;
+
+    const place = me && await placeIn( id, me );
+    if ( ! place ) return res.sendStatus( 403 );
+
+    res.json( { token: await realtime.groupCallToken( me, 'class:' + id, { ...place, encrypt: true } ) } );
+} );
 ```
 
 **PHP**
 
 ```php
-$realtime->groupCalls( 'class:{id}', function ( $user, array $p ) {
+// What someone may do in a class, from your own data, or null to stay out.
+function place_in( $id, $me ): ?array {
     // 1. The teacher speaks, and hosts.
-    if ( is_teacher_of( $p['id'], $user ) ) {
+    if ( is_teacher_of( $id, $me ) ) {
         return [ 'admin' => true ];
     }
 
     // 2. An observer watches and listens, listed to nobody.
-    if ( is_observer_of( $p['id'], $user ) ) {
+    if ( is_observer_of( $id, $me ) ) {
         return [ 'publish' => false, 'hidden' => true ];
     }
 
     // 3. A student watches and listens.
-    if ( is_student_of( $p['id'], $user ) ) {
+    if ( is_student_of( $id, $me ) ) {
         return [ 'publish' => false ];
     }
 
     // 4. Everyone else stays out.
-    return false;
-}, [ 'encrypt' => true ] );
+    return null;
+}
+
+// Your route, GET /api/class-token?id=7. Laravel: the same in a route, with Realtime::groupCallToken().
+$me = current_user_id();
+$id = $_GET['id'] ?? '';
+
+$place = $me ? place_in( $id, $me ) : null;
+if ( null === $place ) {
+    http_response_code( 403 );
+    exit;
+}
+
+header( 'Content-Type: application/json' );
+echo json_encode( [ 'token' => $realtime->groupCallToken( $me, 'class:' . $id, $place + [ 'encrypt' => true ] ) ] );
 ```
 
 **Python**
 
 ```python
-def may_join_class(user, p):
+# What someone may do in a class, from your own data, or None to stay out.
+def place_in(id, me):
     # 1. The teacher speaks, and hosts.
-    if is_teacher_of(p["id"], user):
+    if is_teacher_of(id, me):
         return {"admin": True}
 
     # 2. An observer watches and listens, listed to nobody.
-    if is_observer_of(p["id"], user):
+    if is_observer_of(id, me):
         return {"publish": False, "hidden": True}
 
     # 3. A student watches and listens.
-    if is_student_of(p["id"], user):
+    if is_student_of(id, me):
         return {"publish": False}
 
     # 4. Everyone else stays out.
-    return False
+    return None
 
-realtime.group_calls("class:{id}", may_join_class, encrypt=True)
+# Your route, GET /api/class-token?id=7. Flask here, the same in any framework.
+@app.get("/api/class-token")
+def class_token():
+    me = session.get("user_id")
+    id = request.args["id"]
+
+    place = place_in(id, me) if me else None
+    if place is None:
+        abort(403)
+
+    return {"token": realtime.group_call_token(me, "class:" + id, encrypt=True, **place)}
 ```
 
-| Answer | Default | |
+| Option | Default | |
 |---|---|---|
+| `type` | `video` | `audio`, or `video` for anything else |
 | `info` | your `profile()` | what the others see of them |
 | `publish` | `true` | sends their camera, microphone and screen |
 | `subscribe` | `true` | gets those of the others |
 | `admin` | `false` | hosts the call: the call screen gives them mute, let speak or make a listener, and remove on the tiles of the others |
 | `hidden` | `false` | is not listed to the others |
+| `encrypt` | `false` | encrypts its media end to end, below |
 
-**A host's controls** are those of Better Messages, behind Manage Participant on the tile of each of the others: Mute Microphone, Stop Camera & Mic (to listening) and Allow Camera & Mic (to speaking) in a video call, Demote to Viewer and Promote to Speaker in an audio call, and Remove from Call. Each goes to your calls route, which asks this rule again for whoever clicked and acts only for a host, through `realtime.call( name ).mute()`, `.permit()` or `.remove()`: nothing to add on your server. A microphone muted stays the person's own to turn on again. Your own buttons, or a page without the call screen, call those from routes of yours ([from your server](calls.md#from-your-server)), or `group.moderate( act, user )` in the page, which goes the same way. Your server changes `publish` and `subscribe` while the call runs, with `realtime.call( name ).permit( user, { publish } )`: a listener made a speaker, or a speaker back to listening ([speakers and listeners](calls.md#speakers-and-listeners)).
+**A host's controls** are those of Better Messages, behind Manage Participant on the tile of each of the others: Mute Microphone, Stop Camera & Mic (to listening) and Allow Camera & Mic (to speaking) in a video call, Demote to Viewer and Promote to Speaker in an audio call, Spotlight for Everyone and Remove Spotlight in a video call (up to four people, the host too, and Clear Spotlight in Host Controls), and Remove from Call. Each goes to the SDK's calls route on a proof in the token that only your server makes, and acts only for a host, through `realtime.call( name ).mute()`, `.permit()`, `.spotlight()` or `.remove()`: nothing to add on your server. Your own buttons, or a page without the call screen, call those from routes of yours ([from your server](calls.md#from-your-server)), or `group.mute( user )`, `group.letSpeak( user )`, `group.makeListener( user )`, `group.spotlightOn( user )`, `group.spotlightOff( user )` and `group.remove( user )` in the page, which goes the same way. Your server changes `publish` and `subscribe` while the call runs, with `realtime.call( name ).permit( user, { publish } )`: a listener made a speaker, or a speaker back to listening ([speakers and listeners](calls.md#speakers-and-listeners)).
 
-`encrypt: true` encrypts the media of these group calls end to end, with keys your server makes: the media servers forward what they cannot read. The group calls that come from a call between two people always are.
+**What holds.** As in Better Messages, the call itself keeps some acts until it ends, so a reload or a token your route signs later does not undo them:
+
+- Mute Microphone holds the microphone off until Allow Microphone, where the call offers it (`group.acts` has `hold_mic`). Elsewhere a mute is once, and the person may turn it on again.
+- Stop Camera & Mic and Allow Camera & Mic, and Promote and Demote, hold until the other one or a switch of Broadcast Mode.
+- Remove from Call is a kick: a new token takes them back in, unless the call is locked.
+- Ban keeps them out for the minutes the host gives, or until the call ends, whatever token they bring.
+- Mute Everyone, Lock and Broadcast Mode hold until everyone has left. End for Everyone lets go of everything but a ban given minutes.
+- A raised hand stays up until it is lowered or its owner leaves. An ask to turn on a camera or microphone is not kept.
+
+A host is never held, and a ban of a host is refused. Raising a hand needs no host: the token gives everyone a proof of being in the call (`member`) for it. The whole list, and the same acts from your server, are in [moderating a group call](calls.md#moderating-a-group-call).
+
+`encrypt: true` encrypts the media of a group call end to end, with keys your server makes: the media servers forward what they cannot read. Say it in every token for the call. The group calls that come from a call between two people always are.
+
+**Apps with rules:** `realtime.groupCalls()` keeps working, and a rule that owns the name of a call still decides its host's acts.
 
 ## Live streams
 
-A live stream is named after its show: `show:7` for the show of shop 7. Each person who opens it asks your server, and this rule answers:
+A live stream is named as you like: `live:12` for stream 12 of a shop. Each person who opens it asks your route, which says:
 
 1. **A visitor** who is not signed in watches.
 2. **The owner of the shop** hosts, with camera, microphone and screen, up to 1080p.
@@ -292,95 +362,130 @@ And the settings of the stream: it takes reactions, those who keep the chat see 
 **Node**
 
 ```ts
-realtime.streams( 'show:{shop}', async ( user, { shop } ) => {
+import type { StreamTokenOptions } from '@wordplus/realtime/server';
+
+// Who someone is in a stream, from your own data.
+async function placeIn( shop, me ): Promise<StreamTokenOptions> {
     // 1. A visitor watches.
-    if ( user === null ) return 'viewer';
+    if ( me === null ) return {};
 
     // 2. The owner hosts.
-    if ( await isOwnerOf( shop, user ) ) return { role: 'host', src: [ 'camera', 'microphone', 'screen' ], quality: '1080p' };
+    if ( await isOwnerOf( shop, me ) ) return { role: 'host', src: [ 'camera', 'microphone', 'screen' ], quality: '1080p' };
 
     // 3. Staff watch and keep the chat.
-    if ( await isStaffOf( shop, user ) ) return { role: 'viewer', mod: true };
+    if ( await isStaffOf( shop, me ) ) return { mod: true };
 
     // 4. Customers watch and write.
-    if ( await isCustomerOf( shop, user ) ) return 'viewer';
+    if ( await isCustomerOf( shop, me ) ) return {};
 
     // 5. Everyone else watches and reads.
-    return { role: 'viewer', chat: 'read' };
-}, { reactions: true, people: 'mods', chat: { offline: 'closed', links: false } } );
+    return { chat: 'read' };
+}
+
+// Your route, GET /api/stream-token?id=12. Express here, the same in any framework.
+app.get( '/api/stream-token', async ( req, res ) => {
+    const me = userOf( req );   // null for a visitor who is not signed in
+    const { id } = req.query;
+
+    res.json( { token: await realtime.streamToken( me, 'live:' + id, {
+        ...await placeIn( await shopOf( id ), me ),
+        settings: { reactions: true, people: 'mods', chat: { offline: 'closed', links: false } },
+    } ) } );
+} );
 ```
 
 **PHP**
 
 ```php
-$realtime->streams( 'show:{shop}', function ( $user, array $p ) {
+// Who someone is in a stream, from your own data.
+function place_in( $shop, $me ): array {
     // 1. A visitor watches.
-    if ( null === $user ) {
-        return 'viewer';
+    if ( null === $me ) {
+        return [];
     }
 
     // 2. The owner hosts.
-    if ( is_owner_of( $p['shop'], $user ) ) {
+    if ( is_owner_of( $shop, $me ) ) {
         return [ 'role' => 'host', 'src' => [ 'camera', 'microphone', 'screen' ], 'quality' => '1080p' ];
     }
 
     // 3. Staff watch and keep the chat.
-    if ( is_staff_of( $p['shop'], $user ) ) {
-        return [ 'role' => 'viewer', 'mod' => true ];
+    if ( is_staff_of( $shop, $me ) ) {
+        return [ 'mod' => true ];
     }
 
     // 4. Customers watch and write.
-    if ( is_customer_of( $p['shop'], $user ) ) {
-        return 'viewer';
+    if ( is_customer_of( $shop, $me ) ) {
+        return [];
     }
 
     // 5. Everyone else watches and reads.
-    return [ 'role' => 'viewer', 'chat' => 'read' ];
-}, [ 'reactions' => true, 'people' => 'mods', 'chat' => [ 'offline' => 'closed', 'links' => false ] ] );
+    return [ 'chat' => 'read' ];
+}
+
+// Your route, GET /api/stream-token?id=12. Laravel: the same in a route, with Realtime::streamToken().
+$me = current_user_id();   // null for a visitor who is not signed in
+$id = $_GET['id'] ?? '';
+
+header( 'Content-Type: application/json' );
+echo json_encode( [ 'token' => $realtime->streamToken( $me, 'live:' . $id, place_in( shop_of( $id ), $me ) + [
+    'settings' => [ 'reactions' => true, 'people' => 'mods', 'chat' => [ 'offline' => 'closed', 'links' => false ] ],
+] ) ] );
 ```
 
 **Python**
 
 ```python
-def show_role(user, p):
+# Who someone is in a stream, from your own data.
+def place_in(shop, me):
     # 1. A visitor watches.
-    if user is None:
-        return "viewer"
+    if me is None:
+        return {}
 
     # 2. The owner hosts.
-    if is_owner_of(p["shop"], user):
+    if is_owner_of(shop, me):
         return {"role": "host", "src": ["camera", "microphone", "screen"], "quality": "1080p"}
 
     # 3. Staff watch and keep the chat.
-    if is_staff_of(p["shop"], user):
-        return {"role": "viewer", "mod": True}
+    if is_staff_of(shop, me):
+        return {"mod": True}
 
     # 4. Customers watch and write.
-    if is_customer_of(p["shop"], user):
-        return "viewer"
+    if is_customer_of(shop, me):
+        return {}
 
     # 5. Everyone else watches and reads.
-    return {"role": "viewer", "chat": "read"}
+    return {"chat": "read"}
 
-realtime.streams("show:{shop}", show_role, reactions=True, people="mods", chat={"offline": "closed", "links": False})
+# Your route, GET /api/stream-token?id=12. Flask here, the same in any framework.
+@app.get("/api/stream-token")
+def stream_token():
+    me = session.get("user_id")   # None for a visitor who is not signed in
+    id = request.args["id"]
+
+    return {"token": realtime.stream_token(
+        me,
+        "live:" + id,
+        settings={"reactions": True, "people": "mods", "chat": {"offline": "closed", "links": False}},
+        **place_in(shop_of(id), me),
+    )}
 ```
 
-The answer for each person:
+What `streamToken()` takes for each person:
 
-| Answer | |
+| Option | |
 |---|---|
-| `false` | not let in |
-| `'host'` or `'viewer'` | the role alone |
-| `role` | `host` goes live, ends the stream and keeps the chat. `viewer` watches |
+| `role` | `viewer` by default, who watches, or `host`, who goes live, ends the stream and keeps the chat |
 | `info` | `{ name, avatar }` as everyone sees them, your `profile()` by default. `avatar` is an `https://` address |
 | `chat` | `write` or `read`: whether they may write in the chat |
 | `mod` | `true` for someone who keeps the chat without hosting |
 | `src` | what a host may send: `camera`, `microphone`, `screen` |
 | `quality` | the best picture a host sends: `720p` or `1080p` |
+| `settings` | the settings of the stream, below |
 
-A visitor who is not signed in (`user` null) may only be a viewer: a rule that gives them more is refused with `no_user`.
+A visitor who is not signed in (`null`) may only be a viewer: `streamToken()` throws if asked for more. `realtime.streams()` keeps working for apps that have it.
 
-The settings of the stream, each a value or a function of the parts of its name:
+The settings of the stream, the same in every token for it:
 
 | Setting | |
 |---|---|
@@ -406,12 +511,12 @@ What the host and the mods do in the stream ([live streams](streams.md#the-chat-
 
 | | What it does |
 |---|---|
-| Change your data | your rule answers no at the next renewal of the token, within its life (6 hours by default, `tokenTtl`) |
-| `realtime.in( room ).kick( user )` | out of the room now, and the token they had is refused. A reload asks your rule again, so to keep them out, your rule says no for them, from your own data such as a ban list: a room has no ban of its own. With key generations kept, the room key moves on too ([encryption](encryption.md#when-someone-loses-access)) |
-| `realtime.user( id ).disconnect()` | out of every room, call and live stream at once, on every connection, and the tokens signed for them before refused: their pages ask your routes again, so your rules decide whether they come back ([sending](sending.md#a-user)) |
+| Change your data | for a room, your rule answers no at the next renewal of the token, within its life (6 hours by default, `tokenTtl`). For a live stream, your route may say no as the next token runs out, within ten minutes. A call or a group call already joined goes on until your server ends it, below |
+| `realtime.room( room ).remove( user )` | out of the room now, and the token they had is refused. A reload asks your rule again, so to keep them out, your rule says no for them, from your own data such as a ban list: a room has no ban of its own. With key generations kept, the room key moves on too ([encryption](encryption.md#when-someone-loses-access)) |
+| `realtime.user( id ).disconnect()` | out of every room, call and live stream at once, on every connection, and the tokens signed for them before refused: their pages ask your routes again, so your rules and routes decide whether they come back ([sending](sending.md#a-user)) |
 | `rotateRoom( room )`, `rotateUser( user )` | the key of the room, or of the user, moves on without a kick: what comes from now on needs the new one, which only those your rules let in get |
 | `hasKeys( user )` returning `false` | no keys at all for that user: nothing sealed opens for them |
-| `realtime.call( name ).remove( user )`, `.end()` | out of a group call now, or everyone, and the tokens from before do not take them back in ([calls](calls.md#from-your-server)) |
+| `realtime.call( name ).remove( user )`, `.end()` | out of a group call now, or everyone, and the tokens from before do not take them back in, so your route decides whether they come back ([calls](calls.md#from-your-server)) |
 | `kick()`, `ban()`, `timeout()` in a live stream | out of the stream, with `ban` kept out, or kept from writing in its chat for a while ([live streams](streams.md#from-your-server)) |
 
 A shorter `tokenTtl` makes a change in your data count sooner, at the price of more requests to your routes.

@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
+import { RealtimeProvider } from '@wordplus/realtime/next';
 import { currentUserId } from '@/lib/auth';
 import { personOf } from '@/lib/market';
 import { realtime } from '@/lib/realtime';
@@ -22,12 +21,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 async function Connected({ children }: { children: React.ReactNode }) {
-    await connection(); // made for each request: the settings are signed for this neighbour, now
     const me = await currentUserId();
     if (!me) redirect('/signin');
     const person = await personOf(me);
+    // The settings signed for this neighbour, for this request alone, and the page connected with them.
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <Screens />
             <MarketLive />
             <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur">

@@ -49,7 +49,7 @@ export async function signIn(as: number): Promise<Session> {
     }).then((r) => r.json() as Promise<{ token: string; realtime: BrowserConfig; shop: Shop }>);
 
     const rt = await connect({
-        site: answer.realtime.site,
+        app: answer.realtime.site,
         server: answer.realtime.server,
         api: answer.realtime.api,
         // In full: an app has no address of its own. The token is how the server knows its user.

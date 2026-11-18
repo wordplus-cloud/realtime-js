@@ -6,7 +6,7 @@ The realtime SDK gives your app four building blocks. Each is an API to build on
 |---|---|---|
 | **[Rooms](rooms.md) and [events](events.md)** | Updates from your server to the pages that follow something: an order moving on, a dashboard, a notice to one user in every tab and device. Events between pages: messages, typing, read ticks, reactions, a cursor | `<chat-room>`, `<typing-line>` |
 | **[Presence](presence.md)** | Who is in a room right now, with what you choose to show of them. A live count of who is looking. Who is online anywhere in your app | `<online-list>`, `<online-count>` |
-| **[Calls](calls.md)** | Video and voice calls between two people that ring in every tab and app of the one called. Adding people, which turns a call into a group call. Group calls for a team, a class or a meeting | the call screen, `<call-button>`, `<room-button>` |
+| **[Calls](calls.md)** | Video and voice calls between two people that ring in every tab and app of the one called. Adding people, which turns a call into a group call. Group calls for a team, a class or a meeting | the call screen, `<call-button>`, `<group-call-button>` |
 | **[Live streams](streams.md)** | One host live to an audience from the browser, a phone or OBS, with a chat, reactions, a live count of viewers, and moderation. Visitors watch without signing in | `<live-stream>`, `<stream-studio>` |
 
 Your server decides who may do each of them, in rules of its own ([permissions](permissions.md)). What your app sends through rooms is sealed with keys your server makes, which WordPlus Cloud never holds, and so is the media of calls between two people. A group call is encrypted end to end when its rule says so, and a live stream, which is for everyone watching, is encrypted on the way only ([encryption](encryption.md#calls-and-live-streams)).
@@ -32,8 +32,8 @@ The model is the same everywhere: your server declares the rooms, calls and stre
 | Your server | Your pages and apps |
 |---|---|
 | Node: [Next.js](nextjs/getting-started.md), [Express](express/getting-started.md), and any fetch handler (Hono, Fastify, edge and serverless functions) | Any web page, with or without a framework |
-| PHP: [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [plain PHP](https://docs.wordplus.cloud/php/getting-started/), Symfony, Slim | [React](react.md), [React Native and Capacitor](mobile/getting-started.md) |
-| Python: [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/), [Flask](https://docs.wordplus.cloud/flask/getting-started/) | [iOS](https://docs.wordplus.cloud/ios/getting-started/) (Swift) and [Android](https://docs.wordplus.cloud/android/getting-started/) (Kotlin), with their native call screen |
+| PHP: [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [plain PHP](https://docs.wordplus.cloud/php/getting-started/), Symfony, Slim | [React](react.md), [Vue](vue.md), [Svelte](svelte.md), [Angular](angular.md), [React Native and Capacitor](mobile/getting-started.md) |
+| Python: [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/), [Flask](https://docs.wordplus.cloud/flask/getting-started/) | [iOS](https://docs.wordplus.cloud/ios/getting-started/) (Swift) and [Android](https://docs.wordplus.cloud/android/getting-started/) (Kotlin), with their native call screen, which [React Native](https://docs.wordplus.cloud/react-native/calls/) and [Flutter](https://docs.wordplus.cloud/flutter/calls/) use too |
 
 On WordPress, any plugin or theme uses the same model through [`wordplus/realtime`](https://docs.wordplus.cloud/wordpress/getting-started/).
 
@@ -54,4 +54,4 @@ Every ready-made part is optional, and goes as far as you need ([customizing](cu
 - **Its users.** User ids are yours. Your `profile()` gives the name and picture the others see.
 - **Its local key,** which every key is made from ([encryption](encryption.md#your-local-key)).
 
-Push notifications to a device with nothing open are not part of this SDK for now: what your server sends reaches the pages and apps a user has open.
+What your server sends through WordPlus Cloud reaches the pages and apps a user has open. A push to a phone with nothing open is your server's own, to Firebase Cloud Messaging or APNs, when the user is offline ([a push for a message](use-cases/chat-server.md#sending-a-push-for-a-message)).

@@ -12,14 +12,15 @@
  *         headers: { Authorization: 'Bearer ' + session.token },  // how the app's server knows its user
  *     } );
  *
- * Calls need a WebRTC module in React Native (react-native-webrtc), and come in a later version: calls() rejects with
- * `no_webrtc` here, and the screens (callScreen(), streamScreen()) answer false, as an app has no page to draw them on.
+ * This entry holds rooms alone. Calls, group calls and live streams in React Native come from @wordplus/realtime-react-native,
+ * on the native engines: calls() rejects with `no_webrtc` here, and the screens (callScreen(), streamScreen()) answer false,
+ * as an app has no page to draw them on.
  */
 import { connect as connectPage, connectNow as connectPageNow, settingsOf, type BrowserConfig, type ConnectOptions, type Realtime } from './browser.js';
 
 export * from './browser.js';
 
-export async function connect(options: ConnectOptions | BrowserConfig): Promise<Realtime> {
+export async function connect(options: ConnectOptions | BrowserConfig = {}): Promise<Realtime> {
     check(options);
     return withoutCalls(await connectPage({ ...options, worker: null }));
 }
@@ -29,8 +30,8 @@ export function connectNow(options: ConnectOptions | BrowserConfig): Realtime {
     return withoutCalls(connectPageNow({ ...options, worker: null }));
 }
 
-// The call engine needs WebRTC (RTCPeerConnection, getUserMedia), which React Native has only through a module this
-// package doesn't bring yet: refused at once with a code, rather than failing deep inside the engine as a call starts.
+// The call engine of a page needs WebRTC (RTCPeerConnection, getUserMedia), which React Native doesn't have, and calls there
+// are @wordplus/realtime-react-native's: refused at once with a code, rather than failing deep inside the engine as a call starts.
 function withoutCalls(rt: Realtime): Realtime {
     rt.calls = () => Promise.reject(Object.assign(new Error('no_webrtc'), { code: 'no_webrtc' }));
     return rt;
@@ -38,7 +39,7 @@ function withoutCalls(rt: Realtime): Realtime {
 
 function check(options: ConnectOptions | BrowserConfig): void {
     // Each route the app asks, in full: `endpoint`, and any of `routes` given apart.
-    const settings = settingsOf(options);
+    const settings = settingsOf(options, false);
     for (const route of [settings.auth, settings.calls, settings.keys]) {
         if (route && !/^https?:\/\//.test(route.endpoint ?? '')) {
             throw new Error('wordplus-realtime: in an app, `endpoint` is the routes\' full address (https://…/api/realtime), and each of `routes` too');

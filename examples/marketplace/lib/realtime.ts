@@ -4,9 +4,6 @@ import { dealOf, filesFor, idIn, keepMessage, mayTalk, nameOf, personOf, photoOf
 import { WORLDS, webhooksInEveryWorld } from './worlds';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
     // Who is asking: the signed-in neighbour, or null.
     user: () => currentUserId(),
     // What neighbours see of each other: in a conversation and its call.
@@ -31,12 +28,9 @@ realtime.room('market', async (user) => user !== null);
 // (below), to be kept. The server tells it of offers made and answered. A page asks to join at /api/realtime/auth.
 realtime.room(
     'deal:{id}',
-    { history: 50, emit: ['message', 'typing', 'reaction', 'read'], webhook: ['message', 'reaction'] },
     async (user, { id }) => mayTalk(user, id),
+    { history: 50, emit: ['message', 'typing', 'reaction', 'read'], webhook: ['message', 'reaction'] },
 );
-
-// Its call: to see the item before coming over. Both of them may use it. A page asks to call at /api/realtime/calls.
-realtime.calls('deal:{id}', async (user, other, { id }) => (await mayTalk(user, id)) && (await mayTalk(other, id)));
 
 /** Keeps a message, and the first time, tells the other one of the conversation, on whatever page they are. */
 export async function keepAndTell(message: Message) {

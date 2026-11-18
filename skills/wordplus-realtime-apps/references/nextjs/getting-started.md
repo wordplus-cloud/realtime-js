@@ -15,28 +15,36 @@ A Next.js app cannot hold a websocket open on a serverless host. [Why WordPlus C
 
 ## 1. Your app in WordPlus Cloud
 
-**Apps are in early access.** Ask for it on our [contact form](https://www.wordplus.cloud/contact), and we turn **Apps** on in your WordPlus Cloud account. Until then your account has no Apps page.
+**Apps come with a subscription.** [Choose your connections](https://www.wordplus.cloud/pricing#apps), starting from 1,000, and your WordPlus Cloud account gets its **Apps** page.
 
 In your WordPlus Cloud account, go to **Apps → Add app**. Name it, and list the addresses its pages are served from: `https://shop.example.com`, and `http://localhost:3000` while you develop. Only pages on those addresses may connect.
 
-You get the app **key**, public because every page carries it, and its **secret**, for your server only. Make a **local key** of your own too: everything sealed is sealed with keys derived from it, and it never leaves your servers.
+You get the app **key**, public because every page carries it, and its **secret**, for your server only.
+
+## 2. Install and set up
+
+```bash
+npm install @wordplus/realtime @wordplus/realtime-ui      # the second for the ready-made screens, all optional
+npx wordplus-realtime init
+```
+
+`init` asks for the key and the secret, and writes four things. It changes nothing already there.
+
+- **`.env.local`**, with the key, the secret and a **local key** it makes for you: everything sealed is sealed with keys derived from it, and it never leaves your servers. Keep it as long as the app, the same on every server of the app.
+- **`lib/realtime.ts`**, your server's part, with rooms to change into yours (step 3).
+- **`app/api/realtime/[...path]/route.ts`**, the route your pages ask (step 3).
+- **`app/api/call-token/route.ts`**, a route of your own that answers a call token after your own check, for your first call ([calls](calls.md#your-first-call)).
 
 ```dotenv
 # .env.local
 WORDPLUS_SITE=s1500000007
 WORDPLUS_SECRET=…
-WORDPLUS_LOCAL_KEY=…        # openssl rand -hex 32; the same on every server of the app, kept as long as the app
+WORDPLUS_LOCAL_KEY=…
 ```
 
-None of them takes `NEXT_PUBLIC_`: the secret and the local key never reach a page, and the key reaches it through `config()`.
+None of them takes `NEXT_PUBLIC_`: the secret and the local key never reach a page, and the key reaches it through your layout (step 4).
 
-## 2. Install
-
-```bash
-npm install @wordplus/realtime @wordplus/realtime-ui      # the second for the ready-made screens, all optional
-```
-
-That is all: the browser files of the SDK come from your realtime route (step 3), which serves them on GET. The worker lets the tabs of a user share one connection, the room client runs group calls, and `realtime-ui.min.js` and `realtime-ui-streams.min.js` are the ready-made parts, the second for live streams. Nothing to copy into `public/` and nothing to keep out of git: every deployment serves the ones its package came with, from a folder named after their version, kept by browsers and CDNs for a year.
+That is all there is to install: the browser files of the SDK come from your realtime route, which serves them on GET. The worker lets the tabs of a user share one connection, the room client runs group calls, and `realtime-ui.min.js` and `realtime-ui-streams.min.js` are the ready-made parts, the second for live streams. Nothing to copy into `public/` and nothing to keep out of git: every deployment serves the ones its package came with, from a folder named after their version, kept by browsers and CDNs for a year.
 
 ## 3. Your server
 
@@ -53,9 +61,6 @@ import { createRealtime } from '@wordplus/realtime/server';
 import { currentUserId, profileOf } from '@/lib/auth';   // your sign-in: Auth.js, Clerk or your own sessions
 
 export const realtime = createRealtime( {
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
     // Who is asking: their id, or null for nobody.
     user: () => currentUserId(),
     // What others see of them: in presence, calls and the directory.
@@ -63,13 +68,13 @@ export const realtime = createRealtime( {
 } );
 
 // The room of an order, order:1042, the last 20 updates kept.
-realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => {
+realtime.room( 'order:{id}', async ( user, { id } ) => {
     // 1. Visitors stay out.
     if ( user === null ) return false;
 
     // 2. The customer of the order, and nobody else.
     return ( await ownerOf( id ) ) === user;
-} );
+}, { history: 20 } );
 ```
 
 ```ts
@@ -77,68 +82,44 @@ realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => {
 // /api/realtime/files/…, the browser files
 import { realtime } from '@/lib/realtime';
 
-export const GET = realtime.route;
-export const POST = realtime.route;
+export const { GET, POST } = realtime.handlers;
 ```
 
-- **The user** is whatever id your app knows them by, a number or a string (the ids of Clerk and Supabase work as they are), or `null`. `user` runs inside the route handler, so `cookies()` and `auth()` work there. It is also given the `Request`.
-- **The pattern of a room** names its parts: `order:{id}` matches `order:1042`, and the rule gets `{ id: '1042' }`.
+- **The user** is whatever id your app knows them by, a number or a string (the ids of Clerk and Supabase work as they are), or `null`. `user` runs inside the route handler and your layout's provider, so `cookies()` and `auth()` work there. It is also given the `Request`. Read it from a session or a token your server checks, never from a name or an id the page sends: whoever sends one reads that person's rooms and calls as them.
+- **The pattern of a room** names its parts: `order:{id}` matches `order:1042`, and the rule gets `{ id: '1042' }`. Your editor knows them, and a part the pattern does not have is an error.
+- **A name no rule matches** is refused, and your server's log says so once, with the rule to declare.
 - **The route folder is a catch-all,** `[...path]`: the browser files are in folders under `/api/realtime/files/`, which a one-segment `[action]` folder never reaches. A file that does not load says so in the console.
 - **The routes** take JSON POSTs, and GETs for the browser files alone. If your middleware guards `/api`, let `/api/realtime/*` through with the session.
 - **Joining and calling as routes of your own:** `app/api/realtime/auth/route.ts` and `app/api/realtime/calls/route.ts` answer before the catch-all does, with `realtime.authorize( rooms, user )` and `realtime.authorizeCall( ask, user )`, so your code shows where the rules run. The [dating site](dating-site.md#your-server-and-wordplus-cloud) does that.
 
 ## 4. The page
 
-Connect once, in the layout of your signed-in pages, with the user settings rendered in, so it connects with no request first:
+Connect once, in the layout of your signed-in pages:
 
 ```tsx
 // app/(app)/layout.tsx
-import { Suspense } from 'react';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
-import { currentUserId } from '@/lib/auth';
+import '@wordplus/realtime-ui/styles.css';
+import { RealtimeProvider } from '@wordplus/realtime/next';
+import { CallScreen } from '@wordplus/realtime-ui/react';
 import { realtime } from '@/lib/realtime';
-import { Screens } from './screens';
 
 export default function AppLayout( { children }: { children: React.ReactNode } ) {
     return (
-        <Suspense>
-            <Connected>{ children }</Connected>
-        </Suspense>
-    );
-}
-
-// The settings are signed for this user, at this moment: made for each request, never prerendered.
-async function Connected( { children }: { children: React.ReactNode } ) {
-    await connection();
-    return (
-        <RealtimeProvider options={ await realtime.config( await currentUserId() ) }>
-            <Screens />
+        <RealtimeProvider realtime={ realtime }>
+            <CallScreen />
             { children }
         </RealtimeProvider>
     );
 }
 ```
 
-```tsx
-// app/(app)/screens.tsx: the look of the ready-made screens, and the call screen, ringing on every page under the layout
-'use client';
+The provider asks your `user` who this is, signs the page's settings for them on your server, and connects the page with no request first. Your page shows at once and never waits for the connection, which comes up beside it. Signing in or out draws the layout again, and the connection moves on to the new user with no reload.
 
-import '@wordplus/realtime-ui/calls.css';
-import '@wordplus/realtime-ui/presence.css';
-import '@wordplus/realtime-ui/chat.css';
-import { useRealtime } from '@wordplus/realtime/react';
-import { CallScreen } from '@wordplus/realtime-ui/react';
+The ready-made screens are the call screen, the chat and the list of who is online from Better Messages, drawn in your own tree by `@wordplus/realtime-ui/react`: your CSS reaches them, and each finds the page connection in the provider. The call screen takes no place in your layout, its window and rings over the page, on every page under the layout. All of them are optional: your own components draw everything on the same API ([your own interface](https://docs.wordplus.cloud/apps/interface/)).
 
-export function Screens() {
-    return <CallScreen rt={ useRealtime() } />;
-}
-```
-
-The ready-made screens are the call screen, the chat and the list of who is online from Better Messages, drawn in your own tree by `@wordplus/realtime-ui/react`: your CSS reaches them, and each takes the page connection, `rt={ useRealtime() }`. The call screen takes no place in your layout, its window and rings over the page. All of them are optional: your own components draw everything on the same API ([your own interface](https://docs.wordplus.cloud/apps/interface/)).
-
-- **Why `<Suspense>` and `connection()`.** `config()` reads the session and signs with the time, so it belongs to one request. A new app from `create-next-app` has Cache Components on, and then Next.js refuses to build a layout that reads the session outside `<Suspense>`, and warns about the time while it prerenders. This layout builds with Cache Components on or off.
-- **When WordPlus Cloud refuses the page,** such as from an address your app does not list (`wrong_origin`), the console says why and what to do, once. For your own handling, `onError` on the provider hears it: as a function, it goes on the provider from a client component of yours (`'use client'`), not from this server layout.
+- **A user your `user` option can't find from a request,** such as one your layout already knows: `<RealtimeProvider realtime={ realtime } user={ userId }>`.
+- **It builds with Cache Components on or off,** as a new app from `create-next-app` has them on. The settings belong to one request, so they wait for it in a `<Suspense>` of their own, and the rest of your layout stays prerendered. `fallback` shows what you like for those few milliseconds.
+- **When WordPlus Cloud refuses the page,** such as from an address your app does not list (`wrong_origin`), the console says why and what to do, once. In a client component of yours, `useConnection()` gives `{ connected, error }`, for a "Reconnecting…" of your own.
 
 ```tsx
 // app/(app)/orders/[id]/status.tsx
@@ -155,7 +136,13 @@ export function Status( { id, initial }: { id: string; initial: string } ) {
 }
 ```
 
-The React entry is a client module, so a server component can render the provider. Every page under the layout shares its connection, which stays up across client navigations.
+Every page under the layout shares its connection, which stays up across client navigations.
+
+**See that it all works,** with your app running. This checks your three values, asks WordPlus Cloud whether it knows your app, and asks your routes what a page asks them, and it says what to fix:
+
+```bash
+npx wordplus-realtime check http://localhost:3000
+```
 
 ## 5. Send
 
@@ -177,7 +164,7 @@ Everyone in the room gets `{ status }`, sealed with the room key on the way, and
 
 ## Next
 
-- [Rooms](rooms.md), [presence and who is online](presence.md), [sending from your server](sending.md) and [events from the page](events.md), with the ready-made chat
+- [Rooms](rooms.md), [presence and who is online](presence.md), [sending from your server](sending.md) and [events from the page](events.md), with the ready-made conversation window (`<Chat>`)
 - [Calls and group calls](calls.md), with the call screen, and [live streams](streams.md)
 - [Encryption and your users](encryption.md)
 - [Customizing the screens](customizing.md): their look, a piece of your own, or their whole code

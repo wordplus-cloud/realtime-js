@@ -9,13 +9,17 @@ import { CallButton, CallSpot, Chat, GroupCallButton, LiveStream, OnlineCount, O
 const rendered = (...children: ReturnType<typeof createElement>[]) => create(createElement(Fragment, null, ...children)).toJSON();
 
 describe('the elements, as React renders them', () => {
-    it('the call buttons are <call-button> and <room-button>', () => {
+    it('the call buttons are <call-button> and <group-call-button>, its old props still taken', () => {
         expect(rendered(
             createElement(CallButton, { to: 34, call: 'support:34:42', name: 'Ann' }, 'Call'),
-            createElement(GroupCallButton, { name: 'meeting:daily', title: 'Daily meeting' }, 'Join'),
+            createElement(GroupCallButton, { call: 'meeting:daily', title: 'Daily meeting' }, 'Join'),
+            createElement(GroupCallButton, { name: 'staff:daily' }, 'Join'),
+            createElement(GroupCallButton, { room: 'team:1' }, 'Join'),
         )).toMatchObject([
             { type: 'call-button', props: { to: '34', call: 'support:34:42', type: 'video', name: 'Ann' }, children: ['Call'] },
-            { type: 'room-button', props: { room: 'meeting:daily', type: 'video', title: 'Daily meeting' }, children: ['Join'] },
+            { type: 'group-call-button', props: { call: 'meeting:daily', type: 'video', title: 'Daily meeting' }, children: ['Join'] },
+            { type: 'group-call-button', props: { call: 'staff:daily' } },
+            { type: 'group-call-button', props: { call: 'team:1' } },
         ]);
     });
 

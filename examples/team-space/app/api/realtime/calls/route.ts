@@ -1,8 +1,7 @@
-// POST /api/realtime/calls: a page asks to call a colleague, as { call: 'chat:7', to: '10', role: 'caller', … }, to
-// answer a call, to come into its team's meeting, as { room: 'meeting:3', type: 'video' }, or for a lead's mute or
-// remove there (moderate). This server runs the rule of the call (realtime.calls and realtime.groupCalls in
-// lib/realtime.ts) for the colleague signed in, and answers a pass for it, signed with the app's secret, or why not. With
-// the pass, WordPlus Cloud rings the other one, or lets them in.
+// POST /api/realtime/calls: what a page asks of a call once it has its token from /api/chat-call-token or
+// /api/meeting-token: to answer a call ringing for it, which needs no token of its own, to renew its place, or for a
+// lead's mute or remove in a meeting. The package checks each ask against what only this server signs, for the
+// colleague signed in, and answers. It starts nothing by itself: with no token, nothing rings and no page joins.
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 

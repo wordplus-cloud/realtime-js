@@ -37,7 +37,7 @@ async function Team({ params, searchParams }: PageProps<'/teams/[id]'>) {
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_15rem]">
                 <div className="flex min-w-0 flex-col gap-5">
                     {/* A room of its own for each team, so opening another team's page decides again whether to join. */}
-                    <MeetingRoom key={id} room={meetingOf(id)} team={team.name} host={team.lead === me}
+                    <MeetingRoom key={id} id={id} room={meetingOf(id)} team={team.name} host={team.lead === me}
                                  people={inIt.flatMap((person) => (named[person] ? [{ id: person, ...named[person] }] : []))} />
                     {channel && (
                         <div className="flex flex-col gap-2">

@@ -1,7 +1,7 @@
-// POST /api/realtime/calls: a page asks to call someone, as { call: 'chat:7', to: '10', role: 'caller', … }, or to
-// answer a call, or whom it may call. This server runs the call's rule (realtime.calls in lib/realtime.ts) for the
-// member signed in, and answers a pass for the call, signed with the app's secret, or why not. With the pass, WordPlus
-// Cloud rings the other one.
+// POST /api/realtime/calls: the line of a call, once it started with a token from /api/chat-call-token. A page holds
+// the line of its member here, so their calls ring, answers a call that rings, and keeps a call going. Every ask
+// carries a proof that only this server makes: the token that rang, which says this server already said yes. This
+// route checks it for the member signed in, and answers a pass signed with the app's secret, or why not.
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 

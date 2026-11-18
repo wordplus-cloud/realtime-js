@@ -44,7 +44,7 @@ As in a browser, with `rt.join()`, or the Better Messages chat on the room, with
 <chat-room room="chat:34:42" placeholder="Write a message"></chat-room>
 ```
 
-```ts
+```js
 // The conversation your server keeps, a page at a time, asked with the token of the app: an app has no cookie of your site.
 const chatRoom = document.querySelector( 'chat-room' );
 chatRoom.load = async ( before ) => fetch( `${ SERVER }/chat/34/42/messages` + ( before ? `?before=${ encodeURIComponent( before.id ) }` : '' ), {

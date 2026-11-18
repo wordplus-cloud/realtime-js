@@ -1,20 +1,20 @@
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallSpot, GroupCallButton } from '@wordplus/realtime-ui/react';
 
 type Person = { id: string; name: string; avatar: string };
-type Props = { room: string; name: string; kind: 'audio' | 'video'; people: Person[]; host: boolean };
+type Props = { id: string; room: string; name: string; kind: 'audio' | 'video'; people: Person[]; host: boolean };
 
 /**
  * A lounge's call, shown here in the page while this member is in it: by voice, everyone's picture and who speaks, or
  * with cameras, everyone's camera and screen. Before that, who is in it now and the button to drop in. On another page
  * the call goes on in the corner, and comes back here when this page opens again.
  */
-export function LoungeRoom({ room, name, kind, people, host }: Props) {
-    const rt = useRealtime();
+export function LoungeRoom({ id, room, name, kind, people, host }: Props) {
+    // This site's route for the lounge's token (app/api/lounge-token/route.ts), which builds the call's name from its number.
+    const tokenUrl = `/api/lounge-token?id=${id}`;
     return (
-        <CallSpot rt={rt} call={room} className="h-[calc(100dvh-14rem)] min-h-[28rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
+        <CallSpot call={room} tokenUrl={tokenUrl} className="h-[calc(100dvh-14rem)] min-h-[28rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
             <div className="flex h-full flex-col items-center justify-center gap-5 p-6 text-center" id="lounge">
                 {people.length > 0 ? (
                     <>
@@ -32,8 +32,8 @@ export function LoungeRoom({ room, name, kind, people, host }: Props) {
                 ) : (
                     <p className="text-lg text-stone-300">Nobody is in {name} right now.</p>
                 )}
-                {/* Asks this server for the call's pass (/api/realtime/calls), whose rule is lib/realtime.ts's groupCalls. */}
-                <GroupCallButton rt={rt} room={room} type={kind} title={name} className="rounded-full bg-orange-600 px-6 py-3 font-medium text-white hover:bg-orange-500">
+                {/* Asks this server's route for a token (/api/lounge-token), which says whether this member hosts. */}
+                <GroupCallButton call={room} tokenUrl={tokenUrl} type={kind} title={name} className="rounded-full bg-orange-600 px-6 py-3 font-medium text-white hover:bg-orange-500">
                     {people.length > 0 ? 'Drop in' : `Open ${name}`}
                 </GroupCallButton>
                 <p className="max-w-sm text-sm text-stone-400">

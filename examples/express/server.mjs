@@ -58,6 +58,9 @@ const roomsOf = (s) => ({
     show: s ? `show:${s}` : 'show:mugs',
 });
 
+/** The id in a room's name, for the route that makes its token: daily of meeting:daily. */
+const idOf = (room) => room.slice(room.indexOf(':') + 1);
+
 /** The shop a room belongs to, from its name. Null for none. */
 function shopOfRoom(room) {
     const [kind, first] = String(room ?? '').split(':');
@@ -67,10 +70,8 @@ function shopOfRoom(room) {
     return first === undefined || first === 'daily' || first === 'mugs' ? 0 : /^\d+$/.test(first) ? Number(first) : null;
 }
 
+// Its keys from the environment: WORDPLUS_SITE, WORDPLUS_SECRET and WORDPLUS_LOCAL_KEY.
 const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE,
-    secret: process.env.WORDPLUS_SECRET,
-    localKey: process.env.WORDPLUS_LOCAL_KEY,
     // What others see of a user: in presence, calls and the directory.
     profile: (user) => {
         const p = person(user);
@@ -83,18 +84,18 @@ const realtime = createRealtime({
 
 // #region demo: order
 // The room of an order: its customer and the shop staff. The last 20 updates kept, which the page shows as its timeline.
-realtime.room('order:{id}', { history: 20 }, (user, { id }) => {
+realtime.room('order:{id}', (user, { id }) => {
     const order = shops.get(Math.floor(Number(id) / 10000))?.order;
     return order?.id === Number(id) && (user === order.customer || (isStaff(user) && sameShop(user, order.customer)));
-});
+}, { history: 20 });
 // #endregion
 
 // #region demo: chat
 // The chat of Ann and Ben: those two only. They send messages, typing, reactions and read ticks straight to the room. The
 // messages and reactions reach this server by webhook, and it keeps the conversation (keepChat, GET /chat/messages). The
 // room keeps its last events for 5 minutes, for a page that reconnects.
-realtime.room('chat:{a}:{b}', { history: 50, emit: ['message', 'typing', 'reaction', 'read'], webhook: ['message', 'reaction'] },
-    (user, { a, b }) => [a, b].includes(String(user)) && sameShop(a, b));
+realtime.room('chat:{a}:{b}', (user, { a, b }) => [a, b].includes(String(user)) && sameShop(a, b),
+    { history: 50, emit: ['message', 'typing', 'reaction', 'read'], webhook: ['message', 'reaction'] });
 // #endregion
 
 // #region demo: presence
@@ -103,8 +104,8 @@ const member = (user, s) => {
     const p = person(user);
     return p?.shop === s ? { info: { name: p.name, role: p.role } } : false;
 };
-realtime.room('shop', { presence: true }, (user) => member(user, 0));
-realtime.room('shop:{s}', { presence: true }, (user, { s }) => member(user, Number(s)));
+realtime.room('shop', (user) => member(user, 0), { presence: true });
+realtime.room('shop:{s}', (user, { s }) => member(user, Number(s)), { presence: true });
 // #endregion
 
 // #region demo: product
@@ -114,11 +115,14 @@ realtime.room('product:{id}', { public: true, count: true });
 
 // #region demo: webhooks
 // The webhooks this server got, sent on to the shop people as they come (below), the last 20 kept.
-realtime.room('webhooks', { history: 20 }, (user) => person(user)?.shop === 0);
-realtime.room('webhooks:{s}', { history: 20 }, (user, { s }) => person(user)?.shop === Number(s));
+realtime.room('webhooks', (user) => person(user)?.shop === 0, { history: 20 });
+realtime.room('webhooks:{s}', (user, { s }) => person(user)?.shop === Number(s), { history: 20 });
 // #endregion
 
-// #region demo: members
+// Calls, the daily meeting and the live show start from tokens of this server's own routes, below: GET /api/call-token,
+// /api/meeting-token and /api/show-token, each its own check, then realtime.callToken(), groupCallToken() or streamToken().
+// The rules below are for the shop's Swift and Kotlin example apps, which still start them by name.
+
 // Calls between two people, support:34:42: the two it names, one of them staff. Either of them may bring more staff in,
 // and the call goes on as a group call: the one adding calls the staff member about it, who takes the call from them.
 realtime.calls('support:{a}:{b}', (user, withUser, { a, b }) => {
@@ -130,21 +134,16 @@ realtime.calls('support:{a}:{b}', (user, withUser, { a, b }) => {
     // Whom the call screen offers to add: the shop staff not in the call.
     people: (user, call) => peopleOf(shopOf(user)).filter((p) => p.staff && !call.split(':').slice(1).map(Number).includes(p.id)).map((p) => p.id),
 });
-// #endregion
 
-// #region demo: meeting
 // The daily meeting: a group call for everyone in the shop.
 realtime.groupCalls('meeting:{id}', (user, { id }) => person(user)?.shop === (id === 'daily' ? 0 : Number(id)));
-// #endregion
 
-// #region demo: show
 // The shop live show, show:mugs: Ann presents it, and everyone else watches and writes in its chat, signed in or not.
 realtime.streams('show:{id}', (user, { id }) => {
     const s = shopOfRoom(`show:${id}`);
     if (s === null || !shops.has(s)) return false;
     return person(user)?.shop === s && person(user).name === 'Ann' ? 'host' : 'viewer';
 }, { reactions: true });
-// #endregion
 
 // #region demo: webhooks
 // What WordPlus Cloud tells this server by webhook (set https://<your server>/api/realtime/webhook on your app page in
@@ -246,7 +245,14 @@ const shopFor = (me) => {
         order,
         chat: { between: [me.shop * 100 + 34, me.shop * 100 + 42] },
         product: { name: 'Two ceramic mugs', picture: '/products/mugs.webp' },
-        routes: { status: `/orders/${order.id}/status`, wire: `/orders/${order.id}/wire`, messages: '/chat/messages' },
+        routes: {
+            status: `/orders/${order.id}/status`,
+            wire: `/orders/${order.id}/wire`,
+            messages: '/chat/messages',
+            callToken: '/api/call-token',
+            meetingToken: `/api/meeting-token?id=${idOf(roomsOf(me.shop).meeting)}`,
+            showToken: `/api/show-token?id=${idOf(roomsOf(me.shop).show)}`,
+        },
         rooms: roomsOf(me.shop),
         events: { order: 'updated', chat: 'message' },
         headers: {},
@@ -291,6 +297,52 @@ app.get('/chat/messages', signedIn, (req, res) => {
     const me = person(userOf(req));
     if (!me || ![34, 42].includes(me.id % 100)) return res.status(403).json({ error: 'not_in_chat' });
     res.json(chatPage(shops.get(me.shop).chat, req.query.before));
+});
+// #endregion
+
+// #region demo: members
+// GET /api/call-token?to=34&type=video: a call between two people of a shop, asked by <call-button> and <online-list> as a
+// call button is pressed. The app's own check, then the token that lets this user call that one.
+app.get('/api/call-token', async (req, res) => {
+    const me = userOf(req);
+    const to = Number(req.query.to);
+
+    // Two people of the same shop, one of them staff: customers never call each other.
+    if (me === null || !person(to) || me === to || !sameShop(me, to)) return res.sendStatus(403);
+    if (!isStaff(me) && !isStaff(to)) return res.sendStatus(403);
+
+    res.json({ token: await realtime.callToken(me, to, { type: req.query.type }) });
+});
+// #endregion
+
+// #region demo: meeting
+// GET /api/meeting-token?id=daily: the daily meeting of a shop, a group call, asked by <group-call-button> as it is
+// pressed. The name comes from the id: meeting:daily for the shop of the guides, meeting:7 for a demo shop.
+app.get('/api/meeting-token', async (req, res) => {
+    const me = userOf(req);
+    const id = String(req.query.id ?? '');
+
+    // Everyone in the shop, and nobody else.
+    if (me === null || person(me)?.shop !== (id === 'daily' ? 0 : Number(id))) return res.sendStatus(403);
+
+    res.json({ token: await realtime.groupCallToken(me, 'meeting:' + id) });
+});
+// #endregion
+
+// #region demo: show
+// GET /api/show-token?id=mugs: the live show of a shop, asked by <live-stream>, again as each ten-minute token runs out.
+// The name comes from the id: show:mugs for the shop of the guides, show:7 for a demo shop.
+app.get('/api/show-token', async (req, res) => {
+    const me = userOf(req);
+    const name = 'show:' + String(req.query.id ?? '');
+
+    // 1. A show of a shop here: any other is refused.
+    const s = shopOfRoom(name);
+    if (s === null || !shops.has(s)) return res.sendStatus(403);
+
+    // 2. Ann of the shop presents it, and everyone else watches and writes in its chat, signed in or not.
+    const host = person(me)?.shop === s && person(me)?.name === 'Ann';
+    res.json({ token: await realtime.streamToken(me, name, { ...(host ? { role: 'host' } : {}), settings: { reactions: true } }) });
 });
 // #endregion
 

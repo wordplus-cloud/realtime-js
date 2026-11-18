@@ -1,6 +1,6 @@
 # Charging for calls and streams
 
-Your app may charge its users for what they use: a consultation by the minute, a class by the minute of each student, a live stream by the view or by the minute watched. WordPlus Cloud tells your server what each person used, with the seconds counted on its own servers, and your rules and your server do the rest.
+Your app may charge its users for what they use: a consultation by the minute, a class by the minute of each student, a live stream by the view or by the minute watched. WordPlus Cloud tells your server what each person used, with the seconds counted on its own servers, and your routes and your server do the rest.
 
 **In your stack:** calls in [Next.js](../nextjs/calls.md) · [Express](../express/calls.md) · [Laravel](https://docs.wordplus.cloud/laravel/calls/) · [PHP](https://docs.wordplus.cloud/php/calls/) · [Django](https://docs.wordplus.cloud/django/calls/) · [FastAPI](https://docs.wordplus.cloud/fastapi/calls/) · [Flask](https://docs.wordplus.cloud/flask/calls/) · [WordPress](https://docs.wordplus.cloud/wordpress/calls/), and live streams in [Next.js](../nextjs/streams.md) · [Express](../express/streams.md) · [Laravel](https://docs.wordplus.cloud/laravel/streams/) · [PHP](https://docs.wordplus.cloud/php/streams/) · [Django](https://docs.wordplus.cloud/django/streams/) · [FastAPI](https://docs.wordplus.cloud/fastapi/streams/) · [Flask](https://docs.wordplus.cloud/flask/streams/) · [WordPress](https://docs.wordplus.cloud/wordpress/streams/)
 
@@ -8,7 +8,7 @@ Your app may charge its users for what they use: a consultation by the minute, a
 
 Three parts, each a few lines of your server:
 
-1. **Before:** your rule checks the balance of the user, and says no when they have none. Nothing rings, and nobody joins ([your rule](#1-only-with-a-balance)).
+1. **Before:** your token route checks the balance of the user, and says no when they have none. Nothing rings, and nobody joins ([your route](#1-only-with-a-balance)).
 2. **After:** your webhook hears what each person used, with the seconds, and your server charges it ([charging](#2-charging-what-was-used)).
 3. **While it runs:** for long sessions, your server looks every minute at who is in, and takes out whoever ran out ([cutting off](#3-cutting-off-who-ran-out)).
 
@@ -23,152 +23,153 @@ At the address of your webhook, with the others ([webhooks](../sending.md#webhoo
 | `call.ended` | a call between two people ended | `call` (its name), `from` (who called), `to`, `media`, `answered_at`, `ended_at`, `seconds` talked from the answer to the end, 0 for a call nobody answered, and `reason` |
 | `group.joined` | someone joined a group call | `call`, `user`, `media`, `joined_at` |
 | `group.left` | someone left a group call | the same, with `left_at` and `seconds` they were in it |
-| `stream.joined` | apps only: a signed-in person started watching or presenting while the stream is live, as they opened it live, or as it went live with them on it | `stream`, `user`, `role` as your rule gave it, such as `viewer` or `host`, `watch`, `joined_at` |
+| `stream.joined` | apps only: a signed-in person started watching or presenting while the stream is live, as they opened it live, or as it went live with them on it | `stream`, `user`, `role` as your token gave it, such as `viewer` or `host`, `watch`, `joined_at` |
 | `stream.left` | apps only: that ended, as they left or the stream ended | the same, with `left_at` and `seconds` of live time |
 | `stream.ended` | a stream ended | `stream`, `started_at`, `ended_at`, `peak` (the most watching at once) and `viewer_seconds` (the time of everyone watching it live, added up) |
 
 - **Each event has an `id`.** Charge once for each: an event may come again, with the same `id`.
-- **Users are as your rules got them,** an id of digits as a number.
+- **Users are as your server named them,** an id of digits as a number.
 - **Visitors are not told:** someone who did not sign in has nobody to charge.
 - **Only live time counts.** Someone on the page before the stream goes live, or after it ends, watches nothing: their `stream.joined` comes as it goes live, and their `stream.left` as it ends. Going live again starts another pair, with the same `watch`.
-- **The role stays the one your rule gave.** A viewer the host brings on stage is still `viewer` in their `stream.joined` and `stream.left`.
+- **The role stays the one your token gave.** A viewer the host brings on stage is still `viewer` in their `stream.joined` and `stream.left`.
 - **Each viewer of a stream is for apps.** A WordPress site never hears `stream.joined` or `stream.left`: its streams hear `stream.ended`, with the time watched by everyone together. `call.ended`, `group.joined` and `group.left` reach WordPress sites as they reach apps.
 - **A call someone was added to** ends with `reason: 'group'`, and goes on as a group call named `call:` and its id, whose people come as `group.joined` and `group.left`.
 
 ## 1. Only with a balance
 
-Your rules already decide who gets in, so they check the balance too. A call is named after its two people, such as `consult:34:42`, and a stream after its id, such as `live:1`. Before a page calls or opens the stream, it asks your server, and a rule answers. These say:
+Your app decides who gets in, in routes of its own, so they check the balance too. A page asks your route for a token before it calls or opens the stream, and your route makes your own check, then answers a token, or 403. These say:
 
-1. **A call** is only for the two people in its name.
-2. **The expert** answers for free, and **the client** calls with a minute left at least.
+1. **A call** is between two different people, and named after them, the caller first, such as `consult:42:34`.
+2. **The expert** calls for free, and **the client** calls with a minute left at least. The one called answers with no token of their own.
 3. **A visitor** who is not signed in may not watch the stream: there is nobody to charge.
 4. **The host** goes live.
-5. **A viewer** watches with a minute left at least.
+5. **A viewer** watches with a minute left at least. A stream token lasts ten minutes, so a viewer whose minutes ran out gets no new one.
 
 **Node**
 
 ```ts
-realtime.calls( 'consult:{a}:{b}', async ( user, withUser, { a, b } ) => {
-    // 1. Only the two in the name.
-    const named = [ a, b ];
-    if ( !named.includes( String( user ) ) || !named.includes( String( withUser ) ) ) return false;
+// Your route, GET /api/consult-token?to=34. Express here, the same in any framework.
+app.get( '/api/consult-token', async ( req, res ) => {
+    const me = userOf( req );
+    const { to } = req.query;
 
-    // 2. The expert answers for free, and the client needs a minute left.
-    if ( await isExpert( user ) ) return true;
-    return ( await minutesLeft( user ) ) >= 1;
+    // 1. Two different people.
+    if ( ! me || String( me ) === String( to ) ) return res.sendStatus( 403 );
+
+    // 2. The expert calls for free, and the client needs a minute left.
+    if ( ! ( await isExpert( me ) ) && ( await minutesLeft( me ) ) < 1 ) return res.sendStatus( 403 );
+
+    res.json( { token: await realtime.callToken( me, to, { type: 'video', name: `consult:${ me }:${ to }` } ) } );
 } );
 
-realtime.streams( 'live:{id}', async ( user, { id } ) => {
+// Your route, GET /api/live-token?id=1.
+app.get( '/api/live-token', async ( req, res ) => {
+    const me = userOf( req );
+    const { id } = req.query;
+
     // 3. No visitors.
-    if ( user === null ) return false;
+    if ( me === null ) return res.sendStatus( 401 );
 
     // 4. The host.
-    if ( await isHostOf( id, user ) ) return 'host';
+    if ( await isHostOf( id, me ) ) return res.json( { token: await realtime.streamToken( me, 'live:' + id, { role: 'host' } ) } );
 
     // 5. A viewer, with a minute left.
-    return ( await minutesLeft( user ) ) >= 1 ? 'viewer' : false;
+    if ( ( await minutesLeft( me ) ) < 1 ) return res.sendStatus( 403 );
+    res.json( { token: await realtime.streamToken( me, 'live:' + id ) } );
 } );
 ```
 
 **PHP**
 
 ```php
-$realtime->calls( 'consult:{a}:{b}', function ( $user, $with, array $p ) {
-    // 1. Only the two in the name.
-    $named = [ $p['a'], $p['b'] ];
-    if ( ! in_array( (string) $user, $named, true ) || ! in_array( (string) $with, $named, true ) ) {
-        return false;
-    }
+// Your route, GET /api/consult-token?to=34. Laravel: the same in a route, with Realtime::callToken().
+$me = current_user_id();
+$to = $_GET['to'] ?? '';
 
-    // 2. The expert answers for free, and the client needs a minute left.
-    if ( is_expert( $user ) ) {
-        return true;
-    }
+// 1. Two different people.
+if ( ! $me || (string) $me === (string) $to ) {
+    http_response_code( 403 );
+    exit;
+}
 
-    return minutes_left( $user ) >= 1;
-} );
+// 2. The expert calls for free, and the client needs a minute left.
+if ( ! is_expert( $me ) && minutes_left( $me ) < 1 ) {
+    http_response_code( 403 );
+    exit;
+}
 
-$realtime->streams( 'live:{id}', function ( $user, array $p ) {
-    // 3. No visitors.
-    if ( null === $user ) {
-        return false;
-    }
+header( 'Content-Type: application/json' );
+echo json_encode( [ 'token' => $realtime->callToken( $me, $to, [ 'type' => 'video', 'name' => "consult:{$me}:{$to}" ] ) ] );
+```
 
-    // 4. The host.
-    if ( is_host_of( $p['id'], $user ) ) {
-        return 'host';
-    }
+```php
+// Your route, GET /api/live-token?id=1.
+$me = current_user_id();
+$id = $_GET['id'] ?? '';
+header( 'Content-Type: application/json' );
 
-    // 5. A viewer, with a minute left.
-    return minutes_left( $user ) >= 1 ? 'viewer' : false;
-} );
+// 3. No visitors.
+if ( null === $me ) {
+    http_response_code( 401 );
+    exit;
+}
+
+// 4. The host.
+if ( is_host_of( $id, $me ) ) {
+    echo json_encode( [ 'token' => $realtime->streamToken( $me, 'live:' . $id, [ 'role' => 'host' ] ) ] );
+    exit;
+}
+
+// 5. A viewer, with a minute left.
+if ( minutes_left( $me ) < 1 ) {
+    http_response_code( 403 );
+    exit;
+}
+echo json_encode( [ 'token' => $realtime->streamToken( $me, 'live:' . $id ) ] );
 ```
 
 **Python**
 
 ```python
-def may_consult(user, with_user, p):
-    # 1. Only the two in the name.
-    named = (p["a"], p["b"])
-    if str(user) not in named or str(with_user) not in named:
-        return False
+# Your route, GET /api/consult-token?to=34. Flask here, the same in any framework.
+@app.get("/api/consult-token")
+def consult_token():
+    me = session.get("user_id")
+    to = request.args["to"]
 
-    # 2. The expert answers for free, and the client needs a minute left.
-    if is_expert(user):
-        return True
-    return minutes_left(user) >= 1
+    # 1. Two different people.
+    if not me or str(me) == str(to):
+        abort(403)
 
-def live_role(user, p):
+    # 2. The expert calls for free, and the client needs a minute left.
+    if not is_expert(me) and minutes_left(me) < 1:
+        abort(403)
+
+    return {"token": realtime.call_token(me, to, type="video", name=f"consult:{me}:{to}")}
+
+# Your route, GET /api/live-token?id=1.
+@app.get("/api/live-token")
+def live_token():
+    me = session.get("user_id")
+    id = request.args["id"]
+
     # 3. No visitors.
-    if user is None:
-        return False
+    if me is None:
+        abort(401)
 
     # 4. The host.
-    if is_host_of(p["id"], user):
-        return "host"
+    if is_host_of(id, me):
+        return {"token": realtime.stream_token(me, "live:" + id, role="host")}
 
     # 5. A viewer, with a minute left.
-    return "viewer" if minutes_left(user) >= 1 else False
-
-realtime.calls("consult:{a}:{b}", may_consult)
-realtime.streams("live:{id}", live_role)
+    if minutes_left(me) < 1:
+        abort(403)
+    return {"token": realtime.stream_token(me, "live:" + id)}
 ```
 
-**WordPress**
+On WordPress, its package decides by rules of its own, with the same checks ([WordPress calls](https://docs.wordplus.cloud/wordpress/calls/), [WordPress streams](https://docs.wordplus.cloud/wordpress/streams/)).
 
-```php
-wordplus_realtime()->calls( 'consult:{a}:{b}', function ( $user_id, $with, array $p ) {
-	// 1. Only the two in the name.
-	$named = array( (int) $p['a'], (int) $p['b'] );
-	if ( ! in_array( $user_id, $named, true ) || ! in_array( $with, $named, true ) ) {
-		return false;
-	}
-
-	// 2. The expert answers for free, and the client needs a minute left.
-	if ( user_can( $user_id, 'my_expert' ) ) {
-		return true;
-	}
-
-	return my_minutes_left( $user_id ) >= 1;
-} );
-
-wordplus_realtime()->streams( 'live:{id}', function ( $user_id, array $p ) {
-	// 3. No visitors.
-	if ( $user_id <= 0 ) {
-		return false;
-	}
-
-	// 4. The host.
-	if ( my_stream_host( (int) $p['id'] ) === $user_id ) {
-		return 'host';
-	}
-
-	// 5. A viewer, with a minute left.
-	return my_minutes_left( $user_id ) >= 1 ? 'viewer' : false;
-} );
-```
-
-`minutesLeft()` is yours: the balance of the user in your database. Someone refused sees You cannot make this call, or no access in place of the stream.
+`minutesLeft()` is yours: the balance of the user in your database. The page asks with `<call-button to="34" token-url="/api/consult-token">` and `<live-stream name="live:1" token-url="/api/live-token?id=1">`, or `rt.startCall( token )` and `rt.joinStream( getToken )`. Someone refused sees You cannot make this call, or no access in place of the stream.
 
 ## 2. Charging what was used
 
@@ -287,14 +288,14 @@ setInterval( async () => {
         const { list } = await realtime.call( name ).get();
         for ( const { user, joined_at } of list ) {
             const used = Math.ceil( ( Date.now() - joined_at ) / 60000 );
-            if ( used >= ( await minutesLeft( user ) ) ) await realtime.call( name ).remove( user );
+            if ( user && used >= ( await minutesLeft( user ) ) ) await realtime.call( name ).remove( user );
         }
     }
 
     // Live streams of an app: those watching, from when stream.joined told you.
     for ( const { name } of await realtime.listStreams() ) {
         for ( const { user, role } of ( await realtime.stream( name ).people() ).people ) {
-            if ( role === 'viewer' && ( await minutesLeft( user ) ) <= watchedSince( name, user ) ) await realtime.stream( name ).kick( user );
+            if ( user && role === 'viewer' && ( await minutesLeft( user ) ) <= watchedSince( name, user ) ) await realtime.stream( name ).remove( user );
         }
     }
 }, 60 * 1000 );
@@ -318,7 +319,7 @@ foreach ( $realtime->listCalls() as $call ) {
 foreach ( $realtime->listStreams() as $stream ) {
     foreach ( $realtime->stream( $stream['name'] )->people()['people'] as $person ) {
         if ( 'viewer' === $person['role'] && minutes_left( $person['user'] ) <= watched_since( $stream['name'], $person['user'] ) ) {
-            $realtime->stream( $stream['name'] )->kick( $person['user'] );
+            $realtime->stream( $stream['name'] )->remove( $person['user'] );
         }
     }
 }
@@ -342,7 +343,7 @@ for call in realtime.list_calls():
 for stream in realtime.list_streams():
     for person in realtime.stream(stream["name"]).people()["people"]:
         if person["role"] == "viewer" and minutes_left(person["user"]) <= watched_since(stream["name"], person["user"]):
-            realtime.stream(stream["name"]).kick(person["user"])
+            realtime.stream(stream["name"]).remove(person["user"])
 ```
 
 **WordPress**
@@ -364,8 +365,8 @@ foreach ( is_wp_error( $calls ) ? array() : $calls as $call ) {
 // Live streams: a WordPress site hears no stream.joined, so it has no time watched to cut off by.
 ```
 
-- **`remove()`** takes them out of the group call at once, and `kick()` out of the stream. Your rule then keeps them out until they have minutes again.
-- **A call between two people** runs between its two people, so your server cannot list it. Give the page its limit, `calls.on( 'call', ( call ) => setTimeout( () => call.end(), minutes * 60000 ) )`, and `realtime.user( id ).disconnect()` takes out someone who stays past it.
+- **`remove()`** takes them out of the group call or the stream at once. Your route then gives them no new token until they have minutes again.
+- **A call between two people** runs between its two people, so your server cannot list it. Give the page its limit, `( await rt.calls() ).on( 'call', ( call ) => setTimeout( () => call.end(), minutes * 60000 ) )`, and `realtime.user( id ).disconnect()` takes out someone who stays past it.
 - **`watchedSince()`** is yours: the minutes since the `stream.joined` of that user, which your webhook kept. It is for apps alone, as a WordPress site hears no `stream.joined`.
 
 ## What WordPlus Cloud charges you

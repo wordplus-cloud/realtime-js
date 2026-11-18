@@ -28,7 +28,7 @@ describe('the live lessons guide', () => {
 
     it('quotes the realtime side whole, with none of the public demo in it', () => {
         // The files a reader adds to their own app: whole, not a part.
-        for (const file of ['lib/realtime.ts', 'app/api/realtime/calls/route.ts', 'app/api/realtime/[...path]/route.ts', 'app/(site)/layout.tsx', 'app/(site)/lessons/[id]/page.tsx', 'app/(site)/studio/page.tsx', 'app/(site)/studio/[id]/page.tsx']) {
+        for (const file of ['lib/realtime.ts', 'app/api/lesson-token/route.ts', 'app/api/realtime/calls/route.ts', 'app/api/realtime/[...path]/route.ts', 'app/(site)/layout.tsx', 'app/(site)/lessons/[id]/page.tsx', 'app/(site)/studio/page.tsx', 'app/(site)/studio/[id]/page.tsx']) {
             const block = quoted.find((q) => q.file === file);
             expect(block, `${file} is quoted`).toBeDefined();
             expect(asQuoted(readFileSync(join(example, file), 'utf8')).trim()).toBe(block!.text.trim());

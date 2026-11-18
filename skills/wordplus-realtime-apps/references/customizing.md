@@ -47,7 +47,7 @@ Replace one piece and keep the rest. Your piece gets the same props ours gets, a
 ```tsx
 import { CallScreen, CallControl, Chat } from '@wordplus/realtime-ui/react';
 
-<CallScreen rt={ rt } components={ {
+<CallScreen components={ {
     RingCard: ( { name, onAnswer, onReject } ) => <MyRing name={ name } answer={ onAnswer } reject={ onReject } />,
     VideoTile: ( { children } ) => <div className="my-frame">{ children }</div>,
     controls: ( buttons, call ) => [
@@ -56,7 +56,7 @@ import { CallScreen, CallControl, Chat } from '@wordplus/realtime-ui/react';
     ],
 } } />
 
-<Chat rt={ rt } room="chat:34:42" components={ { EmptyConversation: () => <p>Ask us anything about your order.</p> } } />
+<Chat room="chat:34:42" components={ { EmptyConversation: () => <p>Ask us anything about your order.</p> } } />
 ```
 
 - **`controls`** gets our buttons in the dock order and the call (its state, its tracks, what it does), and returns the buttons to show. Drop ours, reorder them, or add your own with `CallControl` (`label`, `icon`, `onClick`, `active`). Hanging up stays last, and whatever does not fit folds into More, yours too.
@@ -116,9 +116,9 @@ npx @wordplus/realtime-ui add call-screen      # or online-list, chat
 
 | Component | Its files | Draw yours |
 |---|---|---|
-| `call-screen` | `call-screen.tsx` (which layout), `private-call.tsx`, `group-video-call.tsx`, `group-audio-call.tsx`, the grids and their tiles, `call-dock.tsx` (the control row), `device-switch.tsx`, `add-person.tsx`, `incoming-call-card.tsx` (the ring) | `<CallScreen rt={ rt } view={ CallView } components={ { RingCard } } />` |
-| `online-list` | `online-list.tsx` (the list, typing, the count), `online-rows.tsx` (a row) | `<OnlineList rt={ rt } room="shop" />` from your copy |
-| `chat` | `chat.tsx` (the list, the bubbles, the composer) | `<Chat rt={ rt } room="chat:34:42" />` from your copy |
+| `call-screen` | `call-screen.tsx` (which layout), `private-call.tsx`, `group-video-call.tsx`, `group-audio-call.tsx`, the grids and their tiles, `call-dock.tsx` (the control row), `device-switch.tsx`, `add-person.tsx`, `incoming-call-card.tsx` (the ring) | `<CallScreen view={ CallView } components={ { RingCard } } />` |
+| `online-list` | `online-list.tsx` (the list, typing, the count), `online-rows.tsx` (a row) | `<OnlineList room="shop" />` from your copy |
+| `chat` | `chat.tsx` (the list, the bubbles, the composer) | `<Chat room="chat:34:42" />` from your copy |
 
 - **On a page without React,** `add` also writes `wordplus-ui.elements.tsx` and `wordplus-ui.build.mjs`: `node wordplus-ui.build.mjs` builds your own elements script, with your copies in it, into `public/realtime-ui.js`. Load it in place of ours: `connect( { ui: '/realtime-ui.js' } )`.
 
@@ -145,20 +145,21 @@ The elements are the ready-made option, never a must. Draw who is online, the ch
 
 The live stream elements, `<live-stream>` and `<stream-studio>`, are the player, chat and studio of Easy Stream. They draw in the page itself, not in a shadow root, and have a look of their own.
 
-- **Colours, corners and the font** are custom properties on their theme root, `.estream-theme`: `--estream-accent`, `--estream-accent-text`, `--estream-live` (the Live badge), `--estream-text`, `--estream-muted`, `--estream-surface`, `--estream-surface-2`, `--estream-border`, `--estream-radius` and `--estream-font`. Their stylesheet comes after yours in the page, so give your rule one more selector:
+- **Colours, corners and the font** are custom properties on their theme root, `.wplus-live-stream-theme`: `--wplus-live-stream-accent`, `--wplus-live-stream-accent-text`, `--wplus-live-stream-live` (the Live badge), `--wplus-live-stream-text`, `--wplus-live-stream-muted`, `--wplus-live-stream-surface`, `--wplus-live-stream-surface-2`, `--wplus-live-stream-border`, `--wplus-live-stream-radius` and `--wplus-live-stream-font`. Their stylesheet comes after yours in the page, so give your rule one more selector:
 
 ```css
-body .estream-theme {
-    --estream-accent: #16a34a;
-    --estream-radius: 12px;
-    --estream-font: Inter, system-ui, sans-serif;
+body .wplus-live-stream-theme {
+    --wplus-live-stream-accent: #16a34a;
+    --wplus-live-stream-radius: 12px;
+    --wplus-live-stream-font: Inter, system-ui, sans-serif;
 }
 ```
 
 - **Where each part goes** is yours: `view="player"`, `chat`, `details` or `studio` puts one part where your layout wants it, and `<stream-studio>` the studio alone ([elements](elements.md#live-stream)).
 - **Their words:** `rt.streamScreen( { lang, strings } )`, by the English text, in the same nine languages.
-- **Their classes** all start with `estream-`: `.estream-stage` the picture, `.estream-bar` its controls, `.estream-badge` the Live badge, `.estream-floating` the reactions rising over it, `.estream-tile` the picture of one person. Prefer the custom properties where they do what you need: they are what stays the same from one release to the next.
-- **A screen of your own:** `show.snapshot()` is everything the player draws, the phase, the audience, the chat, the pinned message, the pictures and their layout, and the reactions rising, and `show.subscribe( fn )` hears every change. In React, `useStream( name )` gives both, and `StreamView` from `@wordplus/realtime-ui/streams` draws them in your own tree ([live streams](streams.md#a-screen-of-your-own)).
+- **Their classes** all start with `wplus-live-stream-`: `.wplus-live-stream-stage` the picture, `.wplus-live-stream-bar` its controls, `.wplus-live-stream-badge` the Live badge, `.wplus-live-stream-floating` the reactions rising over it, `.wplus-live-stream-tile` the picture of one person. Prefer the custom properties where they do what you need: they are what stays the same from one release to the next.
+- **Up to 1.1.0** the prefix was `estream-`: a page that styled the live streams then renames its `.estream-` classes and `--estream-` properties to `wplus-live-stream-`, and nothing after the prefix.
+- **A screen of your own:** `stream.snapshot()` is everything the player draws, the phase, the audience, the chat, the pinned message, the pictures and their layout, and the reactions rising, and `stream.subscribe( fn )` hears every change. In React, `useStream( name )` gives both, and `StreamView` from `@wordplus/realtime-ui/streams` draws them in your own tree ([live streams](streams.md#a-screen-of-your-own)).
 
 ## Native apps
 

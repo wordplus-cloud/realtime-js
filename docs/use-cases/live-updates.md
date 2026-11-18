@@ -20,13 +20,13 @@ Your server decides who may follow what. A page that joins a room asks your serv
 
 ```ts
 // 1. An order, such as order:1042: only its customer.
-realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => ( await findOrder( id ) )?.userId === user );
+realtime.room( 'order:{id}', async ( user, { id } ) => ( await findOrder( id ) )?.userId === user, { history: 20 } );
 
 // 2. The sales dashboard: only your staff.
-realtime.room( 'sales', { history: 1 }, ( user ) => isStaff( user ) );
+realtime.room( 'sales', ( user ) => isStaff( user ), { history: 1 } );
 
 // 3. An export, such as job:9: only the user who started it.
-realtime.room( 'job:{id}', { history: 1 }, async ( user, { id } ) => ( await findJob( id ) )?.userId === user );
+realtime.room( 'job:{id}', async ( user, { id } ) => ( await findJob( id ) )?.userId === user, { history: 1 } );
 ```
 
 **PHP**

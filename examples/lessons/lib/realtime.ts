@@ -1,12 +1,9 @@
 import { createRealtime } from '@wordplus/realtime/server';
 import { currentUserId } from './auth';
-import { followersOf, lessonIn, lessonOf, mayWatch, personOf, studentsOf } from './lessons';
+import { followersOf, lessonIn, lessonOf, mayWatch, personOf, roomOf, studentsOf } from './lessons';
 import { DEMO_LESSON_MINUTES, WORLDS, webhooksInEveryWorld } from './worlds';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
     // Who is asking: the signed-in user, or null for a visitor.
     user: () => currentUserId(),
     // What others see of them in a lesson: on stage, in its chat, in the teacher's list of hands.
@@ -18,21 +15,22 @@ export const realtime = createRealtime({
 // The public demo: the webhooks read the lessons of every visitor's world (lib/worlds.ts).
 if (WORLDS) webhooksInEveryWorld(realtime);
 
-// The stream of each lesson: lesson:{id}, where {id} is the lesson's number. Its teacher goes live in it, and whoever
-// may watch the lesson (mayWatch in lib/lessons.ts) watches: anyone for an open lesson, else the course's students.
-// A student signed in may raise a hand, and the teacher brings them on stage. A page asks to join at
-// /api/realtime/calls.
-realtime.streams(
-    'lesson:{id}',
-    async (user, { id }) => {
-        const lesson = await lessonOf(id);
-        if (!lesson) return false;
-        const me = user === null ? null : String(user);
-        if (me === lesson.teacher) return { role: 'host', quality: '1080p' };
-        return (await mayWatch(me, lesson)) ? 'viewer' : false;
-    },
-    { stage: true, reactions: true },
-);
+/**
+ * The token of a lesson's stream, lesson:{id}, where {id} is the lesson's number, for whoever asks, signed in or not, or
+ * null to refuse. Its teacher hosts it, with the picture up to 1080p. Whoever may watch the lesson (mayWatch in
+ * lib/lessons.ts) watches: anyone for an open lesson, else the course's students. A visitor reads its chat, and signs in
+ * to write. A student signed in may raise a hand, and the teacher brings them on stage. A page asks for it at
+ * /api/lesson-token.
+ */
+export async function lessonToken(user: string | null, id: string): Promise<string | null> {
+    const lesson = await lessonOf(id);
+    if (!lesson) return null;
+    // The same in every token of the stream: a stage for guests, and reactions.
+    const settings = { stage: true, reactions: true };
+    if (user === lesson.teacher) return realtime.streamToken(user, roomOf(lesson.id), { role: 'host', quality: '1080p', settings });
+    if (!(await mayWatch(user, lesson))) return null;
+    return realtime.streamToken(user, roomOf(lesson.id), user === null ? { chat: 'read', settings } : { settings });
+}
 
 // What is live: every page joins it, a visitor's too, to hear when a lesson goes live or ends and show its lists as they
 // are now. Only the server says anything in it.

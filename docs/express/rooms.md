@@ -12,7 +12,7 @@ Each room is named after what it carries: `order:1042` for the updates of order 
 
 ```js
 // 1. The updates of an order, the last 20 kept.
-realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => {
+realtime.room( 'order:{id}', async ( user, { id } ) => {
     // Visitors stay out.
     if ( user === null ) return false;
 
@@ -23,12 +23,12 @@ realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => {
     // Its customer, and the staff.
     if ( order.customerId === user ) return true;
     return isStaff( user );
-} );
+}, { history: 20 } );
 
 // 2. A chat of two, such as chat:34:42: the two in the name, and nobody else. They send messages and typing to it.
-realtime.room( 'chat:{a}:{b}', { history: 50, emit: [ 'message', 'typing' ] }, ( user, { a, b } ) => {
+realtime.room( 'chat:{a}:{b}', ( user, { a, b } ) => {
     return [ a, b ].includes( String( user ) );
-} );
+}, { history: 50, emit: [ 'message', 'typing' ] } );
 
 // 3. The page of a product: anyone, signed in or not, and a live count. No rule to run.
 realtime.room( 'product:{id}', { public: true, count: true } );
@@ -44,6 +44,7 @@ realtime.room( 'product:{id}', { public: true, count: true } );
 
 - **Room names:** up to 200 characters of `A-Z a-z 0-9 _ - = @ , . ; :`.
 - **`{name}`** matches one or more characters other than `:` and `.`.
+- **`{pair}`** is a room of the two people its name holds: `realtime.room( 'chat:{pair}', { emit: [ 'message' ] } )` makes `chat:34:42` those two's and nobody else's, with no rule to write, and `rt.join( 'chat:{pair}', { with: 34 } )` fills in the ids. Use `chat:{a}:{b}` with a rule of your own to check more ([two people, or a group](../rooms.md#two-people-or-a-group)).
 - **The most specific rule wins:** the pattern with the most fixed characters, and on a tie the one declared first. A room no pattern matches is refused (`no_rule`).
 - **When the rule runs:** when a page joins, and when its token is renewed (every 6 hours by default). A page asks for every room it joins in the same moment in one request, and keeps the tokens across reconnects and moves.
 
@@ -51,7 +52,7 @@ realtime.room( 'product:{id}', { public: true, count: true } );
 
 | Option | Default | |
 |---|---|---|
-| `history` | none | Events kept for pages that reconnect: a number (`50`), up to 1,000, for 5 minutes. Or `{ last: 50, days: 0.002 }` for less (0.002 of a day is about 3 minutes) |
+| `history` | none | Events kept for pages that reconnect: a number (`50`), up to 1,000, for 5 minutes. Or `{ last: 50, seconds: 120 }` for less |
 | `emit` | none | Events pages may send to the room: names, or `'*'` for any ([events from the page](events.md)) |
 | `presence` | off | Its members are listed, with their info, and `join` and `leave` tell the others ([presence](presence.md)) |
 | `count` | off | A live count of who is in it, at any size, without a list |
@@ -92,7 +93,7 @@ const older = await order.history( { before: events[ 0 ].id, limit: 50 } );
 ```
 
 - Events over 64 KB are sent but not kept. `volatile` ones are never kept.
-- Your server reads and erases history too: `realtime.in( 'order:1042' ).history()` and `.forget()` ([sending from your server](sending.md#asking-about-a-room)).
+- Your server reads and erases history too: `realtime.room( 'order:1042' ).history()` and `.forget()` ([sending from your server](sending.md#asking-about-a-room)).
 
 ## Use cases
 

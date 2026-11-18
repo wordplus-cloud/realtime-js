@@ -1,6 +1,6 @@
 # The API demo in React Native
 
-Sign in as Ben (a customer) in the app and as Ann (support) in a browser: his order follows as she moves it on, both are in the shop, and they chat with “typing…”, in the same rooms as the shop web pages. Expo, with `@wordplus/realtime/native`. Calls come to React Native in a later version of the SDK. The guide is at [docs.wordplus.cloud/mobile](https://docs.wordplus.cloud/mobile/getting-started/).
+Sign in as Ben (a customer) in the app and as Ann (support) in a browser: his order follows as she moves it on, both are in the shop, and they chat with “typing…”, in the same rooms as the shop web pages. Expo, with `@wordplus/realtime/native`. Calls and live streams are in `@wordplus/realtime-react-native`, which needs a native build, so they aren't in this example ([calls](https://docs.wordplus.cloud/react-native/calls/)). The guide is at [docs.wordplus.cloud/mobile](https://docs.wordplus.cloud/mobile/getting-started/).
 
 The app server is the Express example (`../express`): run it first, with your app key and secret.
 

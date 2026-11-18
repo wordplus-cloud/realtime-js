@@ -1,7 +1,7 @@
 {
   "name": "@wordplus/realtime",
-  "version": "1.1.0",
-  "description": "WordPlus Cloud's realtime SDK for sites and apps outside WordPress: rooms, presence and events, calls between two people that ring in the browser, group calls and a drop-in call screen, sealed end to end. The browser client, a server part for Node and every edge runtime, React hooks and React Native.",
+  "version": "1.2.0",
+  "description": "WordPlus Cloud's realtime SDK for sites and apps outside WordPress: rooms, presence and events, calls between two people that ring in the browser, group calls and a drop-in call screen, sealed end to end. The browser client, a server part for Node and every edge runtime, hooks for React, Vue, Svelte and Angular, and React Native.",
   "keywords": [
     "realtime",
     "websocket",
@@ -13,7 +13,12 @@
     "end-to-end encryption",
     "nextjs",
     "react",
-    "react-native"
+    "react-native",
+    "vue",
+    "nuxt",
+    "svelte",
+    "sveltekit",
+    "angular"
   ],
   "license": "MIT",
   "author": "WordPlus",
@@ -45,6 +50,22 @@
       "types": "./dist/react.d.ts",
       "default": "./dist/react.js"
     },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "default": "./dist/next.js"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "default": "./dist/vue.js"
+    },
+    "./svelte": {
+      "types": "./dist/svelte.d.ts",
+      "default": "./dist/svelte.js"
+    },
+    "./angular": {
+      "types": "./dist/angular.d.ts",
+      "default": "./dist/angular.js"
+    },
     "./native": {
       "types": "./dist/native.d.ts",
       "default": "./dist/native.js"
@@ -63,6 +84,18 @@
       "react": [
         "./dist/react.d.ts"
       ],
+      "next": [
+        "./dist/next.d.ts"
+      ],
+      "vue": [
+        "./dist/vue.d.ts"
+      ],
+      "svelte": [
+        "./dist/svelte.d.ts"
+      ],
+      "angular": [
+        "./dist/angular.d.ts"
+      ],
       "native": [
         "./dist/native.d.ts"
       ],
@@ -80,7 +113,9 @@
     "assets",
     "bin",
     "docs",
+    "!docs/recording.md",
     "skills",
+    "!skills/wordplus-realtime-apps/references/recording.md",
     "spec",
     "README.md",
     "THIRD-PARTY-NOTICES.md",
@@ -104,22 +139,48 @@
     "socket.io-client": "^4.8.0"
   },
   "peerDependencies": {
-    "react": ">=18"
+    "@angular/core": ">=20",
+    "next": ">=13.4",
+    "react": ">=18",
+    "svelte": ">=5",
+    "vue": ">=3.3"
   },
   "peerDependenciesMeta": {
+    "@angular/core": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    },
     "react": {
+      "optional": true
+    },
+    "svelte": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@angular/common": "21.2.25",
+    "@angular/compiler": "21.2.25",
+    "@angular/core": "21.2.25",
+    "@angular/platform-browser": "21.2.25",
+    "@angular/platform-server": "21.2.25",
     "@types/node": "22.15.3",
     "@types/react": "18.3.12",
+    "@types/react-19": "npm:@types/react@19.2.2",
     "esbuild": "0.28.2",
+    "happy-dom": "21.0.4",
     "laravel-echo": "2.5.0",
     "react": "18.3.1",
     "react-test-renderer": "18.3.1",
+    "rxjs": "7.8.2",
+    "svelte": "5.57.3",
     "typescript": "5.9.2",
     "vite": "8.3.1",
-    "vitest": "5.0.2"
+    "vitest": "5.0.2",
+    "vue": "3.5.45"
   }
 }

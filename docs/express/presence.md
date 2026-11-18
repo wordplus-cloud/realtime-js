@@ -12,7 +12,7 @@ One room for the whole shop, named `shop`, lists who is in it to everyone in it.
 2. **Each one is shown** to the others with their name and their role.
 
 ```js
-realtime.room( 'shop', { presence: true }, async ( user ) => {
+realtime.room( 'shop', async ( user ) => {
     // 1. Signed-in users only.
     if ( user === null ) return false;
     const person = await db.users.find( user );
@@ -20,7 +20,7 @@ realtime.room( 'shop', { presence: true }, async ( user ) => {
 
     // 2. What the others see of them.
     return { info: { name: person.name, role: person.role } };
-} );
+}, { presence: true } );
 ```
 
 - **`info`** is what the others see of the member: a name, a role, anything small (up to 4 KB). It is sealed with the room key.
@@ -80,7 +80,7 @@ Optional, as every ready-made part: the presence room above is all a list needs,
 The Better Messages list of members, on a presence room, with a call button for each of the others. It is one element:
 
 ```html
-<online-list room="shop" title="In the shop now" call="support:{pair}" type="video"></online-list>
+<online-list room="shop" title="In the shop now" token-url="/call-token" type="video"></online-list>
 <online-count room="product:7"></online-count>
 ```
 
@@ -88,8 +88,8 @@ The Better Messages list of members, on a presence room, with a call button for 
 await rt.callScreen();   // loads the elements and the call screen, rt.ui() the elements without calls
 ```
 
-- **`call`** names the call the button of each row places: `{pair}` is the two user ids in order (`support:34:42`), `{me}` and `{id}` each one. Without it, the rows have no button.
-- **Only those the user may call** get a button: the list asks your calls route once for all its members, which runs your `calls()` rule for each as for the caller. Nothing to add on your server.
+- **`token-url`** is your call token route, the one of [your first call](calls.md#your-first-call): a press on a row asks it with `?to=34&type=video`, and your route checks whether this user may call that one before it answers a token. Someone your route refuses is told so as they press. Without it, the rows have no button.
+- **By a rule,** `call` names the call in place of `token-url`, and a `calls()` rule decides ([by a rule](calls.md#by-a-rule)).
 - **`type`** is `video`, `audio`, or both: `type="audio video"`.
 - **Names and pictures** come from the member info, then from your [directory](encryption.md#your-users).
 - **Its look** is that of Better Messages, in a shadow root: your page styles do not reach in, and its colours are CSS custom properties your page sets.

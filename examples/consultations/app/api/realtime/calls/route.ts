@@ -1,7 +1,6 @@
-// POST /api/realtime/calls: a page asks to come into an appointment's visit, as { room: 'visit:7', type: 'video' }. This
-// server runs the visit's rule (realtime.groupCalls in lib/realtime.ts) for the person signed in, and answers a pass for
-// it, signed with the app's secret, with the key its media is encrypted with, or why not. With the pass, WordPlus Cloud
-// lets them in.
+// POST /api/realtime/calls: what a page does in a visit once its token let it in, for the person signed in: renew what
+// it holds as the visit goes on. Each ask carries a proof only this server makes, which the package checks. Who comes
+// into a visit is the site's own token route, app/api/visit-token/route.ts.
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 

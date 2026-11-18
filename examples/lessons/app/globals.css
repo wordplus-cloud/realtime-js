@@ -8,10 +8,10 @@ body {
 
 /* The lesson's player, chat and studio in the site's colour and font (WordPlus Cloud's ready-made stream screens): one
    more selector than theirs, as their stylesheet comes after this one. */
-body .estream-theme {
-  --estream-accent: #0f766e;
-  --estream-font: var(--font-geist-sans), sans-serif;
-  --estream-radius: 16px;
+body .wplus-live-stream-theme {
+  --wplus-live-stream-accent: #0f766e;
+  --wplus-live-stream-font: var(--font-geist-sans), sans-serif;
+  --wplus-live-stream-radius: 16px;
 }
 
 /* A lesson's studio (app/(site)/studio/[id]) takes the window's whole width, and the header's links with it. */

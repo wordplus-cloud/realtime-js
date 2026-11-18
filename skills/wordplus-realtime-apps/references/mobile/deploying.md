@@ -38,7 +38,7 @@ In Laravel, `config/cors.php` with those `allowed_origins`. In Django, `django-c
 
 ## The app files (Capacitor)
 
-`realtime-worker.js`, `realtime-rooms.min.js`, `realtime-rooms-e2ee.worker.js`, `realtime-ui.min.js` and `realtime-ui-streams.min.js` go in the app web folder (`npx wordplus-realtime copy www/`) in every build, so the app carries the ones its package came with. A page runs a worker only from its own address, so `connect()` names them there: `worker: '/realtime-worker.js'` and `rooms: '/realtime-rooms.min.js'` ([getting started](getting-started.md#4-capacitor-and-ionic)).
+`realtime-worker.js`, `realtime-rooms.min.js`, `realtime-rooms-e2ee.worker.js`, `realtime-ui.min.js`, and `realtime-ui-streams.min.js` with `hls.light.min.js`, which its player loads where a browser plays no HLS of its own, go in the app web folder (`npx wordplus-realtime copy www/`) in every build, so the app carries the ones its package came with. A page runs a worker only from its own address, so `connect()` names them there: `worker: '/realtime-worker.js'` and `rooms: '/realtime-rooms.min.js'` ([getting started](getting-started.md#4-capacitor-and-ionic)).
 
 ## Content Security Policy
 

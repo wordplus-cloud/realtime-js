@@ -1,8 +1,8 @@
 # Use cases
 
-What people build on WordPlus Cloud, each on a page of its own: the rules of your server in Node, PHP, Python and WordPress, the code of the page in the browser and in React, and what changes for a screen of your own. They run on the same four building blocks, rooms and their events, presence, calls and live streams ([what you can build](../overview.md)), so one app mixes them freely: a shop with live orders, a chat and a call button, or a school with classes, office hours and a live stream.
+What people build on WordPlus Cloud, each on a page of its own: the rules and routes of your server in Node, PHP, Python and WordPress, the code of the page in the browser and in React, and what changes for a screen of your own. They run on the same four building blocks, rooms and their events, presence, calls and live streams ([what you can build](../overview.md)), so one app mixes them freely: a shop with live orders, a chat and a call button, or a school with classes, office hours and a live stream.
 
-**In your stack:** [Next.js](../nextjs/getting-started.md) · [Express](../express/getting-started.md) · [Laravel](https://docs.wordplus.cloud/laravel/getting-started/) · [PHP](https://docs.wordplus.cloud/php/getting-started/) · [Django](https://docs.wordplus.cloud/django/getting-started/) · [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/) · [Flask](https://docs.wordplus.cloud/flask/getting-started/) · [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/), and in apps for phones: [iOS](https://docs.wordplus.cloud/ios/getting-started/) · [Android](https://docs.wordplus.cloud/android/getting-started/) · [React Native and Capacitor](../mobile/getting-started.md). Each use case links the page of each guide it builds on.
+**In your stack:** [Next.js](../nextjs/getting-started.md) · [Express](../express/getting-started.md) · [Laravel](https://docs.wordplus.cloud/laravel/getting-started/) · [PHP](https://docs.wordplus.cloud/php/getting-started/) · [Django](https://docs.wordplus.cloud/django/getting-started/) · [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/) · [Flask](https://docs.wordplus.cloud/flask/getting-started/) · [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/), and in apps for phones: [iOS](https://docs.wordplus.cloud/ios/getting-started/) · [Android](https://docs.wordplus.cloud/android/getting-started/) · [React Native and Capacitor](../mobile/getting-started.md) · [Flutter](https://docs.wordplus.cloud/flutter/calls/). Each use case links the page of each guide it builds on.
 
 **Start with a tutorial.** Three of them build a small app from an empty folder, every file in full, and you run it in two or three browser windows at the end:
 
@@ -37,6 +37,7 @@ An app is most often several use cases at once. Some kinds of app, the use cases
 |---|---|
 | [Live updates and notifications](live-updates.md) | An order that moves on its page, a dashboard, the progress of a job, and a notice to one user in every tab and app |
 | [Chat](chat.md) | Conversations between two people and in groups, with typing, read ticks and reactions, kept in your own database |
+| [What your server keeps for a chat](chat-server.md) | The tables of a chat, each message kept from the webhook or your own route, where each member read up to, unread counts, and a push to a member with nothing open |
 | [Who is online and who is here](online.md) | A dot on every avatar, the people in a room with their roles, and how many look at a page |
 | [Editing together](collaboration.md) | Who is in a document, their cursors, and the changes, sent as binary and kept for a reconnect |
 | [Every page and app of a user](devices.md) | A question to every page and app a user has open, such as approving a sign in, and signing them out everywhere |
@@ -71,12 +72,12 @@ An app is most often several use cases at once. Some kinds of app, the use cases
 |---|---|
 | [Live streaming](live-streaming.md) | One host live to everyone who opens the page, visitors watching without signing in, the chat kept by moderators |
 | [Interviews and questions on stage](interviews.md) | Viewers raise a hand, and the host brings them on stage beside them |
-| [Members-only streams](members-only.md) | A stream for those your rule lets in: members, ticket holders, a class, streamed from the browser or OBS |
+| [Members-only streams](members-only.md) | A stream for those your server lets in: members, ticket holders, a class, streamed from the browser or OBS |
 
 ## What every use case shares
 
-- **Your rules decide.** Each room, call and stream asks your server who may join and what they may do, and WordPlus Cloud holds everyone to the answer ([permissions](../permissions.md)).
+- **Your server decides.** Each room asks a rule of your server who may join, each call and stream starts from a token a route of yours makes after its own check, and WordPlus Cloud holds everyone to the answer ([permissions](../permissions.md)).
 - **Sealed.** What the pages send in a private or presence room travels sealed with keys your server makes, and so do its history, who is in it, and what your server sends a user. A public room is not sealed. Calls between two people are encrypted end to end on every path, a group call when its rule says `encrypt`, and a live stream is not, as it is for everyone watching ([encryption](../encryption.md)).
 - **Ready-made, or your own.** Each use case works with the ready-made parts from Better Messages and Easy Stream, and with an interface of your own on the same API, in the browser and in React ([your own interface](../interface.md), [React](../react.md)).
-- **Everywhere your users are.** The same rooms, calls and streams reach the web, React, iOS and Android, and WordPress plugins through [`wordplus/realtime`](https://docs.wordplus.cloud/wordpress/getting-started/). React Native has the rooms and presence now, and calls and streams in a later version: `rt.calls()` rejects with `no_webrtc` there meanwhile ([mobile apps](../mobile/getting-started.md)).
+- **Everywhere your users are.** The same rooms, calls and streams reach the web, React, iOS and Android, and WordPress plugins through [`wordplus/realtime`](https://docs.wordplus.cloud/wordpress/getting-started/). React Native has the rooms and presence on iOS and Android, and calls and streams on iOS for now ([mobile apps](../mobile/getting-started.md)), and Flutter has them all on both ([Flutter](https://docs.wordplus.cloud/flutter/calls/)).
 - **On WordPress,** the server code is under the WordPress tab of each page. The page code is the same, with `const { rt, calls } = wordplusRealtimeCalls.page()` in place of `connect()` and `await rt.calls()`, once the plugin enqueues `wordplus_realtime()->calls_script()` ([JavaScript reference](https://docs.wordplus.cloud/wordpress/javascript-reference/)).

@@ -8,9 +8,9 @@
     "start": "next start"
   },
   "dependencies": {
-    "@wordplus/realtime": "^1.0.0",
-    "@wordplus/realtime-ui": "^1.0.0",
-    "next": "16.4.0",
+    "@wordplus/realtime": "^1.2.0",
+    "@wordplus/realtime-ui": "^1.2.0",
+    "next": "16.4.2",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

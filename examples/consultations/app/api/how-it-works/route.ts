@@ -22,7 +22,7 @@ export async function GET(request: Request) {
     const expert = expertId ? await personOf(expertId) : null;
     if (expert?.role === 'expert') Object.assign(values, { expert_id: expert.id, expert_name: expert.name });
 
-    // An appointment's page: its rooms, and what its rules answer now.
+    // An appointment's page: its rooms, and what its rules and its token route answer now.
     const appointmentId = path.match(/^\/appointments\/(\d+)$/)?.[1];
     const appointment = appointmentId ? await appointmentOf(appointmentId) : null;
     if (appointment && isParty(appointment, me)) {
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
             client_name: appointment.clientName,
             open: open ? 'open' : 'not open now',
             admitted: appointment.admittedAt !== null ? `${appointment.clientName} was let in` : `${appointment.clientName} not let in yet`,
-            answer: !open ? 'false: the visit is not open' : mine ? `true: ${appointment.expertName} is its expert` : appointment.admittedAt !== null ? `true: ${appointment.clientName} was let in` : `false: ${appointment.clientName} waits to be let in`,
+            answer: !open ? '403: the visit is not open' : mine ? `a token: ${appointment.expertName} is its expert` : appointment.admittedAt !== null ? `a token: ${appointment.clientName} was let in` : `403: ${appointment.clientName} waits to be let in`,
         });
     }
     return Response.json({ values });

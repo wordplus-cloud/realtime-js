@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { useRealtime, useRoom, useUserEvent } from '@wordplus/realtime/react';
+import { useRoom, useUserEvent } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; to: string; name: string; avatar: string; placeholder: string };
@@ -35,16 +35,15 @@ export function MemberChat({ room, to, name, avatar, placeholder }: Props) {
     }, [error, router]);
 
     // The conversation, kept by this server (messages), their name and photo on top from this page, and their calls in
-    // it (call), started by itself when the catalog's Video opened it (startCall). On localhost, where no webhook
-    // reaches this server, onSent tells it of each message.
+    // it, each with a token from this server's route (tokenUrl), started by itself when the catalog's Video opened it
+    // (startCall). On localhost, where no webhook reaches this server, onSent tells it of each message.
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             to={to}
             name={name}
             avatar={avatar}
-            call
+            tokenUrl="/api/chat-call-token"
             startCall={start}
             placeholder={placeholder}
             messages={`/api/messages?room=${room}`}

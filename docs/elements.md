@@ -1,6 +1,6 @@
 # Elements reference
 
-The ready-made parts as HTML elements, for any page: no React needed, nothing to build. Each draws on the rooms, calls and streams of the page (`connect()`), and does only what your server rules let the page user do ([permissions](permissions.md)).
+The ready-made parts as HTML elements, for any page: no React needed, nothing to build. Each draws on the rooms, calls and streams of the page (`connect()`), and does only what your server lets the page user do: its rules for a room, and for a call, a group call or a live stream a token from a route of your own, named by `token-url` ([permissions](permissions.md)).
 
 They are optional. To draw any of them with your own components instead, use the API they are built on: [your own interface](interface.md) shows it, element by element.
 
@@ -12,10 +12,19 @@ await rt.streamScreen();   // <live-stream> and <stream-studio>
 
 `rt.ui()` loads the same script without the calls: who is in a room, the count, typing and the chat, with no call buttons and no ring. An element on the page before its script loads draws once it has.
 
+**`token-url`** is your route, on every element that starts a call, a group call or a live stream. It is asked with a GET, with the page's cookies and the headers your other routes take, adding what the element knows to the address you wrote. It answers `{ token }` with its own check made, or 401 or 403 to refuse ([who may call](calls.md#who-may-call)). Without `token-url`, a `call` or `name` asks a rule of your server instead, for an app with `calls()`, `groupCalls()` or `streams()` rules, which keep working.
+
+| Element | What it adds |
+|---|---|
+| `<call-button>`, `<online-list>` | `?to=34&type=video` |
+| `<chat-room>` | `?to=34&type=video&name=chat:7`: `name` is the call's, for your token |
+| `<group-call-button>`, `<call-spot>` | `?call=meeting:7&type=video` |
+| `<live-stream>`, `<stream-studio>` | `?stream=live:12`, asked again as each token runs out |
+
 | Element | What it is |
 |---|---|
 | [`<call-button>`](#call-button) | a button that calls someone |
-| [`<room-button>`](#room-button) | a button that joins a group call |
+| [`<group-call-button>`](#group-call-button) | a button that joins a group call |
 | [`<online-list>`](#online-list) | who is in a presence room, with call buttons |
 | [`<online-count>`](#online-count) | how many are in a room |
 | [`<typing-line>`](#typing-line) | who is typing in a room |
@@ -34,9 +43,9 @@ const rt = await connect( { ...config, screen: { prefix: 'shop' } } );
 ```
 
 ```html
-<shop-call-button to="34" call="support:{pair}">Call Ann</shop-call-button>
+<shop-call-button to="34" token-url="/api/call-token">Call Ann</shop-call-button>
 <shop-chat-room room="chat:34:42"></shop-chat-room>
-<shop-live-stream name="show:42"></shop-live-stream>
+<shop-live-stream name="live:12" token-url="/api/stream-token?id=12"></shop-live-stream>
 ```
 
 - **One prefix a page.** The scripts read it as they load, so give it before the first `callScreen()`, `ui()` or `streamScreen()`. The React components take it from the same `screen` in `RealtimeProvider` options.
@@ -47,43 +56,44 @@ const rt = await connect( { ...config, screen: { prefix: 'shop' } } );
 ## `<call-button>`
 
 ```html
-<call-button to="34" call="support:{pair}" type="video" name="Ann" avatar="https://…/ann.jpg">Call Ann</call-button>
+<call-button to="34" token-url="/api/call-token" type="video" name="Ann" avatar="https://…/ann.jpg">Call Ann</call-button>
 ```
 
 | Attribute | |
 |---|---|
 | `to` | the user id to call |
-| `call` | the name of the call, as your `calls()` rule allows it. `{pair}` is the page user and `to`, the smaller id first (text ids in text order), so either of the two calling names the same call. `{me}` is the page user, `{id}` is `to` |
+| `token-url` | your route, which gets `?to=34&type=video` and answers `{ token }`. A route that says no rings nobody, and the person is told they cannot make this call |
 | `type` | `video` (the default) or `audio` |
 | `name`, `avatar` | who is called, for the call window while it rings |
 
 Its content is the text of the button. The button is the part `button`: `call-button::part(button) { … }`.
 
-## `<room-button>`
+## `<group-call-button>`
 
 ```html
-<room-button room="meeting:daily" type="video" title="Daily meeting">Join the meeting</room-button>
+<group-call-button call="meeting:7" token-url="/api/meeting-token?id=7" type="video" title="Team meeting">Join the meeting</group-call-button>
 ```
 
 | Attribute | |
 |---|---|
-| `room` | the name of the group call, as your `groupCalls()` rule allows it |
+| `call` | the name of the group call |
+| `token-url` | your route, which also gets `call` and `type`, here `?id=7&call=meeting:7&type=video`, and answers `{ token }`, which says what this person may do in the call |
 | `type` | `video` (the default) or `audio` |
 | `title` | the title of the call window |
 
-Its content is the text of the button, the part `button`.
+Its content is the text of the button, the part `button`. `<room-button room="…">` is the same element under the name it had first, and pages already written go on working.
 
 ## `<online-list>`
 
 ```html
-<online-list room="shop" title="In the shop now" call="support:{pair}" type="video audio"></online-list>
+<online-list room="shop" title="In the shop now" token-url="/api/call-token" type="video audio"></online-list>
 ```
 
 | Attribute | |
 |---|---|
 | `room` | a presence room |
 | `title` | above the list, Online by default. Its number of people follows it |
-| `call` | the name of a call to each of the others, `{pair}` as above, on the rows of those your `calls()` rule lets the user call. Without it, no call buttons |
+| `token-url` | your route, which gets `?to=34&type=video` as a call button on a row is pressed, and answers `{ token }`. Each of the others has the buttons, and someone your route refuses is told so as they press. Without it, no call buttons |
 | `type` | the call buttons on each row: `video`, `audio`, or both, `video audio` |
 
 Each row shows the name and picture your server gives the member (`info`, or your `profile()`), and an online dot. Template and part: `online-row` ([customizing](customizing.md#on-any-page-the-elements)).
@@ -116,14 +126,15 @@ How many are in a room that counts (`count` or `presence`), and nothing while it
 
 | Attribute | |
 |---|---|
-| `room` | the room of the conversation, whose rule lets the page send `message`, `typing`, `read` and `reaction` |
+| `room` | the room of the conversation, whose rule lets the page send `message`, `typing`, `read` and `reaction`. `{pair}` in its name is this user and `to`, the smaller id first, so both of them name the same room: `room="chat:{pair}" to="34"` |
 | `messages` | your route for the messages your server kept, asked with the page cookies. `?before=<id>` asks for the page before that message. It answers `{ messages: [ { id, from, text, at, files, reactions } ], more }`, oldest first, `files` where a message has any |
 | `placeholder` | the words in the empty composer |
 | `reactions` | the reactions to pick from, emoji (`👍 ❤️`) or their code points (`1f44d 2764`), apart by spaces. Empty for none. 👍 ❤️ 😂 😮 😢 🙏 by default |
 | `max-length` | the most characters of a message |
 | `to` | in a chat between two, the other person: on the chat's top bar, with whether they are online |
 | `name`, `avatar` | the name and picture of `to`, as your page has them: on the bar, on their messages and in their call. Without them, your directory's, which has a person only for a day after they were last online |
-| `call` | the call of the conversation, shown in the chat while it is on. `call` alone is the call named as the room, which your `calls()` rule decides, and a value names another (`date:{pair}`). With `to`, the bar has a video and an audio call button |
+| `token-url` | your route for the call of the conversation, which shows in the chat while it is on. With `to`, the bar has a video and an audio call button, each asking it `?to=34&type=video&name=chat:34:42`. Put `name` on your token, and the call shows here ([a call in a chat](calls.md#a-call-in-a-chat)) |
+| `call` | the name of that call, the room's by default. `call` alone, with no `token-url`, is the call named as the room, for an app with a `calls()` rule |
 | `start-call` | `video` or `audio`: calls `to` as the chat opens, once, for a page that a Video button elsewhere links to, so the call starts in the chat |
 | `upload` | your route for files: with it, the composer has its paperclip, and takes files pasted or dropped on the chat. Each file goes to it as it is picked, `POST` with the page cookies, as a form of the `file` and the `room`, and it answers the file as your server keeps it: `{ id, url, name, type, size }`, or an error status with `{ error: "…" }`, whose words the file shows ([files](use-cases/chat.md#files)) |
 | `accept` | the files the picker offers, as an input's `accept`: `image/*,.pdf`. Every kind by default |
@@ -150,10 +161,10 @@ It fills the height the page gives it. With neither `messages` nor `load`, it sh
 
 Templates: `message`, `empty-conversation`. Parts: `message`, `composer`, `empty-conversation`, `chat-header`.
 
-**Its call:** with `call`, the call shows beside the messages where the chat is 600px wide or more, and takes the whole chat where it is narrower, Show Chat putting the messages under it. Show Chat and Hide Chat are in the call controls. The call moves in as the page with the chat opens and goes on elsewhere as it closes, as in a [`<call-spot>`](#call-spot), and the chat wins over a spot for every call. `<CallScreen />` or `rt.callScreen()` runs it.
+**Its call:** with `token-url`, the call shows beside the messages where the chat is 600px wide or more, and takes the whole chat where it is narrower, Show Chat putting the messages under it. Show Chat and Hide Chat are in the call controls. The call moves in as the page with the chat opens and goes on elsewhere as it closes, as in a [`<call-spot>`](#call-spot), and the chat wins over a spot for every call. `<CallScreen />` or `rt.callScreen()` runs it.
 
 ```html
-<chat-room room="chat:34:42" to="42" name="Ben" avatar="/photos/42.jpg" call messages="/api/chat/34/42/messages" style="height: 560px"></chat-room>
+<chat-room room="chat:34:42" to="34" name="Ann" avatar="/photos/34.jpg" token-url="/api/chat-call-token" messages="/api/chat/34/42/messages" style="height: 560px"></chat-room>
 ```
 
 ## `<call-screen>`
@@ -178,15 +189,16 @@ The call screen draws by itself, in an element of its own at the end of the page
 A call shows in a window in the corner, over the page. A `<call-spot>` shows the calls it names in the page itself, where you put it:
 
 ```html
-<call-spot call="support:{a}:{b}" style="height: 480px">
+<call-spot call="support:17" style="height: 480px">
     <img src="/agent.jpg" alt="Your support agent">
 </call-spot>
 ```
 
 | Attribute | |
 |---|---|
-| `call` | the calls it shows: the name of a call (`support:34:42`), a pattern as your rules write them (`support:{a}:{b}`), or a group call (`meeting:daily`). Without it, every call. Where two spots on a page take the same call, the one that names it most closely wins: its name, then a pattern, then every call |
-| `join` | `video` or `audio`: joins the group call `call` names as the spot comes onto the page, as its `<room-button>` would, with the camera and microphone off. Once: someone who leaves it is not brought back while the spot stays |
+| `call` | the calls it shows: the name your token gave a call (`support:17`, from `callToken( me, to, { name } )`), a pattern (`support:{id}`), or a group call (`meeting:7`). Without it, every call. Where two spots on a page take the same call, the one that names it most closely wins: its name, then a pattern, then every call |
+| `join` | `video` or `audio`: joins the group call `call` names as the spot comes onto the page, as its `<group-call-button>` would, with the camera and microphone off. Once: someone who leaves it is not brought back while the spot stays |
+| `token-url` | with `join`, your route, which also gets `call` and `type`, here `?id=7&call=meeting:7&type=video`, and answers `{ token }` |
 | `join-with` | what `join` turns on as it joins: `microphone`, `camera`, or `microphone camera`. Without it, nothing: the person turns them on from the call's controls |
 
 - **It moves, and goes on:** a call shows in the spot as it starts. Where your pages change without loading anew, as with the links of Next.js, it goes on in the window on another page, and comes back when the page with the spot opens again, its camera, microphone and time as they were. A page that loads anew ends the call, so the browser asks before one opens.
@@ -201,12 +213,12 @@ With `join`, opening the page is enough: the person is in the meeting, with no b
 
 ```html
 <!-- join only while someone is in it: realtime.call().get() -->
-<call-spot call="meeting:7" join="video" style="height: 480px">
-    <room-button room="meeting:7">Start the meeting</room-button>
+<call-spot call="meeting:7" token-url="/api/meeting-token?id=7" join="video" style="height: 480px">
+    <group-call-button call="meeting:7" token-url="/api/meeting-token?id=7">Start the meeting</group-call-button>
 </call-spot>
 ```
 
-- **Your rule decides,** as for the button: someone it turns away sees why.
+- **Your route decides,** as for the button: someone it turns away sees why.
 - **Once.** Someone who leaves, or whom the host takes out, stays out while the page is open. Opening the page again joins again.
 - **One call at a time.** Someone already in another call stays in it. Someone already in this one finds it moved into the spot.
 - **A name, not a pattern:** a spot for `meeting:{id}`, or for every call, joins nothing.
@@ -214,22 +226,23 @@ With `join`, opening the page is enough: the person is in the meeting, with no b
 They come in with the camera and microphone off, and the browser asks for neither until they turn one on from the call's controls. To have them on as people come in, `join-with` names them:
 
 ```html
-<call-spot call="meeting:7" join="video" join-with="microphone">
+<call-spot call="meeting:7" token-url="/api/meeting-token?id=7" join="video" join-with="microphone">
 ```
 
 - **`join-with`** is `microphone`, `camera`, or `microphone camera`: the browser asks for them as the page opens, and for the camera only on a `video` call.
-- **`<room-button>`** turns on both, as before: whoever presses it means to come in on camera.
+- **`<group-call-button>`** joins with both off too, and the call screen offers to turn them on, so nothing starts before the person chooses.
 - **Sound.** A browser plays sound only once the person has clicked or typed on the page, or on the page of your site they came from. A page opened straight into a meeting, from a link in a new tab say, shows the others and **Turn sound on** over the call: their voices start at that click, or at any other on the page.
 
 ## `<live-stream>`
 
 ```html
-<live-stream name="show:mugs" title="The new mugs"></live-stream>
+<live-stream name="live:12" token-url="/api/stream-token?id=12" title="Opening night"></live-stream>
 ```
 
 | Attribute | |
 |---|---|
-| `name` | the stream, as your `streams()` rule allows it |
+| `name` | the stream |
+| `token-url` | your route, which also gets `stream`, here `?id=12&stream=live:12`, and answers `{ token }`, which says who this person is in the stream. It is asked again as each token runs out, so it may then say no |
 | `view` | the whole stream (the default), or one part: `player`, `chat`, `details`, `studio`, or `studio-page`, the [studio as a page of its own](#the-studio-as-a-page-of-its-own) |
 | `title` | the title of the stream |
 | `cover` | a picture behind the player before the stream starts and after it ends |
@@ -241,19 +254,19 @@ They come in with the camera and microphone off, and the browser asks for neithe
 | `height` | the height of a chat apart, in pixels |
 | `sticky` | keeps the player at the top of a phone while live |
 
-- **The parts of one stream** share one join and one chat, wherever they are: `<live-stream name="show:mugs" view="player">` in the page, `view="chat"` in its side column.
-- **What the page user sees** follows the answer of your rule: the studio for its host, the player and the chat for everyone else, with what keeps the chat for its `mod`s.
+- **The parts of one stream** share one join and one chat, wherever they are: `<live-stream name="live:12" view="player">` in the page, `view="chat"` in its side column. Give each the same `token-url`.
+- **What the page user sees** follows your token: the studio for its host, the player and the chat for everyone else, with what keeps the chat for its `mod`s.
 - **A refusal** shows its words in place of the stream: no access, or live streaming not in the plan.
 - **A live stream is not encrypted end to end,** the chat and the picture alike.
-- **Its look** is drawn in the page, not in a shadow root: style its `estream-` classes ([customizing](customizing.md#live-streams)).
+- **Its look** is drawn in the page, not in a shadow root: style its `wplus-live-stream-` classes ([customizing](customizing.md#live-streams)).
 
 ## `<stream-studio>`
 
 ```html
-<stream-studio name="show:mugs"></stream-studio>
+<stream-studio name="live:12" token-url="/api/stream-token?id=12"></stream-studio>
 ```
 
-The studio alone: the camera and microphone, the picture before going live, streaming from OBS, Go live and End stream. Nothing for anyone the rule does not make the host.
+The studio alone: the camera and microphone, the picture before going live, streaming from OBS, Go live and End stream. Nothing for anyone your token does not make the host.
 
 ## The studio as a page of its own
 
@@ -261,10 +274,10 @@ For a host who goes live often, a page of your own with nothing but the studio, 
 
 ```html
 <!-- on the page viewers watch -->
-<live-stream name="show:mugs" studio-url="/studio/mugs"></live-stream>
+<live-stream name="live:12" token-url="/api/stream-token?id=12" studio-url="/studio/12"></live-stream>
 
-<!-- on /studio/mugs -->
-<live-stream name="show:mugs" view="studio-page" title="The new mugs" url="/shows/mugs" back-url="/studio"
+<!-- on /studio/12 -->
+<live-stream name="live:12" token-url="/api/stream-token?id=12" view="studio-page" title="Opening night" url="/streams/12" back-url="/studio"
     style="display: block; height: calc(100vh - 64px)"></live-stream>
 ```
 
@@ -272,11 +285,11 @@ For a host who goes live often, a page of your own with nothing but the studio, 
 - **The studio page** has the picture as large as fits, with Go live, the camera and microphone, the screen and OBS under it, and the statistics while live. Beside it, in tabs: the chat, the guests (the hands raised, with **Invite**, and those on stage), and the stream, with the link to share.
 - **`url`** is the page viewers watch, shown as **View page** and as the link to share. **`back-url`** puts a way back before the title.
 - **Its height** is the element's: give it `display: block` and a height, as the page around it leaves. Under 820 pixels wide, the tabs go under the picture.
-- **Anyone else** who opens it, whom the rule does not make the host, is told only hosts go live there.
+- **Anyone else** who opens it, whom your token does not make the host, is told only hosts go live there.
 
 ## Their words and look
 
 - **Words:** in the language of the page `<html lang>`, in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew. `rt.callScreen( { lang, strings } )` and `rt.streamScreen( { lang, strings } )` choose another and change any of them by their English text.
 - **Light and dark:** they follow the system, or the page when it says which: `wplus-messages-light` or `wplus-messages-dark` on `<body>`, or a `color-scheme` naming one alone.
 - **Right to left:** a page in Hebrew draws them mirrored.
-- **Design tokens,** such as `--wplus-color-accent`, go on the elements themselves, since each keeps its own in its shadow root: `call-screen, chat-room, online-list { --wplus-color-accent: 37, 99, 235; }`. Set there, they hold in light and dark alike ([customizing](customizing.md#1-the-look)). The streams have a look of their own, their `estream-` classes.
+- **Design tokens,** such as `--wplus-color-accent`, go on the elements themselves, since each keeps its own in its shadow root: `call-screen, chat-room, online-list { --wplus-color-accent: 37, 99, 235; }`. Set there, they hold in light and dark alike ([customizing](customizing.md#1-the-look)). The streams have a look of their own, their `wplus-live-stream-` classes.

@@ -1,8 +1,7 @@
-// POST /api/realtime/calls: a page asks to drop into a lounge, as { room: 'lounge:2', type: 'audio' }, to call a member
-// or answer them, as { call: 'chat:7', to: '10', role: 'caller', … }, to watch an event or go live in it, or for a
-// host's mute or remove (moderate). This server runs the rule of the call or the stream (realtime.groupCalls,
-// realtime.calls and realtime.streams in lib/realtime.ts) for the member signed in, and answers a pass for it, signed
-// with the app's secret, or why not.
+// POST /api/realtime/calls: what a page does with a call once a token started it, for the member signed in: answer a
+// call that rings for them, renew what it holds as the call goes on, and a host's mute or remove (moderate). Each carries
+// a proof only this server makes, which the package checks. Who may call, drop into a lounge or watch an event is the
+// site's own token routes: app/api/chat-call-token, lounge-token and event-token.
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 

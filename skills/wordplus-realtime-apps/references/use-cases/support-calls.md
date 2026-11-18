@@ -10,20 +10,20 @@ This page builds it with you from an empty folder: a small Node.js app where Ben
 
 Ann is a support agent, user `34` in your app. Ben is a customer, user `42`.
 
-1. **Ben presses Call support** on a page of your site. The button names Ann, and the call `support:34:42`: the ids of the two of them, the smaller first, and ids of text in text order.
-2. **His page asks your server** whether Ben may call Ann: the SDK sends a request to `/api/realtime/calls` on your own server, with his usual cookie. It is your own route, not ours: WordPlus Cloud never sees this request.
-3. **Your server runs your rule** for Ben and Ann. It says yes, and your server signs the answer with your secret.
-4. **With that answer, WordPlus Cloud rings Ann** in every tab she has open, for up to 45 seconds.
-5. **Ann presses Answer.** Her page asks your server the same way, and your rule says yes again.
+1. **Ben presses Call support** on a page of your site. The button names Ann, user `34`.
+2. **His page asks your server for a token:** the button sends a GET to `/api/call-token?to=34&type=video`, a route of your own, with his usual cookie. WordPlus Cloud never sees this request.
+3. **Your route makes your own check** for Ben and Ann: one of the two must be an agent. It says yes, and answers a token your server signs with your secret, for this call alone.
+4. **With that token, WordPlus Cloud rings Ann** in every tab she has open, for up to 45 seconds.
+5. **Ann presses Answer.** She needs no token of her own: the one that rang her proves your server said yes.
 6. **They talk** on video, encrypted end to end. The call connects on any network, by one of three paths: directly between their devices, through our relays on the ports of the web, 443 and 80, when a firewall blocks that, or through our media servers when even the relays cannot reach. None of the three takes credits ([how it connects](how-it-works.md#how-it-connects)).
 7. **Either one hangs up,** and the call ends for both.
 
-You write none of these requests. The SDK in the page and the WordPlus package on your server make them. You write the rule, one line for the route, and a page with a button, as below.
+Who may call whom is your app's own logic, in your own route: the SDK holds none of it. You write that route, one line for the package routes, and a page with a button, as below.
 
 ## What you need
 
 - **Node.js 22** or newer.
-- **An app in WordPlus Cloud.** Apps are in early access, so first [ask for it](https://www.wordplus.cloud/contact). Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](../getting-started.md#1-your-app-in-wordplus-cloud)).
+- **An app in WordPlus Cloud.** If you have no subscription yet, [choose your connections](https://www.wordplus.cloud/pricing#apps) first. Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](../getting-started.md#1-your-app-in-wordplus-cloud)).
 - **Two browser windows,** a normal one and a private one, so you can be Ben in one and Ann in the other.
 
 ## Step 1. Make the project
@@ -46,7 +46,7 @@ cd support-calls
     "start": "node --env-file-if-exists=.env server.mjs"
   },
   "dependencies": {
-    "@wordplus/realtime": "^1.0.0",
+    "@wordplus/realtime": "^1.2.0",
     "express": "5.3.0",
     "express-session": "1.19.0"
   },
@@ -77,7 +77,7 @@ SESSION_SECRET=
 ```
 
 - **`WORDPLUS_SITE`** is the key of your app, such as `s1500000007`.
-- **`WORDPLUS_SECRET`** is its secret. It stays on your server, and signs every answer of your rule.
+- **`WORDPLUS_SECRET`** is its secret. It stays on your server, and signs every token your route answers.
 - **`WORDPLUS_LOCAL_KEY`** is a key of your own, which seals what goes through WordPlus Cloud. Make one with `openssl rand -hex 32`.
 - **`SESSION_SECRET`** signs the session cookie of this example: any long random string.
 
@@ -105,24 +105,16 @@ const isAgent = (id) => USERS[id]?.agent === true;
 
 // The WordPlus package, with your keys from .env.
 const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE,
-    secret: process.env.WORDPLUS_SECRET,
-    localKey: process.env.WORDPLUS_LOCAL_KEY,
     // The name the other person sees in the call.
     profile: (id) => (USERS[id] ? { name: USERS[id].name } : null),
 });
 
-// The rule: who may call whom.
-// It runs when Ben calls, and again when Ann answers.
-realtime.calls('support:{a}:{b}', (user, withUser, { a, b }) => {
-    // 1. Both people are the two in the name, such as support:34:42.
-    const named = [a, b];
-    if (!named.includes(String(user))) return false;
-    if (!named.includes(String(withUser))) return false;
-
-    // 2. One of them is an agent: customers never call each other.
-    return isAgent(user) || isAgent(withUser);
-});
+// Who may call whom: two of your users, one of them an agent.
+// Customers never call each other.
+const mayCall = (me, to) => {
+    if (!USERS[me] || !USERS[to] || String(me) === String(to)) return false;
+    return isAgent(me) || isAgent(to);
+};
 
 const app = express();
 
@@ -134,9 +126,19 @@ app.use(session({
     saveUninitialized: false,
 }));
 
-// The route the page asks before a call, /api/realtime/calls,
-// and the others the package answers, for the user of the session.
+// The routes the package answers, for the user of the session:
+// the page connects, rings and answers through them.
 app.use('/api/realtime', realtime.node((req) => req.session.user ?? null));
+
+// Your route, the one the button asks before a call: /api/call-token?to=34&type=video.
+// Your own check first, then the token that lets this user call that one.
+app.get('/api/call-token', async (req, res) => {
+    const me = req.session.user;
+    const to = req.query.to;
+    if (!mayCall(me, to)) return res.sendStatus(403);
+
+    res.json({ token: await realtime.callToken(me, to, { type: req.query.type }) });
+});
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static('public'));
@@ -160,7 +162,7 @@ app.post('/login', (req, res) => {
 });
 
 // The button that calls Ann, user 34, for Ben. A note for Ann.
-const CALL_BUTTON = `<call-button to="34" call="support:{pair}" type="video" name="Ann">
+const CALL_BUTTON = `<call-button to="34" token-url="/api/call-token" type="video" name="Ann">
         Call support
     </call-button>`;
 const ON_DUTY = '<p>You are on duty. Calls from customers ring here.</p>';
@@ -195,12 +197,13 @@ app.listen(port, () => console.log(`http://localhost:${port}`));
 What each part does:
 
 1. **Your users.** Ann, an agent, and Ben, a customer. In your app, they are your users from your database.
-2. **The WordPlus package.** `createRealtime()` takes your keys, where the page finds the browser files, and `profile`: the name the other person sees in the call.
-3. **The rule.** `realtime.calls()` is called once, for every call whose name fits `support:{a}:{b}`. When Ben calls, it runs with `user` 42 (Ben) and `withUser` 34 (Ann). When Ann answers, the other way round. It says yes only when both people are the two in the name, and one of them is an agent.
-4. **The route.** `app.use( '/api/realtime', … )` is the one line that answers the page when it asks before a call (step 2 of [how it goes](#how-it-goes)). It gives the package the user of the session, and the package runs your rule for them. `/api/realtime` is only the usual address: any other works, as [any address you like](how-it-works.md#any-address-you-like) shows.
-5. **Signing in.** Two buttons, Ben and Ann. Your app has its own sign-in instead.
-6. **The button and the note.** `CALL_BUTTON` is the `<call-button>` element: a button that calls user `34`, Ann, in the call `support:{pair}`, which becomes `support:34:42`. `ON_DUTY` is the note Ann sees instead: her page only waits for calls.
-7. **The page.** `realtime.config( me )` is what the page needs to connect as the signed-in user, and goes into the page as JSON. Then the button for Ben, or the note for Ann.
+2. **The WordPlus package.** `createRealtime()` takes your keys from `.env`, and `profile`: the name the other person sees in the call.
+3. **Who may call whom.** `mayCall()` is your app's own logic: two of your users, one of them an agent. Change it into anything your app needs.
+4. **The package routes.** `app.use( '/api/realtime', … )` is the one line for them. It gives the package the user of the session. The page connects through them, and the call rings and is answered through them. `/api/realtime` is only the usual address: any other works, as [any address you like](how-it-works.md#any-address-you-like) shows.
+5. **Your token route.** `/api/call-token` runs your check for the user of the session and the one they call, and answers `realtime.callToken( me, to, { type } )`, or 403 to refuse. A token rings once, so the button asks for a new one for each call.
+6. **Signing in.** Two buttons, Ben and Ann. Your app has its own sign-in instead.
+7. **The button and the note.** `CALL_BUTTON` is the `<call-button>` element: a button that calls user `34`, Ann, with a token from `token-url`, your route. `ON_DUTY` is the note Ann sees instead: her page only waits for calls.
+8. **The page.** `realtime.config( me )` is what the page needs to connect as the signed-in user, and goes into the page as JSON. Then the button for Ben, or the note for Ann.
 
 ## Step 4. The page script
 
@@ -219,7 +222,7 @@ await rt.callScreen();
 ```
 
 - **`connect()`** connects the page as the signed-in user, with the settings your server wrote into the page.
-- **`rt.callScreen()`** starts the call screen. For Ann, it rings when someone calls. For Ben, it makes the `<call-button>` button work, and shows the call window. A page without it neither calls nor rings.
+- **`rt.callScreen()`** starts the call screen. For Ann, it rings when someone calls. For Ben, it makes the `<call-button>` button work: a press asks your route for a token, then calls with it, and shows the call window. A page without it neither calls nor rings.
 
 ## Step 5. Install and start
 
@@ -259,11 +262,11 @@ Each step of [how it goes](#how-it-goes), and the code that did it:
 
 | Step | What happened | The code |
 |---|---|---|
-| 1 | Ben pressed Call support | `<call-button to="34" call="support:{pair}">` in the page of Ben, from `server.mjs` |
-| 2 | His page asked your server | the SDK, started by `connect()` and `rt.callScreen()` in `page.js`, posting to `/api/realtime/calls` |
-| 3 | Your server ran your rule, and signed a yes | `app.use( '/api/realtime', realtime.node( … ) )`, then `realtime.calls( 'support:{a}:{b}', … )` |
+| 1 | Ben pressed Call support | `<call-button to="34" token-url="/api/call-token">` in the page of Ben, from `server.mjs` |
+| 2 | His page asked your route for a token | the call screen, started by `connect()` and `rt.callScreen()` in `page.js`, with a GET to `/api/call-token?to=34&type=video` |
+| 3 | Your route made its check, and answered a token | `app.get( '/api/call-token', … )`: `mayCall()`, then `realtime.callToken( me, to, { type } )` |
 | 4 | It rang for Ann | `rt.callScreen()` in the page of Ann |
-| 5 | Ann answered, and your rule ran again | the same rule, with `user` 34 and `withUser` 42 |
+| 5 | Ann answered, with no token of her own | the call screen, through `app.use( '/api/realtime', realtime.node( … ) )` |
 | 6 | They talked | WordPlus Cloud, directly or through our relays or media servers |
 
 More on steps 2 to 4: [how a page asks your server](how-it-works.md#how-a-page-asks-your-server).
@@ -271,7 +274,7 @@ More on steps 2 to 4: [how a page asks your server](how-it-works.md#how-a-page-a
 ## If it does not work
 
 - **Nothing rings for Ann:** her window must be open on `http://localhost:3000`, signed in as Ann. The call screen of `page.js` is what rings, so a page without it never rings.
-- **Ben sees You cannot make this call:** your rule said no. The name of the call must hold both ids, and one of the two must be an agent.
+- **Ben sees You cannot make this call:** your route said no, with a 403. Both must be your users, and one of the two an agent.
 - **No page connects:** `.env` must hold the key and secret of your app, and `http://localhost:3000` must be among its addresses in WordPlus Cloud.
 - **No camera:** a browser gives the camera only to `https` pages and to `localhost`.
 
@@ -279,112 +282,106 @@ More on steps 2 to 4: [how a page asks your server](how-it-works.md#how-a-page-a
 
 The same four pieces, with three changes:
 
-1. **Your users.** `USERS` and `isAgent()` read your own database.
-2. **Your sign-in.** In `realtime.node( ( req ) => … )`, give the user your own sign-in found, in place of `req.session.user`.
+1. **Your users.** `USERS`, `isAgent()` and `mayCall()` read your own database.
+2. **Your sign-in.** In `realtime.node( ( req ) => … )` and in your token route, give the user your own sign-in found, in place of `req.session.user`.
 3. **The agent to call.** Your server writes into `to` the agent your app gives this customer, or one on duty ([variations](#variations)).
 
-On another stack, the guide of each sets up the route and the settings in the page: [Next.js](../nextjs/getting-started.md), [Express](../express/getting-started.md), [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [PHP](https://docs.wordplus.cloud/php/getting-started/), [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/), [Flask](https://docs.wordplus.cloud/flask/getting-started/) and [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/). The rule is then the same in each language:
+On another stack, the guide of each sets up the package routes and the settings in the page: [Next.js](../nextjs/getting-started.md), [Express](../express/getting-started.md), [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [PHP](https://docs.wordplus.cloud/php/getting-started/), [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/), [Flask](https://docs.wordplus.cloud/flask/getting-started/) and [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/). Your token route is then the same in each language. Finding the user and `isAgent()` are yours, from your session and your data:
 
 **Node**
 
 ```ts
-// Calls named after their two people, such as support:34:42.
-realtime.calls( 'support:{a}:{b}', async ( user, withUser, { a, b } ) => {
-    // 1. Both people are the two in the name.
-    const named = [ a, b ];
-    if ( !named.includes( String( user ) ) || !named.includes( String( withUser ) ) ) {
-        return false;
+// Your route, GET /api/call-token?to=34&type=video. Express here, the same in any framework.
+app.get( '/api/call-token', async ( req, res ) => {
+    const me = userOf( req );
+    const { to, type } = req.query;
+
+    // 1. Two of your users, and not the same one.
+    if ( ! me || String( me ) === String( to ) ) {
+        return res.sendStatus( 403 );
     }
 
     // 2. One of them is an agent.
-    return ( await isAgent( user ) ) || ( await isAgent( withUser ) );
-}, {
-    // Whom Add person offers once the call runs: an agent may add the other agents.
-    people: async ( user ) => ( ( await isAgent( user ) ) ? agentIds() : [] ),
+    if ( ! ( await isAgent( me ) ) && ! ( await isAgent( to ) ) ) {
+        return res.sendStatus( 403 );
+    }
+
+    // The token that lets this user call that one.
+    res.json( { token: await realtime.callToken( me, to, { type } ) } );
 } );
 ```
 
 **PHP**
 
 ```php
-// Calls named after their two people, such as support:34:42.
-$realtime->calls( 'support:{a}:{b}', function ( $user, $with, array $p ) {
-    // 1. Both people are the two in the name.
-    $named = [ $p['a'], $p['b'] ];
-    if ( ! in_array( (string) $user, $named, true ) || ! in_array( (string) $with, $named, true ) ) {
-        return false;
-    }
+// Your route, GET /api/call-token?to=34&type=video. Laravel: the same in a route, with Realtime::callToken().
+$me = current_user_id();
+$to = $_GET['to'] ?? '';
 
-    // 2. One of them is an agent.
-    return is_agent( $user ) || is_agent( $with );
-}, [
-    // Whom Add person offers once the call runs: an agent may add the other agents.
-    'people' => fn ( $user ) => is_agent( $user ) ? agent_ids() : [],
-] );
+// 1. Two of your users, and not the same one.
+if ( ! $me || (string) $me === (string) $to ) {
+    http_response_code( 403 );
+    exit;
+}
+
+// 2. One of them is an agent.
+if ( ! is_agent( $me ) && ! is_agent( $to ) ) {
+    http_response_code( 403 );
+    exit;
+}
+
+// The token that lets this user call that one.
+header( 'Content-Type: application/json' );
+echo json_encode( [ 'token' => $realtime->callToken( $me, $to, [ 'type' => $_GET['type'] ?? null ] ) ] );
 ```
 
 **Python**
 
 ```python
-# Calls named after their two people, such as support:34:42.
-def may_call_support(user, with_user, p):
-    # 1. Both people are the two in the name.
-    named = (p["a"], p["b"])
-    if str(user) not in named or str(with_user) not in named:
-        return False
+# Your route, GET /api/call-token?to=34&type=video. Flask here, the same in any framework.
+@app.get("/api/call-token")
+def call_token():
+    me = session.get("user_id")
+    to = request.args["to"]
+
+    # 1. Two of your users, and not the same one.
+    if not me or str(me) == str(to):
+        abort(403)
 
     # 2. One of them is an agent.
-    return is_agent(user) or is_agent(with_user)
+    if not is_agent(me) and not is_agent(to):
+        abort(403)
 
-# Whom Add person offers once the call runs: an agent may add the other agents.
-def people_to_add(user, call):
-    return agent_ids() if is_agent(user) else []
-
-realtime.calls("support:{a}:{b}", may_call_support, people=people_to_add)
+    # The token that lets this user call that one.
+    return {"token": realtime.call_token(me, to, type=request.args.get("type"))}
 ```
 
-**WordPress**
-
-```php
-// Calls named after their two people, such as support:34:42.
-wordplus_realtime()->calls( 'support:{a}:{b}', function ( $user_id, $with, array $p ) {
-	// 1. Both people are the two in the name.
-	$named = array( (int) $p['a'], (int) $p['b'] );
-	if ( ! in_array( $user_id, $named, true ) || ! in_array( $with, $named, true ) ) {
-		return false;
-	}
-
-	// 2. One of them is an agent.
-	return user_can( $user_id, 'my_support' ) || user_can( $with, 'my_support' );
-}, array(
-	// Whom Add person offers once the call runs: an agent may add the other agents.
-	'people' => function ( $user_id ) {
-		if ( ! user_can( $user_id, 'my_support' ) ) {
-			return array();
-		}
-
-		return array_map( 'intval', get_users( array( 'capability' => 'my_support', 'fields' => 'ID' ) ) );
-	},
-) );
-```
-
-- **`people`** is whom Add person offers once the call runs: an agent may add the other agents, who join it as a call of three, and a customer nobody.
-- **Any user id** your app gives works: numbers, and ids of text such as UUIDs or Auth0 ids, which is why the rule compares them as text ([calls](../calls.md)).
+- **A token is for its user,** made as they press the button, and rings once. Ann answers with no token of her own.
+- **On WordPress,** its package decides who may call by a rule of its own ([WordPress calls](https://docs.wordplus.cloud/wordpress/calls/)).
+- **Any user id** your app gives works: numbers, and ids of text such as UUIDs or Auth0 ids, which is why the route compares them as text ([calls](../calls.md)).
+- **Adding a colleague** once the call runs is your route again, with `into` ([adding people](../calls.md#adding-people)).
 
 ## Your own interface instead
 
-The call screen and the button are optional. The same flow with screens of your own, on the calls API: `const calls = await rt.calls()` after `connect()`, or `useCalls()` in React.
+The call screen and the button are optional. The same flow with screens of your own: `rt.startCall( token )` with a token from your route, and `rt.onIncomingCall()` on the page that rings, or `useCall()` in React.
 
-On the page of Ben, steps 1 to 3:
+On the page of Ben, steps 1 to 3. `callToken()` asks your route, as the button did:
 
 **Browser**
 
 ```js
+// Asks your route for a token: GET /api/call-token, as above.
+async function callToken( to ) {
+    const answer = await fetch( '/api/call-token?type=video&to=' + to );
+    if ( ! answer.ok ) throw new Error( 'Your server said no' );
+
+    return ( await answer.json() ).token;
+}
+
 callButton.onclick = async () => {
-    const camera = await navigator.mediaDevices.getUserMedia( { video: true, audio: true } );
-    const call = await calls.start( 'support:34:42', { to: 34, type: 'video' } );   // your rule runs here
-    call.setTrack( 'camera', camera.getVideoTracks()[ 0 ] );
-    call.setTrack( 'microphone', camera.getAudioTracks()[ 0 ] );
+    const call = await rt.startCall( await callToken( 34 ) );   // rings Ann
+    await call.setCamera( true );
+    await call.setMicrophone( true );
     call.on( 'state', ( state ) => showState( state ) );    // ringing, connecting, connected, reconnecting, ended
     call.on( 'remote', ( remote ) => {
         remote.camera?.attach( theirVideo );                // a <video>
@@ -397,36 +394,27 @@ callButton.onclick = async () => {
 **React**
 
 ```tsx
-import { useRef, useState } from 'react';
-import type { Call } from '@wordplus/realtime';
-import { useCalls } from '@wordplus/realtime/react';
+import { AudioTrack, useCall, VideoTrack } from '@wordplus/realtime/react';
+
+// Asks your route for a token: GET /api/call-token, as above.
+async function callToken( to: number ) {
+    const answer = await fetch( '/api/call-token?type=video&to=' + to );
+    if ( ! answer.ok ) throw new Error( 'Your server said no' );
+
+    return ( await answer.json() ).token as string;
+}
 
 export function CallSupport() {
-    const { calls } = useCalls();                           // null until the calls are loaded
-    const [ call, setCall ] = useState<Call | null>( null );
-    const theirVideo = useRef<HTMLVideoElement>( null );
-    const theirAudio = useRef<HTMLAudioElement>( null );
+    // The call on this component: placed with start( token ), its camera and microphone opened.
+    const { call, state, remote, start, end } = useCall();
 
-    const start = async () => {
-        if ( !calls ) return;
-        const camera = await navigator.mediaDevices.getUserMedia( { video: true, audio: true } );
-        const placed = await calls.start( 'support:34:42', { to: 34, type: 'video' } );   // your rule runs here
-        placed.setTrack( 'camera', camera.getVideoTracks()[ 0 ] );
-        placed.setTrack( 'microphone', camera.getAudioTracks()[ 0 ] );
-        placed.on( 'state', ( state ) => showState( state ) );    // ringing, connecting, connected, reconnecting, ended
-        placed.on( 'remote', ( remote ) => {
-            if ( theirVideo.current ) remote.camera?.attach( theirVideo.current );
-            if ( theirAudio.current ) remote.microphone?.attach( theirAudio.current );
-        } );
-        setCall( placed );
-    };
-
+    if ( ! call ) return <button onClick={ async () => start( await callToken( 34 ) ) }>Call support</button>;
     return (
         <>
-            <button disabled={ !calls } onClick={ start }>Call support</button>
-            <video ref={ theirVideo } autoPlay playsInline />
-            <audio ref={ theirAudio } autoPlay />
-            { call && <button onClick={ () => call.end() }>Hang up</button> }
+            <p>{ state }</p>
+            <VideoTrack track={ remote?.camera } />
+            <AudioTrack track={ remote?.microphone } />
+            <button onClick={ end }>Hang up</button>
         </>
     );
 }
@@ -437,9 +425,9 @@ On every page of Ann, steps 4 and 5:
 **Browser**
 
 ```js
-calls.on( 'incoming', ( incoming ) => {
+await rt.onIncomingCall( ( incoming ) => {
     showRinging( incoming.info.name, incoming.type );                       // step 4
-    answerButton.onclick = async () => showCall( await incoming.accept() ); // step 5, your rule runs again
+    answerButton.onclick = async () => showCall( await incoming.accept() ); // step 5, with no token of her own
     declineButton.onclick = () => incoming.decline();
 } );
 ```
@@ -449,7 +437,7 @@ calls.on( 'incoming', ( incoming ) => {
 ```tsx
 import { useCalls } from '@wordplus/realtime/react';
 
-// Step 4: each call ringing for Ann now, kept current. Step 5: Answer, and your rule runs again.
+// Step 4: each call ringing for Ann now, kept current. Step 5: Answer, with no token of her own.
 export function Ringing() {
     const { incoming } = useCalls();
 
@@ -467,14 +455,14 @@ export function Ringing() {
 }
 ```
 
-- **Adding a colleague:** `await call.add( 56 )` rings them in, and both sides get `group`, the call going on as a group call ([calls](../calls.md#adding-people)).
+- **Adding a colleague:** your route answers a token with `into: call.ref`, and `await call.add( token )` rings them in. Both sides get `group`, the call going on as a group call ([calls](../calls.md#adding-people)).
 - **A connection may drop for 45 seconds** during a call and come back without ending it.
 - **Why it ended:** `call.endReason`, such as `hangup` or `no_answer` ([calls](../calls.md#why-a-call-ended)).
 
 ## Variations
 
 - **Voice only,** for a helpline: `type="audio"` on the button, and no camera asked for.
-- **A time limit** of your own: `calls.on( 'call', ( call ) => setTimeout( () => call.end(), 20 * 60 * 1000 ) )`.
-- **The agent on duty:** a presence room the agents join while they work, and the button calls one of them, shown while someone is in it ([who is online and who is here](online.md)).
+- **A time limit** of your own: `( await rt.calls() ).on( 'call', ( call ) => setTimeout( () => call.end(), 20 * 60 * 1000 ) )`.
+- **The agent on duty:** a presence room the agents join while they work, and the button calls one of them, shown while someone is in it. Your route checks that the one called is on duty ([who is online and who is here](online.md)).
 - **On phones:** the iOS and Android apps ring and answer the same calls, with the native call screen of Better Messages ([iOS](https://docs.wordplus.cloud/ios/calls/), [Android](https://docs.wordplus.cloud/android/calls/)), and a Capacitor app does as a browser does ([mobile apps](../mobile/calls.md)).
 - **A whole site, in Next.js:** calls between two in the chat of a dating site ([dating site](../nextjs/dating-site.md#the-chat-and-its-video-date)), and between colleagues of a team intranet ([team intranet](../nextjs/team-intranet.md#a-conversation-with-a-colleague-and-its-call)).

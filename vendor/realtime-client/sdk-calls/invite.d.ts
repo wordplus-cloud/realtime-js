@@ -31,8 +31,4 @@ export declare class Invite {
     off(event: 'state', fn?: Listener): this;
     /** Calls it off while it rings: from the page that rang only. */
     cancel(): Promise<void>;
-    /** @internal The page that rang can call it off. */
-    own(canceller: () => Promise<void>): void;
-    /** @internal */
-    update(state: InviteState): void;
 }

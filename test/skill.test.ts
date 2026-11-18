@@ -34,6 +34,13 @@ describe('the docs and the skill', () => {
         }
     });
 
+    it('name the ready-made parts as they are since @wordplus/realtime-ui 1.0.6: the old names do nothing on a page', () => {
+        const pages = readdirSync(docs, { recursive: true }).map(String).filter((f) => f.endsWith('.md')).map((f) => join(docs, f));
+        for (const file of [...pages, join(skill, 'SKILL.md'), join(root, 'README.md'), join(root, 'llms.txt'), join(root, 'AGENTS.md')]) {
+            expect(readFileSync(file, 'utf8'), file).not.toMatch(/--bm-|\bbm-messages-|\.bm-[a-z]/);
+        }
+    });
+
     it('name the skill as agents read it', () => {
         const text = readFileSync(join(skill, 'SKILL.md'), 'utf8');
         expect(text).toMatch(/^---\nname: wordplus-realtime-apps\ndescription: .{200,1024}\n---\n/);

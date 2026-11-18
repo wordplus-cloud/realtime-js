@@ -119,13 +119,10 @@ export function OnlineNow() {
 
 One connection to WordPlus Cloud serves every page of a signed-in member. A call rings on any page, and goes on at the top of each page as they move around.
 
-The server connects to WordPlus Cloud with the keys of the app. It says who is asking (`user`), and what others see of each member (`profile`). `currentUserId` asks Better Auth who is signed in, `nameOf` reads a name from the database, and `photoOf` gives the address of a photo.
+The server connects to WordPlus Cloud with the keys of the app, from its environment. It says who is asking (`user`), and what others see of each member (`profile`). `currentUserId` asks Better Auth who is signed in, `nameOf` reads a name from the database, and `photoOf` gives the address of a photo.
 
 ```ts title="lib/realtime.ts"
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
     // Who is asking: '__me_id__', as __me_name__ is signed in.
     user: () => currentUserId(),
     // What others see of __me_name__ in the chat and the call.
@@ -138,23 +135,21 @@ export const realtime = createRealtime({
 });
 ```
 
-The SDK answers some routes by itself: the keys of sealed rooms, the webhooks, and its files for the browser. Joining a room and calling are routes of the site's own, `/api/realtime/auth` and `/api/realtime/calls`: the chat card on a member's page shows them.
+The SDK answers some routes by itself: the keys of sealed rooms, the webhooks, and its files for the browser. Joining a room and the line of a call are routes of the site's own, `/api/realtime/auth` and `/api/realtime/calls`, and so is the token a call starts with, `/api/chat-call-token`: the chat card on a member's page shows them.
 
 ```ts title="app/api/realtime/[...path]/route.ts"
-export const GET = realtime.route;
-export const POST = realtime.route;
+export const { GET, POST } = realtime.handlers;
 ```
 
 The layout connects every page of __me_name__, with settings the server signs for them.
 
 ```tsx title="app/(app)/layout.tsx"
 async function Connected({ children }: { children: React.ReactNode }) {
-    // Made for each request: the settings are signed for this member, now.
-    await connection();
     const me = await currentUserId();   // '__me_id__': __me_name__
     if (!me) redirect('/signin');
+    // The settings signed for this member, for this request alone.
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <Screens />
             {/* … the top bar */}
             <Notices />
@@ -172,12 +167,12 @@ The call screen rings on any page, and a call goes on at the top of the page, ne
 ```tsx title="app/(app)/screens.tsx"
 export function Screens() {
     // Rings over any page when someone calls __me_name__.
-    return <CallScreen rt={useRealtime()} />;
+    return <CallScreen />;
 }
 
 export function CallOnEveryPage() {
     // A call goes on here, at the top of the page.
-    return <CallSpot rt={useRealtime()} />;
+    return <CallSpot />;
 }
 ```
 
@@ -188,11 +183,11 @@ All together, for every page __me_name__ opens:
 // app/(app)/layout.tsx
 async function Connected({ children }: { children: React.ReactNode }) {
     const me = await currentUserId();   // '__me_id__': __me_name__
-    // realtime.config('__me_id__') signs __me_name__'s settings, asking:
+    // RealtimeProvider signs __me_name__'s settings on this server, asking:
     //     profile('__me_id__') gives { name: '__me_name__', avatar: '/photos/__me_id__' }
     //     hidden('__me_id__') gives __me_hides__
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <Screens />
             <main>
                 <CallOnEveryPage />
@@ -208,10 +203,10 @@ async function Connected({ children }: { children: React.ReactNode }) {
 // 3. Someone calls __me_name__. On whatever page it is:
 // app/(app)/screens.tsx
 export function Screens() {
-    return <CallScreen rt={useRealtime()} />;   // rings
+    return <CallScreen />;   // rings
 }
 export function CallOnEveryPage() {
-    return <CallSpot rt={useRealtime()} />;   // the call, once answered
+    return <CallSpot />;   // the call, once answered
 }
 ```
 
@@ -274,12 +269,11 @@ export function MemberChat({ room, to, name, avatar, placeholder }: Props) {
     // …
     return (
         <Chat
-            rt={useRealtime()}
             room={room}                 // '__room__'
             to={to}                     // '__them_id__'
             name={name}                 // '__them_name__'
             avatar={avatar}             // '/photos/__them_id__'
-            call
+            tokenUrl="/api/chat-call-token"   // its calls ask this server for a token
             startCall={start}           // 'video' from the catalog's Video
             placeholder={placeholder}   // 'Message __them_name__'
             messages={`/api/messages?room=${room}`}
@@ -311,6 +305,8 @@ The rule of every chat's room. In its name, `chat:{id}`, `{id}` is the chat's nu
 ```ts title="lib/realtime.ts"
 realtime.room(
     'chat:{id}',
+    // user = '__me_id__', id = '__chat__'
+    async (user, { id }) => mayChat(user, id),
     {
         // A page that joins, or comes back, gets the last 50 events.
         history: 50,
@@ -319,8 +315,6 @@ realtime.room(
         // What comes to this server too, to be kept.
         webhook: ['message', 'reaction'],
     },
-    // user = '__me_id__', id = '__chat__'
-    async (user, { id }) => mayChat(user, id),
 );
 ```
 
@@ -368,29 +362,25 @@ export async function canMeet(a: string, b: string): Promise<boolean> {
 }
 ```
 
-A call in a chat takes the name of its room. The video button asks this server first, at `/api/realtime/calls`, which runs the calls rule and answers a pass for the call. With it, WordPlus Cloud rings __them_name__. Answering, __them_name__'s page asks the same.
+A call in the chat takes the name of its room. Whether __me_name__ may call __them_name__ is this site's own logic: the video button asks this server for a token first, at `/api/chat-call-token`, with the name of the chat. The route checks that both of them may use that chat, and answers a token for this call alone. With it, WordPlus Cloud rings __them_name__, who answers with no token of their own.
 
-```ts title="app/api/realtime/calls/route.ts"
-export async function POST(request: Request) {
-    // …
-    const ask = await request.json();
-    // ask = { call: '__room__', to: '__them_id__', role: 'caller', type: 'video', … }
-    const user = await currentUserId();   // '__me_id__': __me_name__
-    // Runs the calls rule of __room__, below.
-    const pass = await realtime.authorizeCall(ask, user);
-    return Response.json(pass);
+```ts title="app/api/chat-call-token/route.ts"
+export async function GET(request: Request) {
+    // ?to=__them_id__&type=video&name=__room__
+    const ask = new URL(request.url).searchParams;
+    const me = await currentUserId();   // '__me_id__': __me_name__
+    const to = ask.get('to') ?? '';   // '__them_id__': __them_name__
+    const name = ask.get('name') ?? '';   // '__room__'
+    const chat = chatIn(name);   // '__chat__'
+
+    // __me_name__ may use the chat: __may_meet__
+    if (!me || !chat || !(await mayChat(me, chat))) return new Response(null, { status: 403 });
+    // So may __them_name__: __may_meet__
+    if (to === me || !(await mayChat(to, chat))) return new Response(null, { status: 403 });
+
+    // The call takes the name of the chat, so it shows there.
+    return Response.json({ token: await realtime.callToken(me, to, { type: ask.get('type'), name }) });
 }
-```
-
-The calls rule: the one asking (`user`) and the other one (`other`) may both use the chat. It runs as __me_name__ calls, and again as __them_name__ answers, with the two the other way round.
-
-```ts title="lib/realtime.ts"
-realtime.calls('chat:{id}', async (user, other, { id }) => {
-    // __me_name__ calls __them_name__: user = '__me_id__', other = '__them_id__', id = '__chat__'
-    const userMayChat = await mayChat(user, id);   // __may_meet__
-    const otherMayChat = await mayChat(other, id);   // __may_meet__
-    return userMayChat && otherMayChat;   // __may_meet__: it rings for __them_name__
-});
 ```
 
 All together, as __me_name__ opened __them_name__'s page:
@@ -433,20 +423,17 @@ export async function POST(request: Request) {
 // 3. The chat shows the pass to WordPlus Cloud, which lets it in. Messages,
 // typing and reactions go between the two pages through WordPlus Cloud.
 
-// 4. __me_name__ presses the video button. The page asks this server first,
-// and Next.js runs the route.
-// app/api/realtime/calls/route.ts
-export async function POST(request: Request) {
-    const ask = await request.json();   // { call: '__room__', to: '__them_id__', … }
-    const user = await currentUserId();   // '__me_id__': __me_name__
-    const pass = await realtime.authorizeCall(ask, user);
-    // It runs the calls rule of chat:{id}, with id '__chat__':
-    //     mayChat('__me_id__', '__chat__') gives true
-    //     mayChat('__them_id__', '__chat__') gives true
-    //     true, so a pass for the call
-    return Response.json(pass);
+// 4. __me_name__ presses the video button. The page asks this server for a
+// token first, and Next.js runs the route.
+// app/api/chat-call-token/route.ts
+export async function GET(request: Request) {
+    const ask = new URL(request.url).searchParams;   // to=__them_id__&name=__room__
+    const me = await currentUserId();   // '__me_id__': __me_name__
+    // mayChat('__me_id__', '__chat__') gives __may_meet__
+    // mayChat('__them_id__', '__chat__') gives __may_meet__
+    return Response.json({ token: await realtime.callToken(me, to, { type: ask.get('type'), name }) });
 }
-// With the pass, WordPlus Cloud rings __them_name__, on any page of the site.
+// With the token, WordPlus Cloud rings __them_name__, on any page of the site.
 ```
 
 ## block: Block or report
@@ -464,7 +451,7 @@ export async function blockMember(them: string, how: How, form: FormData) {
 
     const room = roomOf(await chatBetween(id, them));   // '__room__'
     // Out of the chat now: the rule says no from here on.
-    await realtime.in(room).kick(them);
+    await realtime.room(room).remove(them);
     // Both of them hear it, on whatever page they are.
     await realtime.toUser([id, them]).emit('closed', { room });
     redirect('/members');
@@ -507,7 +494,7 @@ export async function blockMember(them: string, how: How, form: FormData) {
     const id = await me();   // '__me_id__': __me_name__
     await block(id, them, reason);   // kept in the database
     const room = roomOf(await chatBetween(id, them));   // '__room__'
-    await realtime.in(room).kick(them);   // __them_name__ is out of the chat
+    await realtime.room(room).remove(them);   // __them_name__ is out of the chat
     await realtime.toUser([id, them]).emit('closed', { room });
     redirect('/members');
 }
@@ -519,7 +506,7 @@ useUserEvent('closed', (data: { room: string }) => {
 });
 
 // 3. From then on canMeet('__me_id__', '__them_id__') gives false, and so does
-// mayChat for both in chat __chat__: the auth and calls routes answer no,
+// mayChat for both in chat __chat__: the auth and chat-call-token routes answer no,
 // and the catalog and the page leave the other out.
 ```
 
@@ -642,7 +629,7 @@ All together, for "__conv_text__":
 ```tsx note="All together"
 // 1. __conv_from_name__ sends it in __conv_room__. WordPlus Cloud shows it on
 // __conv_to_name__'s chat page at once, and sends it to this server as a webhook.
-// Next.js runs app/api/realtime/[...path]/route.ts, whose realtime.route
+// Next.js runs app/api/realtime/[...path]/route.ts, whose realtime.handlers
 // hands it to the handler of 'message':
 // lib/realtime.ts
 realtime.on('message', async ({ room, from, data, event_id, at }) => {

@@ -14,8 +14,8 @@ Your server asks a question by a name of yours, here `approve`, with what the us
 // A sign in on a new computer, approved from an app the user already has open. Waits up to 30 seconds.
 const [ answer ] = await realtime.user( 42 ).ask( 'approve', { device: 'Firefox on Windows', city: 'Lyon' }, { timeout: 30000 } );
 
-// The first reply, or none: nothing open, or no answer in time.
-if ( answer?.data.ok === true ) completeSignIn();
+// The first reply, or none: nothing open, or no answer in time. What it carries is your app's own.
+if ( ( answer?.data as { ok?: boolean } | undefined )?.ok === true ) completeSignIn();
 ```
 
 **PHP**

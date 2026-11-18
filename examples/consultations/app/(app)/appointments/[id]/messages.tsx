@@ -1,6 +1,5 @@
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; other: string; people: Record<string, { name: string; avatar: string }> };
@@ -14,7 +13,6 @@ type Props = { room: string; other: string; people: Record<string, { name: strin
 export function Messages({ room, other, people }: Props) {
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             people={people}
             placeholder={`Message ${other}`}

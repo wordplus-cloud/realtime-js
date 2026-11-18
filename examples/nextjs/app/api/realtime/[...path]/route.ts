@@ -2,5 +2,4 @@
 // app server, and GET /api/realtime/files/…, the browser files of the SDK. A catch-all, as the files are folders deep.
 import { realtime } from '@/lib/realtime';
 
-export const GET = realtime.route;
-export const POST = realtime.route;
+export const { GET, POST } = realtime.handlers;

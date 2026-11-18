@@ -5,25 +5,24 @@
  *
  *     import { createRealtime } from '@wordplus/realtime/server';
  *
- *     export const realtime = createRealtime( {
- *         site: process.env.WORDPLUS_SITE!, secret: process.env.WORDPLUS_SECRET!, localKey: process.env.WORDPLUS_LOCAL_KEY!,
+ *     export const realtime = createRealtime( {         // WORDPLUS_SITE, WORDPLUS_SECRET and WORDPLUS_LOCAL_KEY from the environment
  *         user: async ( request ) => ( await session( request ) )?.userId ?? null,
  *         profile: async ( user ) => ( { name: await nameOf( user ) } ),
  *     } );
- *     realtime.room( 'order:{id}', { history: 20 }, ( user, { id } ) => ownsOrder( user, id ) );
- *     realtime.room( 'chat:{a}:{b}', { presence: true, history: 500, emit: [ 'message', 'typing' ] }, ( user, { a, b } ) => [ a, b ].includes( String( user ) ) );
+ *     realtime.room( 'order:{id}', ( user, { id } ) => ownsOrder( user, id ), { history: 20 } );
+ *     realtime.room( 'chat:{pair}', { presence: true, history: 500, emit: [ 'message', 'typing' ] } );
  *
- *     // app/api/realtime/[action]/route.ts
- *     export const POST = realtime.route;
+ *     // app/api/realtime/[...path]/route.ts
+ *     export const { GET, POST } = realtime.handlers;
  *
  *     await realtime.to( 'order:42' ).emit( 'updated', { status: 'paid' } );
  *     await realtime.toUser( 42 ).emit( 'notice', { text: 'Your order shipped' } );
  *
  * Everything runs on Web Crypto and fetch, so it works on Node 20 and later and on every edge runtime.
  */
-import { hex, hmac, jwt, sha256Hex, text, unbase64url } from './crypto.js';
+import { base64url, hex, hmac, jwt, randomBytes, sha256Hex, text, unbase64url } from './crypto.js';
 import { dayOf, GenerationStore, Keys, MAX_LABELS, RESERVED_KINDS, UserId, validLabel } from './keys.js';
-import { Patterns, validPattern, validRoom } from './patterns.js';
+import { hasPair, otherOf, Patterns, validPattern, validRoom } from './patterns.js';
 import { CLAIM_ORDER, GRANT_AUDIENCE, GRANT_KEY_LABEL } from '../../vendor/realtime-client/streams/protocol.js';
 import { FILES, FILES_VERSION } from './files/index.js';
 
@@ -33,6 +32,12 @@ export { Patterns, validRoom, validPattern } from './patterns.js';
 export const SERVER = 'https://ws.wordplus.cloud';
 export const API_SERVER = 'https://rest.wordplus.cloud';
 export const PATH = '/websocket';
+
+/**
+ * Held for now: RECORDING_AVAILABLE is false until WordPlus Cloud serves the recordings routes for apps. While it is false a
+ * group call's answer never says `record: true`, so no call screen offers Start Recording. Set it to true to turn it back on.
+ */
+export const HELD = { RECORDING_AVAILABLE: false };
 
 /** The app's routes: the browser's three, then the one WordPlus Cloud posts its webhooks to. */
 export const ROUTE_NAMES = ['auth', 'calls', 'keys', 'webhook'] as const;
@@ -54,11 +59,22 @@ export const TOKEN_TTL = 21_600;
 export const MAX_TTL = 86_400;
 export const CALL_TTL = 21_600;
 export const MAX_ROOMS = 100;
-/** The cloud keeps at most this many events a room, for at most this many days: 5 minutes, for a page that reconnects. */
+/** The cloud keeps at most this many events a room, for at most this many seconds: 5 minutes, for a page that reconnects. */
 export const MAX_HISTORY = 1000;
+export const MAX_HISTORY_SECONDS = 300;
+const SECONDS_A_DAY = 86_400;
 export const MAX_HISTORY_DAYS = 5 / (24 * 60);
 /** What a host does to someone else in a group call from its call screen: the calls route's `moderate`. */
-const MODERATION_ACTS = ['mute', 'speak', 'listen', 'remove'];
+const MODERATION_ACTS = ['mute', 'speak', 'listen', 'remove', 'spotlight', 'unspotlight', 'ban', 'unban', 'hold_mic', 'release_mic', 'rules', 'ask', 'end'];
+/**
+ * What a group call's screen may offer, as this package takes it (`acts` in groupCallToken()'s token and in the room's
+ * answer): the call screen shows a control only for an act both this package and the realtime server name. `hand` is
+ * raising hands, for everyone; the rest are a host's. Recording is not one of them.
+ */
+export const CALL_ACTS = ['remove', 'ban', 'listen', 'speak', 'mute', 'hold_mic', 'release_mic', 'rules', 'hand', 'ask', 'end', 'spotlight'] as const;
+export type CallAct = (typeof CALL_ACTS)[number];
+/** The longest ban, in minutes: a week. */
+export const BAN_MOST_MINUTES = 7 * 24 * 60;
 /** Events in one batch request, and a webhook's signature's window. */
 export const BATCH = 100;
 export const WEBHOOK_WINDOW_S = 300;
@@ -77,8 +93,11 @@ export interface RoomOptions {
     presence?: boolean;
     /** A live count of the people in it, at any size. */
     count?: boolean;
-    /** Events kept: a number, or `{ last, days }`, within the cloud's 1,000 events and 5 minutes (`days` a part of a day). */
-    history?: number | { last: number; days?: number };
+    /**
+     * Events kept for pages that reconnect: a number, or `{ last, seconds }`, within the cloud's 1,000 events and 5
+     * minutes. `days`, a part of a day, is the same in its old words.
+     */
+    history?: number | { last: number; seconds?: number; /** @deprecated `seconds`. */ days?: number };
     /** The events browsers may send to it: names, or '*' for any. None by default. */
     emit?: string[] | '*';
     /** Which of those the app's server gets too, by webhook. */
@@ -89,19 +108,78 @@ export interface RoomOptions {
     seal?: boolean;
 }
 
+/** The `{part}`s a pattern names: `'id'` of `order:{id}`, `'a' | 'b'` of `chat:{a}:{b}`. */
+type PartsOf<Pattern extends string> = Pattern extends `${string}{${infer Part}}${infer Rest}` ? Part | PartsOf<Rest> : never;
+
+/** What a rule gets for a pattern, each part by its name: `{ id: string }` for `order:{id}`. A pattern only known as a string gets any part. */
+export type PatternParams<Pattern extends string = string> = string extends Pattern ? Record<string, string> : { [Part in PartsOf<Pattern>]: string };
+
+/** What a room's rule gets: the pattern's parts, and for `{pair}` also `other`, the one of the two who isn't asking. */
+export type RoomParams<Pattern extends string = string> = string extends Pattern ? Record<string, string> : { [Part in PartsOf<Pattern> | ('pair' extends PartsOf<Pattern> ? 'other' : never)]: string };
+
 /** A rule's answer for a user: false, true, or what they bring and may do. */
 export type RoomAnswer = boolean | null | undefined | { info?: unknown; emit?: string[] | '*'; readOnly?: boolean };
-export type RoomRule = (user: UserId | null, params: Record<string, string>, room: string) => RoomAnswer | Promise<RoomAnswer>;
+export type RoomRule<Pattern extends string = string> = (user: UserId | null, params: RoomParams<Pattern>, room: string) => RoomAnswer | Promise<RoomAnswer>;
 
-export type CallAnswer = boolean | null | undefined | { info?: unknown; publish?: boolean; subscribe?: boolean; admin?: boolean; hidden?: boolean };
+export type CallAnswer = boolean | null | undefined | { info?: unknown; publish?: boolean; subscribe?: boolean; admin?: boolean; hidden?: boolean; record?: boolean };
 /** Which side of a call a calls() rule is asked for: `caller` places it, or rings someone into it, and `callee` answers. */
 export interface CallSide {
     role: 'caller' | 'callee';
 }
 /** Who may call whom about a call the app owns: `withUser` is the other person, `side.role` whether `user` calls or answers. */
-export type CallRule = (user: UserId, withUser: UserId, params: Record<string, string>, call: string, side: CallSide) => CallAnswer | Promise<CallAnswer>;
+export type CallRule<Pattern extends string = string> = (user: UserId, withUser: UserId, params: PatternParams<Pattern>, call: string, side: CallSide) => CallAnswer | Promise<CallAnswer>;
 /** Who may take part in a group call the app owns. */
-export type GroupCallRule = (user: UserId, params: Record<string, string>, name: string) => CallAnswer | Promise<CallAnswer>;
+export type GroupCallRule<Pattern extends string = string> = (user: UserId, params: PatternParams<Pattern>, name: string) => CallAnswer | Promise<CallAnswer>;
+
+/** What callToken() takes beside the two people. */
+export interface CallTokenOptions {
+    /** `audio`, or `video` for anything else, so a route can pass on what the page asked for. */
+    type?: string | null;
+    /** A name of your own for the call, which `call.ended` and the other webhooks give back: `support:17`. */
+    name?: string;
+    /** What the person called is told about the caller. Your `profile` by default. */
+    info?: Record<string, unknown>;
+    /** To ring `to` into a call this user is in: the `call.ref` their page sent your route. The call goes on as a group call. */
+    into?: string | null;
+}
+
+/** What groupCallToken() takes beside the user and the call's name. */
+export interface GroupCallTokenOptions {
+    /** `audio`, or `video` for anything else. */
+    type?: string | null;
+    /** May send their camera, microphone and screen: yes by default. */
+    publish?: boolean;
+    /** May see and hear the others: yes by default. */
+    subscribe?: boolean;
+    /** Hosts the call: mutes and removes people, lets them speak, and puts them in the spotlight. */
+    admin?: boolean;
+    /** Listed to nobody. */
+    hidden?: boolean;
+    /** May record the call. Its host may, unless this says no. */
+    record?: boolean;
+    /** Encrypts the call's media end to end, with a key only your server gives out: the same for everyone in it. */
+    encrypt?: boolean;
+    /** What the others are told about this user. Your `profile` by default. */
+    info?: Record<string, unknown>;
+}
+
+/** What streamToken() takes beside the user and the stream's name. */
+export interface StreamTokenOptions {
+    /** `viewer` by default. A visitor who isn't signed in can only be one. */
+    role?: StreamRole;
+    /** A name and an https picture. Your `profile` by default. */
+    info?: { name?: string; avatar?: string | null } | null;
+    /** `write` or `read`, in the chat. */
+    chat?: 'write' | 'read';
+    /** Moderates the chat. A host always does. */
+    mod?: boolean;
+    /** What a host or guest may send. */
+    src?: Array<'camera' | 'microphone' | 'screen'>;
+    /** A cap on the picture they send. */
+    quality?: '720p' | '1080p';
+    /** The stream's own settings, which should be the same in every token for it. */
+    settings?: StreamSettings;
+}
 
 /** What calls() takes beside its rule: whom the call screen offers to add. */
 export interface CallOptions {
@@ -133,7 +211,7 @@ export type StreamAnswer = false | null | undefined | StreamRole | {
 };
 
 /** Who is what in a live stream the app owns. `user` is null for a visitor who isn't signed in: only a viewer may be one. */
-export type StreamRule = (user: UserId | null, params: Record<string, string>, name: string) => StreamAnswer | Promise<StreamAnswer>;
+export type StreamRule<Pattern extends string = string> = (user: UserId | null, params: PatternParams<Pattern>, name: string) => StreamAnswer | Promise<StreamAnswer>;
 
 type StreamSetting<T> = T | ((params: Record<string, string>) => T);
 
@@ -160,12 +238,17 @@ export type KindAuthorizer = (rest: string, user: UserId | null, label: string) 
 export type KindNewest = (rest: string, label: string) => string | Promise<string>;
 
 export interface RealtimeOptions {
-    /** The app's key, from the WordPlus Cloud account (Apps): WORDPLUS_SITE. */
-    site: string;
-    /** The app's secret: WORDPLUS_SECRET. Never in a page. */
-    secret: string;
-    /** 64 hex characters of the app's own, which never leave its servers (openssl rand -hex 32): WORDPLUS_LOCAL_KEY. */
-    localKey: string;
+    /** The app's key, from the WordPlus Cloud account (Apps). WORDPLUS_SITE from the environment when left out. */
+    app?: string;
+    /** @deprecated The same as `app`. */
+    site?: string;
+    /** The app's secret, never in a page. WORDPLUS_SECRET from the environment when left out. */
+    secret?: string;
+    /**
+     * 64 hex characters of the app's own, which never leave its servers (openssl rand -hex 32). WORDPLUS_LOCAL_KEY from the
+     * environment when left out.
+     */
+    localKey?: string;
     /** Who a request's user is, for route(): their id, or null for nobody. */
     user?: (request: Request) => UserId | null | undefined | Promise<UserId | null | undefined>;
     /** A user's profile, for the directory and as their info in presence and calls; null for none. */
@@ -238,9 +321,51 @@ export interface CallGrant {
     people?: CallPerson[];
     /** For `may`: whether the user may call each person asked about, in the order asked. */
     may?: boolean[];
-    /** For `moderate`: whether the host's act changed anything. */
+    /** For `moderate` and `hand`: whether the act changed anything. */
     done?: boolean;
+    /** For `moderate` `ask`: the ask's id, which the person's answer names. */
+    id?: string;
+    /** For `moderate` `rules`: the room's rules now. */
+    rules?: CallRules;
+    /** For `room`: the acts this package takes (CALL_ACTS), which the call screen offers where the realtime server takes them too. */
+    acts?: CallAct[];
+    /** For `record`: the recording started or being stopped. */
+    recording?: { id: string; state: string };
+    /** For `room`: whether the group call's rule lets the user record it. */
+    record?: boolean;
     denied?: string;
+}
+
+/** What WordPlus Cloud renders a recording with: the realtime server's defaults where left out. */
+export interface RecordingSettings {
+    layout?: 'gallery' | 'speaker' | 'speaker_only' | 'audio_only' | 'audience';
+    size?: 720 | 1080;
+    theme?: { mode?: 'dark' | 'light'; color?: string };
+    names?: boolean;
+    mic?: boolean;
+    speaking?: boolean;
+    camera_off?: 'avatar' | 'omit';
+    logo?: string;
+    extras?: { audio?: boolean; screen?: boolean };
+    transcript?: { on?: boolean; language?: string };
+    keep_sources?: boolean;
+}
+
+/** A recording as the realtime server describes it: its files' links last a day, the files seven days. */
+export interface RecordingView {
+    id: string;
+    product: 'call' | 'stream';
+    room?: string;
+    stream?: string;
+    state: 'recording' | 'stopping' | 'finishing' | 'complete' | 'failed';
+    reason?: string | null;
+    meta?: string;
+    seconds?: number | null;
+    created_at?: number;
+    started_at?: number | null;
+    stopped_at?: number | null;
+    ended_at?: number | null;
+    files: Array<{ name: string; type: string; size: number; url?: string; expires_at?: number }>;
 }
 
 export interface Identity {
@@ -251,6 +376,8 @@ export interface Identity {
 export interface KeysAnswer {
     keys: string[];
     identity?: Identity;
+    /** The app's key, public as every page carries it: a browser has no environment, so `connect()` asks here. */
+    app?: string;
 }
 
 /** What the browser's connect() takes: where to connect, the app, its routes, public grants, and a user's keys and identity. */
@@ -272,16 +399,18 @@ export interface BrowserConfig {
 export interface EmitOptions {
     /** Seal a sealed room's data with its key, and a user's with theirs (true). */
     seal?: boolean;
+    /** The tab whose action made the event (the browser's `rt.tab`), which doesn't get it back. */
+    except?: string;
 }
 
-/** One event of a batch: to rooms, to users, or both. */
+/** One event of a batch: to rooms, to users or both, or to everyone on its own. */
 export interface EmitEvent extends EmitOptions {
     rooms?: string | string[];
     users?: UserId | UserId[];
+    /** Every page and app connected now, never with rooms or users, and never sealed. */
+    everyone?: boolean;
     event: string;
     data?: unknown;
-    /** The tab whose action made the event (the browser's `rt.tab`), which doesn't get it back. */
-    except?: string;
 }
 
 /** An event the realtime server kept: its id, when, what, and who sent it (none for the app's server). */
@@ -311,7 +440,15 @@ export type WebhookEvent =
     | { id: string; at: number; type: 'stream.joined'; stream: string; user: UserId; role: string; watch: string; joined_at: number }
     | { id: string; at: number; type: 'stream.left'; stream: string; user: UserId; role: string; watch: string; joined_at: number; left_at: number; seconds: number }
     | { id: string; at: number; type: 'emit'; room: string; event: string; data: unknown; from?: string; event_id: string }
+    // What a host's screen or your server did in a group call, once each: `by` the host whose screen acted, null for
+    // your server, `held` when it holds for whoever joins after, a ban's `minutes` (none: until the call ends), the
+    // rules once changed.
+    | { id: string; at: number; type: 'call.moderated'; call: string; act: CallModerationAct; user: string | null; by: string | null; held: boolean;
+        minutes?: number; rules?: CallRules }
     | { id: string; at: number; type: 'webhook.test' };
+
+/** What a `call.moderated` webhook names as done. */
+export type CallModerationAct = 'remove' | 'ban' | 'unban' | 'listen' | 'speak' | 'mute' | 'hold_mic' | 'release_mic' | 'rules' | 'end';
 
 /** A room someone is in now: its count (members of a presence room, else connections) and its connections. */
 export interface OccupiedRoom {
@@ -377,6 +514,24 @@ export interface CallParticipant {
     camera: boolean;
     microphone: boolean;
     screen: boolean;
+    /** What the call holds of them for every join after: what they may send (`publish`), and a microphone held off (`mic`). */
+    held?: { publish?: boolean; mic?: 'held' | 'free' };
+}
+
+/**
+ * A group call's rules, which hold until the call empties or ends: Broadcast Mode (`mode: 'broadcast'`, only hosts and
+ * those they promote send), Lock (`locked`, only those already in get back in) and Mute Everyone (`muted`).
+ */
+export interface CallRules {
+    mode: 'broadcast' | 'participatory';
+    locked: boolean;
+    muted: boolean;
+}
+
+/** Someone kept out of a group call, and until when (milliseconds), null until the call ends. */
+export interface CallBan {
+    user: string;
+    until: number | null;
 }
 
 /** A group call as it is now, by `call( name ).get()`: with nobody in it, `people` 0, `started_at` null and `list` empty. */
@@ -384,7 +539,16 @@ export interface CallNow {
     name: string;
     people: number;
     started_at: number | null;
+    /** Its rules, as they hold now. */
+    rules?: CallRules;
+    /** The users with a hand up, earliest first. */
+    hands?: string[];
     list: CallParticipant[];
+}
+
+/** Who a host's act is done for: `by`, the host, named in the `call.moderated` webhook (null when left out). */
+export interface CallActOptions {
+    by?: UserId;
 }
 
 /** A live stream as it is now. */
@@ -442,10 +606,18 @@ export interface PageEvent {
     event_id: string;
 }
 
+/** Every code the realtime server names to your server now. Open at its end, as a newer server may name another. */
+export type RealtimeErrorCode =
+    | 'missing_signature' | 'stale_signature' | 'unknown_site' | 'bad_signature' | 'not_included' | 'bad_request' | 'bad_room' | 'reserved'
+    | 'bad_event' | 'too_many' | 'too_large' | 'not_found' | 'no_webhook' | 'unreachable' | `http_${number}` | 'forbidden' | 'no_user' | 'not_a_call'
+    | 'over_capacity' | 'no_minutes' | 'no_credits' | 'already_recording' | 'not_live' | 'ended' | 'self' | 'host' | 'bad_seconds' | 'server'
+    | 'spotlight_full' | 'asked_recently' | 'not_in_call'
+    | (string & {});
+
 /** A refusal from the realtime server, or a request that didn't reach it: `code` says which. */
 export class RealtimeError extends Error {
     constructor(
-        readonly code: string,
+        readonly code: RealtimeErrorCode,
         readonly status: number = 0,
     ) {
         super('The realtime server refused the request: ' + code);
@@ -485,7 +657,14 @@ interface GroupEntry {
     options: GroupCallOptions;
 }
 
-export function createRealtime(options: RealtimeOptions): Realtime {
+/** A setting from the environment, where the runtime has one. An edge runtime without `process.env` passes them itself. */
+const fromEnvironment = (name: string): string | undefined => (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[name];
+
+/**
+ * The app's realtime: `createRealtime( { user, profile } )`, its key, secret and local key from WORDPLUS_SITE,
+ * WORDPLUS_SECRET and WORDPLUS_LOCAL_KEY, or from `app`, `secret` and `localKey` where they come another way.
+ */
+export function createRealtime(options: RealtimeOptions = {}): Realtime {
     return new Realtime(options);
 }
 
@@ -494,12 +673,14 @@ export class Realtime {
     readonly online: OnlineQueries;
     /** The last deliveries of the webhook, a batch not taken sent again, and a test event. */
     readonly webhooks: WebhookQueries;
+    /** Recordings of the app's group calls and live streams, with their transcripts. */
+    readonly recordings: RecordingQueries;
     private readonly rules = new Patterns<RoomEntry>();
     private readonly callRules = new Patterns<CallEntry>();
     private readonly groupRules = new Patterns<GroupEntry>();
     private readonly streamRules = new Patterns<{ rule: StreamRule; settings: StreamSettings }>();
     private readonly kinds = new Map<string, [KindAuthorizer, KindNewest | null]>();
-    private readonly handlers = new Map<string, WebhookHandler[]>();
+    private readonly listeners = new Map<string, WebhookHandler[]>();
     private tokenKey: Promise<Uint8Array> | null = null;
     private callsKey: Promise<Uint8Array> | null = null;
     private publishKey: Promise<Uint8Array> | null = null;
@@ -508,18 +689,24 @@ export class Realtime {
     private publicGrant: Promise<PublicGrant | null> | null = null;
     private publicGrantExp = 0;
     private warnedUser = false;
+    private readonly warnedNoRule = new Set<string>();
     private localKeys: Keys | null = null;
 
     // The credentials are checked as they are first used, not here: a build that loads the app without them, such as
     // `next build` collecting its routes, runs, and the first request says what is missing.
-    constructor(private readonly options: RealtimeOptions) {
+    constructor(private readonly options: RealtimeOptions = {}) {
         this.online = new OnlineQueries(this);
         this.webhooks = new WebhookQueries(this);
+        this.recordings = new RecordingQueries(this);
     }
 
     /** The keys of the local key, which seal and open what the app sends. */
     get keys(): Keys {
-        return (this.localKeys ??= new Keys(this.options.localKey ?? '', this.options.generations ?? null));
+        return (this.localKeys ??= new Keys(this.localKey, this.options.generations ?? null));
+    }
+
+    private get localKey(): string {
+        return this.options.localKey ?? fromEnvironment('WORDPLUS_LOCAL_KEY') ?? '';
     }
 
     private get site(): string {
@@ -531,25 +718,40 @@ export class Realtime {
     }
 
     private credentials(): { site: string; secret: string } {
-        const { site, secret } = this.options;
-        if (!site || !secret) throw new Error('wordplus-realtime: site and secret are required (WORDPLUS_SITE, WORDPLUS_SECRET)');
+        const site = this.options.app ?? this.options.site ?? fromEnvironment('WORDPLUS_SITE');
+        const secret = this.options.secret ?? fromEnvironment('WORDPLUS_SECRET');
+        if (!site || !secret) throw new Error('wordplus-realtime: the app key and secret are required: WORDPLUS_SITE and WORDPLUS_SECRET in the environment, or `app` and `secret`');
         return { site, secret };
     }
 
     /**
-     * Rooms the app owns, by pattern (`order:{id}`), what they are (`options`), and who may join: `rule( user, params,
-     * room )` answers false, true, or `{ info, emit, readOnly }` for that user. A public room may have no rule: anyone
-     * joins. The rule with the most characters of its own decides.
+     * Rooms the app owns, by pattern (`order:{id}`), who may join, and what they are (`options`), as in every language:
+     * `rule( user, params, room )` answers false, true, or `{ info, emit, readOnly }` for that user. A public room may
+     * have no rule: anyone joins. The rule with the most characters of its own decides.
+     *
+     * `chat:{pair}` is a room of the two people its name holds, `chat:34:42`, and nobody else: it needs no rule, and a
+     * rule it has is asked only about those two, with `other` the other one among `params`.
+     *
+     * With only a name, `room( 'chat:7' )`, it is that one room as the realtime server holds it: its members, count and
+     * history, sending to it, and taking someone out of it.
      */
-    room(pattern: string, rule?: RoomRule): this;
-    room(pattern: string, options: RoomOptions, rule?: RoomRule): this;
-    room(pattern: string, optionsOrRule?: RoomOptions | RoomRule, maybeRule?: RoomRule): this {
-        const options = typeof optionsOrRule === 'function' || optionsOrRule === undefined ? {} : optionsOrRule;
-        const rule = typeof optionsOrRule === 'function' ? optionsOrRule : (maybeRule ?? null);
-        if (!options.public && typeof rule !== 'function') throw new Error('wordplus-realtime: room ' + JSON.stringify(pattern) + ' needs a rule, or `public: true`');
-        if (options.presence && options.public) throw new Error('wordplus-realtime: a public room has no members to list; take `presence` off ' + JSON.stringify(pattern));
+    room(pattern: `${string}{pair}${string}`): this;
+    room(name: string): RoomQueries;
+    room<Pattern extends string>(pattern: Pattern, rule: RoomRule<Pattern> | null | undefined, options?: RoomOptions): this;
+    room(pattern: string, options: RoomOptions): this;
+    /** @deprecated The rule before the options: `room( pattern, rule, options )`. */
+    room<Pattern extends string>(pattern: Pattern, options: RoomOptions, rule: RoomRule<Pattern>): this;
+    room(pattern: string, first?: RoomRule<any> | RoomOptions | null, second?: RoomOptions | RoomRule<any>): this | RoomQueries {
+        if (first === undefined && second === undefined && !pattern.includes('{')) return new RoomQueries(this, pattern);
 
-        this.rules.add(pattern, { options: normalized(options), rule });
+        const rule = typeof first === 'function' ? first : typeof second === 'function' ? second : null;
+        const options = (first && typeof first === 'object' ? first : second && typeof second === 'object' ? second : {}) as RoomOptions;
+        const pair = hasPair(pattern);
+        if (!options.public && !pair && typeof rule !== 'function') throw new Error('wordplus-realtime: room ' + JSON.stringify(pattern) + ' needs a rule, or `public: true`');
+        if (options.presence && options.public) throw new Error('wordplus-realtime: a public room has no members to list; take `presence` off ' + JSON.stringify(pattern));
+        if (pair && options.public) throw new Error('wordplus-realtime: a public room is for anyone, not two people; take `{pair}` off ' + JSON.stringify(pattern));
+
+        this.rules.add(pattern, { options: normalized(options), rule: pair ? pairRoomRule(rule) : rule });
         this.publicGrant = null;
         return this;
     }
@@ -564,28 +766,38 @@ export class Realtime {
      * user calling the person about the call's name, then the person taking a call from them. A call's rooms are
      * encrypted end to end with a key only this server gives out, to the people in the call. `options.people` lists
      * whom the call screen offers to add.
+     *
+     * `support:{pair}` is a call of the two people its name holds, `support:34:42`, and nobody else, which the page's
+     * `support:{pair}` names. It needs no rule, and a rule it has is asked only about those two. Being only ever those
+     * two, it takes no `people`.
      */
-    calls(pattern: string, rule: CallRule, options: CallOptions = {}): this {
-        if (typeof rule !== 'function') throw new Error('wordplus-realtime: calls ' + JSON.stringify(pattern) + ' needs a rule');
-        this.callRules.add(pattern, { rule, options: { people: typeof options.people === 'function' ? options.people : undefined } });
+    calls<Pattern extends `${string}{pair}${string}`>(pattern: Pattern, rule?: CallRule<Pattern> | null): this;
+    calls<Pattern extends string>(pattern: Pattern, rule: CallRule<Pattern>, options?: CallOptions): this;
+    calls(pattern: string, rule?: CallRule<any> | null, options: CallOptions = {}): this {
+        const pair = hasPair(pattern);
+        if (typeof rule !== 'function' && !pair) throw new Error('wordplus-realtime: calls ' + JSON.stringify(pattern) + ' needs a rule');
+        if (pair && options.people) throw new Error('wordplus-realtime: a call of `{pair}` is only ever those two; `people` needs a rule of your own, for ' + JSON.stringify(pattern));
+        this.callRules.add(pattern, { rule: pair ? pairCallRule(rule ?? null) : (rule as CallRule), options: { people: typeof options.people === 'function' ? options.people : undefined } });
         return this;
     }
 
     /** Group calls the app owns, by pattern (`meeting:{id}`): `rule( user, params, name )`; `options.encrypt` encrypts their rooms end to end. */
-    groupCalls(pattern: string, rule: GroupCallRule, options: GroupCallOptions = {}): this {
+    groupCalls<Pattern extends string>(pattern: Pattern, rule: GroupCallRule<Pattern>, options: GroupCallOptions = {}): this {
         if (typeof rule !== 'function') throw new Error('wordplus-realtime: groupCalls ' + JSON.stringify(pattern) + ' needs a rule');
-        this.groupRules.add(pattern, { rule, options: { encrypt: options.encrypt === true } });
+        if (hasPair(pattern)) throw new Error('wordplus-realtime: `{pair}` is for rooms and calls of two people, not a group call: ' + JSON.stringify(pattern));
+        this.groupRules.add(pattern, { rule: rule as GroupCallRule, options: { encrypt: options.encrypt === true } });
         return this;
     }
 
     /**
      * Live streams the app owns, by pattern (`show:{id}`): `rule( user, params, name )` says who is what in each, and
-     * `settings` are the stream's own. A page asks for one with `calls.stream( name )`, through the
+     * `settings` are the stream's own. A page asks for one with `rt.stream( name )`, through the
      * calls route, which signs Easy Stream's grant for it. A stream's name is a room's without an underscore.
      */
-    streams(pattern: string, rule: StreamRule, settings: StreamSettings = {}): this {
+    streams<Pattern extends string>(pattern: Pattern, rule: StreamRule<Pattern>, settings: StreamSettings = {}): this {
         if (typeof rule !== 'function') throw new Error('wordplus-realtime: streams ' + JSON.stringify(pattern) + ' needs a rule');
-        this.streamRules.add(pattern, { rule, settings });
+        if (hasPair(pattern)) throw new Error('wordplus-realtime: `{pair}` is for rooms and calls of two people, not a live stream: ' + JSON.stringify(pattern));
+        this.streamRules.add(pattern, { rule: rule as StreamRule, settings });
         return this;
     }
 
@@ -612,9 +824,9 @@ export class Realtime {
     on(type: '*', handler: (event: WebhookEvent) => unknown | Promise<unknown>): this;
     on(type: string, handler: (event: PageEvent) => unknown | Promise<unknown>): this;
     on(type: string, handler: WebhookHandler): this {
-        const list = this.handlers.get(type) ?? [];
+        const list = this.listeners.get(type) ?? [];
         list.push(handler);
-        this.handlers.set(type, list);
+        this.listeners.set(type, list);
         return this;
     }
 
@@ -628,7 +840,16 @@ export class Realtime {
         return new Emitter(this).toUser(users);
     }
 
-    /** A room as the realtime server holds it: its members, count, history, and kicking a user out. */
+    /**
+     * An emit to every page and app connected now, signed in or not, with no room to join:
+     * `realtime.toEveryone().emit( 'notice', data )`. A page hears it with `rt.on( 'notice', … )`. Anyone may be connected, so
+     * it is never sealed: keep it to what anyone may read.
+     */
+    toEveryone(): EveryoneEmitter {
+        return new EveryoneEmitter(this);
+    }
+
+    /** @deprecated `room( name )`. */
     in(room: string): RoomQueries {
         return new RoomQueries(this, room);
     }
@@ -697,6 +918,7 @@ export class Realtime {
             const found = this.rules.match(room);
             if (!found) {
                 denied[room] = 'no_rule';
+                this.warnNoRule('room', room);
                 continue;
             }
 
@@ -718,9 +940,11 @@ export class Realtime {
 
         if (allowed.length === 0) return { denied };
 
-        const now = nowS();
+        const signedAt = Date.now();
+        const now = Math.floor(signedAt / 1000);
         const exp = now + clamp(this.options.tokenTtl ?? TOKEN_TTL, 60, MAX_TTL);
-        const claims: Record<string, unknown> = { iss: this.site, aud: AUDIENCE, iat: now, exp, r: {} };
+        // `ms`, so a token signed right after someone was taken out of a room works, in the same second too.
+        const claims: Record<string, unknown> = { iss: this.site, aud: AUDIENCE, iat: now, ms: signedAt, exp, r: {} };
         if (known(user)) claims.sub = String(user);
 
         const infos: Record<string, unknown> = {};
@@ -806,13 +1030,18 @@ export class Realtime {
 
         if (r.may !== undefined) return this.mayCall(r.may, me);
 
-        if (r.moderate !== undefined) return this.moderateCall(r.moderate, r.act, r.user, me);
+        if (r.moderate !== undefined) return this.moderateCall(r.moderate, r.act, r.user, me, r.host, r);
+
+        if (r.hand !== undefined) return this.handInCall(r.hand, r.up, 'user' in r ? r.user : undefined, me, r.host, r.member);
+
+        if (r.record !== undefined) return this.recordCall(r.call, r.record, r.recording, me, r.recorder);
 
         const type = r.type === 'audio' ? 'audio' : 'video';
 
         if (r.room !== undefined) {
             if (!validRoom(r.room)) return { denied: 'bad_request' };
             const found = this.groupRules.match(r.room);
+            if (!found) this.warnNoRule('groupCalls', r.room);
             const answer = found ? await callAnswer(await found.value.rule(me, found.params, r.room), () => this.defaultCallInfo(me)) : null;
             if (answer === null) return { denied: 'forbidden' };
 
@@ -830,6 +1059,11 @@ export class Realtime {
 
             // Encrypted end to end when its rule says so: everyone the rule lets in gets the room's key.
             if (signed.token && found!.value.options.encrypt) signed.media_key = await this.keys.media('room|' + r.room);
+            // Who the call screen offers Record to, as recordCall() asks the rule again.
+            // Held: RECORDING_AVAILABLE is false until WordPlus Cloud serves the recordings routes, so no screen offers Record.
+            if (signed.token && (answer.record ?? answer.admin)) signed.record = HELD.RECORDING_AVAILABLE;
+            // The acts this package takes, which the call screen offers where the realtime server takes them too.
+            if (signed.token) signed.acts = [...CALL_ACTS];
             return signed;
         }
 
@@ -840,7 +1074,7 @@ export class Realtime {
         const other = callUser((role === 'caller' ? r.to : r.from) as UserId | null);
         if (other === null || other === me) return { denied: 'bad_request' };
 
-        const answer = await this.askCaller(me, call, other, role);
+        const answer = await this.askCaller(me, call, other, role, await this.provenSide(r, call, id, role, other, me));
         if (answer === null) return { denied: 'forbidden' };
 
         // The call's two people, whose key its rooms encrypt with: this request's, for the call itself; for a ring into
@@ -875,9 +1109,157 @@ export class Realtime {
         return signed;
     }
 
+    /**
+     * A token that lets `user` call `to`, for your own route to give their page: `rt.startCall( token )`. Your app decides
+     * who may call whom, so check whatever it needs first: this signs what it's asked to. The person called needs no
+     * token of their own to answer, as this one's ring proves that your server said yes. It rings once, within
+     * `callTokenTtl`, so make a new one for each call. With `into`, it rings `to` into the call this user is in.
+     */
+    async callToken(user: UserId, to: UserId, options: CallTokenOptions = {}): Promise<string> {
+        const me = callUser(user);
+        const other = callUser(to);
+        if (me === null || other === null || me === other) throw new Error('wordplus-realtime: callToken needs two different users, each an id of up to 64 characters with no space');
+
+        const info = options.info === undefined ? await this.defaultCallInfo(me) : options.info;
+        const id = base64url(randomBytes(15));
+        if (options.into !== undefined && options.into !== null) return this.addToCallToken(me, other, id, options.into, info);
+
+        const call = options.name ?? 'call:' + id;
+        if (!validRoom(call)) throw new Error('wordplus-realtime: ' + JSON.stringify(call) + ' is not a name a call can have');
+
+        const pair: [UserId, UserId] = [me, other];
+        const type = options.type === 'audio' ? 'audio' : 'video';
+        const ring = await this.callProof('rung', call, id, pair, other);
+        const signed = await this.signCalls({ aud: CALL_AUDIENCE, call, id, sub: me, role: 'caller', type, to: other, info: await this.sealedCallInfo({ ...((info ?? {}) as Record<string, unknown>), _ring: ring }) });
+
+        const made = {
+            token: signed.token,
+            exp: signed.exp,
+            call,
+            id,
+            to: other,
+            type,
+            key: await this.callKey(id, me, other),
+            media_key: await this.keys.media('call|' + call + '|' + id + '|' + idPart(me) + '|' + idPart(other)),
+            pair,
+            member: await this.callProof('member', call, id, pair, me),
+        };
+        return base64url(JSON.stringify(made));
+    }
+
+    /** The token that rings `other` into the call `into` names, which this user must be in: only this server makes that proof. */
+    private async addToCallToken(me: UserId, other: UserId, id: string, into: string, info: unknown): Promise<string> {
+        const opened = unbase64url(into);
+        let ref: { id?: unknown; name?: unknown; type?: unknown; pair?: unknown; member?: unknown } | null = null;
+        try {
+            ref = opened ? JSON.parse(text(opened)) : null;
+        } catch {
+            ref = null;
+        }
+        const pair = pairOf(ref?.pair);
+        const notIn = new Error('wordplus-realtime: callToken `into` must be the `call.ref` of a call this user is in');
+        if (!ref || !pair || !validRoom(ref.name) || !validAttempt(ref.id) || typeof ref.member !== 'string') throw notIn;
+        if (!sameString(ref.member, await this.callProof('member', ref.name, ref.id, pair, me))) throw notIn;
+
+        const type = ref.type === 'audio' ? 'audio' : 'video';
+        const signed = await this.signCalls({ aud: CALL_AUDIENCE, call: ref.name, id, sub: me, role: 'caller', type, to: other, group: ref.id, info: await this.sealedCallInfo(info) });
+
+        return base64url(JSON.stringify({
+            token: signed.token,
+            exp: signed.exp,
+            call: ref.name,
+            id,
+            to: other,
+            type,
+            group: ref.id,
+            pair,
+            member: ref.member,
+            ring: await this.callProof('rung', ref.name, ref.id, pair, other),
+        }));
+    }
+
+    /**
+     * A token that lets `user` into the group call `name`, for your own route to give their page: `rt.joinGroupCall( token )`.
+     * Your app decides who joins and what they may do, so check whatever it needs first. A call has no setup of its own: it
+     * starts as the first person joins, and `options` say what this person may do in it. Someone taken out of the call
+     * needs a new token to come back, so your route is asked again.
+     */
+    async groupCallToken(user: UserId, name: string, options: GroupCallTokenOptions = {}): Promise<string> {
+        const me = callUser(user);
+        if (me === null) throw new Error('wordplus-realtime: groupCallToken needs a user, an id of up to 64 characters with no space');
+        if (!validRoom(name)) throw new Error('wordplus-realtime: ' + JSON.stringify(name) + ' is not a name a call can have');
+
+        const type = options.type === 'audio' ? 'audio' : 'video';
+        const info = options.info === undefined ? await this.defaultCallInfo(me) : options.info;
+        const signed = await this.signCalls({
+            aud: ROOM_AUDIENCE,
+            room: name,
+            sub: me,
+            type,
+            info: await this.sealedCallInfo(info),
+            publish: options.publish !== false,
+            subscribe: options.subscribe !== false,
+            admin: !!options.admin,
+            hidden: !!options.hidden,
+        });
+
+        const made: Record<string, unknown> = { token: signed.token, exp: signed.exp, room: name, type, user: me };
+        if (options.encrypt) made.media_key = await this.keys.media('room|' + name);
+        // What the page shows for a host's acts and for recording, through the SDK's route: the call may outlast the token.
+        const until = (signed.exp as number) + CALL_TTL;
+        if (options.admin) made.host = { until, proof: await this.groupProof('host', name, me, until) };
+        if (HELD.RECORDING_AVAILABLE && (options.record ?? options.admin)) made.recorder = { until, proof: await this.groupProof('recorder', name, me, until) };
+        // Everyone's proof of being in the call, for raising a hand through the SDK's route, and the acts this package takes.
+        made.member = { until, proof: await this.groupProof('member', name, me, until) };
+        made.acts = [...CALL_ACTS];
+        return base64url(JSON.stringify(made));
+    }
+
+    /** A proof that a user hosts a group call, may record it, or is in it, until a time: only this server makes one. */
+    private groupProof(kind: 'host' | 'recorder' | 'member', name: string, user: UserId, until: number): Promise<string> {
+        // Four parts, never the six of callProof()'s: neither a name nor an escaped user holds a `|`.
+        return this.keys.proof(kind + '|' + name + '|' + idPart(user) + '|' + until);
+    }
+
+    /** Whether what a page holds is that proof, still in time. */
+    private async holdsGroupProof(kind: 'host' | 'recorder' | 'member', name: string, user: UserId, held: unknown): Promise<boolean> {
+        const { proof, until } = (held && typeof held === 'object' ? held : {}) as { proof?: unknown; until?: unknown };
+        if (typeof proof !== 'string' || typeof until !== 'number' || !Number.isSafeInteger(until) || until < nowS()) return false;
+        return sameString(proof, await this.groupProof(kind, name, user, until));
+    }
+
+    /**
+     * A token that lets `user` into the live stream `name`, for your own route to give their page: `rt.joinStream( getToken )`.
+     * `user` is null for a visitor who isn't signed in, who can only be a viewer. Your app decides who is what, so check
+     * whatever it needs first. It lasts ten minutes, so the page asks your route again as it runs out, and your route may then say no.
+     */
+    async streamToken(user: UserId | null, name: string, options: StreamTokenOptions = {}): Promise<string> {
+        if (typeof name !== 'string' || !STREAM_NAME.test(name)) throw new Error('wordplus-realtime: ' + JSON.stringify(name) + ' is not a name a stream can have');
+        const { settings = {}, ...answer } = options;
+        const signed = await this.signStream(name, user, { ...answer, role: options.role ?? 'viewer' }, settings, {});
+        if (!signed.token) throw new Error('wordplus-realtime: streamToken: a visitor can only be a viewer, and a user is an id of up to 64 characters of letters, digits and _ . @ -');
+        return base64url(JSON.stringify({ token: signed.token, exp: signed.exp, name }));
+    }
+
+    /**
+     * Whether this side of a call holds what only this server makes, so it already said yes (callToken()): the person
+     * rung, with the proof the ring brought, or either side, with its proof of being in the call, for a token that ran
+     * out. Bringing someone new into a call is never proven: that is the app's to decide.
+     */
+    private async provenSide(r: Record<string, unknown>, call: string, id: string, role: 'caller' | 'callee', other: UserId, me: UserId): Promise<boolean> {
+        if (typeof r.group === 'string') {
+            if (role !== 'callee' || typeof r.ring !== 'string') return false;
+            const named = pairOf(r.pair);
+            return named !== null && sameString(r.ring, await this.callProof('rung', call, r.group, named, me));
+        }
+        const pair: [UserId, UserId] = role === 'caller' ? [me, other] : [other, me];
+        if (typeof r.member === 'string' && sameString(r.member, await this.callProof('member', call, id, pair, me))) return true;
+        return role === 'callee' && typeof r.ring === 'string' && sameString(r.ring, await this.callProof('rung', call, id, pair, me));
+    }
+
     /** The key a call's two browsers seal their negotiation with: made from the local key, which WordPlus Cloud doesn't know. */
     async callKey(id: string, caller: UserId, callee: UserId): Promise<string> {
-        return hex(await hmac(this.options.localKey, CALL_KEY_LABEL + '|' + id + '|' + idPart(caller) + '|' + idPart(callee)));
+        return hex(await hmac(this.localKey, CALL_KEY_LABEL + '|' + id + '|' + idPart(caller) + '|' + idPart(callee)));
     }
 
     /**
@@ -888,7 +1270,7 @@ export class Realtime {
         if (!Array.isArray(labels) || labels.length === 0) {
             const keys = await this.userEntries(user);
             const identity = keys.length === 0 ? null : await this.identity(user);
-            return identity ? { keys, identity } : { keys };
+            return identity ? { keys, identity, app: this.site } : { keys, app: this.site };
         }
 
         const keys = new Set<string>();
@@ -947,7 +1329,7 @@ export class Realtime {
         const plain = await this.profileOf(user);
         if (!plain) return null;
 
-        const { pd, pdh } = await this.keys.profile(user, plain);
+        const { pd, pdh } = await this.keys.profile(user, plain, this.sealing());
         const now = nowS();
         const exp = now + clamp(this.options.tokenTtl ?? TOKEN_TTL, 60, MAX_TTL);
         const hid = this.options.hidden ? (await this.options.hidden(user)) === true : false;
@@ -1107,9 +1489,9 @@ export class Realtime {
         try {
             for (const e of events as Array<Record<string, any>>) {
                 const event = e.type === 'emit' ? { ...e, data: await this.opened(e.data) } : e;
-                const handlers = this.handlers.get(e.type === 'emit' ? String(e.event) : String(e.type)) ?? [];
+                const handlers = this.listeners.get(e.type === 'emit' ? String(e.event) : String(e.type)) ?? [];
                 for (const handler of handlers) await handler(event);
-                for (const handler of this.handlers.get('*') ?? []) await handler(event);
+                for (const handler of this.listeners.get('*') ?? []) await handler(event);
             }
         } catch (error) {
             console.error('wordplus-realtime: a webhook handler failed', error);
@@ -1143,14 +1525,27 @@ export class Realtime {
         return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
     };
 
+    /** The routes for a framework that exports each method by its name, Next.js among them: `export const { GET, POST } = realtime.handlers`. */
+    get handlers(): { GET: (request: Request) => Promise<Response>; POST: (request: Request) => Promise<Response> } {
+        return { GET: this.route, POST: this.route };
+    }
+
+    /** Who a request's user is, as the `user` option says: their id, or null for nobody. For a page of your own: `config( await realtime.userOf( request ) )`. */
+    async userOf(request: Request): Promise<UserId | null> {
+        const user = this.options.user ? await this.options.user(request) : null;
+        return known(user) ? user : null;
+    }
+
     /**
      * The routes for Node's own servers, Express and Connect among them: `app.use( '/api/realtime', realtime.node( ( req ) =>
      * req.user?.id ) )`. With `routes`, add it once for the whole app, `app.use( realtime.node( … ) )`: it answers each
      * route at its address and hands every other request on. A body already parsed (express.json()) is taken as it is;
      * the webhook's is checked as it was sent, so mount this before express.json(), or keep the raw body as `req.rawBody`.
+     * `req` is the request the server passes, with what its middleware put on it (`req.session`, `req.get()`), or the
+     * app's own request type when the function names it.
      */
-    node(user: (req: NodeRequest) => UserId | null | undefined | Promise<UserId | null | undefined>) {
-        return async (req: NodeRequest, res: NodeResponse, next?: (error?: unknown) => void): Promise<void> => {
+    node<Req extends NodeRequest = NodeRequest & Record<string, any>>(user: (req: Req) => UserId | null | undefined | Promise<UserId | null | undefined>) {
+        return async (req: Req, res: NodeResponse, next?: (error?: unknown) => void): Promise<void> => {
             const path = (req.originalUrl ?? req.url ?? '').split('#')[0];
             // Only a file's request waits here: a route's body is read from the request as it comes.
             const file = this.isFileRequest(req.method ?? 'GET', path.split('?')[0]) ? await this.file(req.method ?? 'GET', path.split('?')[0], headerOf(req, 'if-none-match')) : null;
@@ -1190,6 +1585,13 @@ export class Realtime {
         const users = [...new Set((Array.isArray(event.users) ? event.users : event.users === undefined ? [] : [event.users]).map(String))];
         const data = packBinary(event.data === undefined ? null : event.data);
         const except = event.except ? { except: String(event.except) } : {};
+
+        if (event.everyone) {
+            if (rooms.length + users.length > 0) throw new RealtimeError('bad_request');
+            await this.signed('POST', '/wordplus/realtime/emit', { everyone: true, event: event.event, data, ...except });
+            return {};
+        }
+
         const sealing = event.seal !== false && this.sealing();
 
         const out: Record<string, unknown>[] = [];
@@ -1288,10 +1690,31 @@ export class Realtime {
         return out;
     }
 
-    private async askCaller(user: UserId, name: string, withUser: UserId, role: CallSide['role']): Promise<{ info?: unknown; publish?: boolean; subscribe?: boolean; admin?: boolean; hidden?: boolean } | null> {
+    private async askCaller(user: UserId, name: string, withUser: UserId, role: CallSide['role'], proven = false): Promise<{ info?: unknown; publish?: boolean; subscribe?: boolean; admin?: boolean; hidden?: boolean } | null> {
         const found = this.callRules.match(name);
-        if (!found) return null;
+        if (!found) {
+            if (proven) return callAnswer(true, () => this.defaultCallInfo(user));
+            this.warnNoRule('calls', name);
+            return null;
+        }
         return callAnswer(await found.value.rule(user, withUser, found.params, name, { role }), () => this.defaultCallInfo(user));
+    }
+
+    /**
+     * A name no rule owns, said once in the server's log with what to declare: the page hears only `no_rule` or
+     * `forbidden`, as a user refused does, and a developer who forgot the rule has nothing else to go on. It needs no
+     * more than a name, and the first names of a kind are enough, however many a page makes up.
+     */
+    private warnNoRule(kind: 'room' | 'calls' | 'groupCalls' | 'streams', name: string): void {
+        const said = kind + ':' + name;
+        if (this.warnedNoRule.has(said) || this.warnedNoRule.size >= 20) return;
+        this.warnedNoRule.add(said);
+        const token = { calls: 'callToken( user, to )', groupCalls: 'groupCallToken( user, name )', streams: 'streamToken( user, name )' }[kind as string];
+        if (token) {
+            console.warn('wordplus-realtime: no rule matches ' + JSON.stringify(name) + ', so it is refused. Start it with a token from your own route: `realtime.' + token + '`.');
+            return;
+        }
+        console.warn('wordplus-realtime: no rule matches ' + JSON.stringify(name) + ', so it is refused. Declare it: `realtime.' + kind + "( 'pattern:{id}', rule )`.");
     }
 
     /** A proof only this server makes about a call: `member`, a user is in it; `rung`, someone in it rang a user in. */
@@ -1299,25 +1722,121 @@ export class Realtime {
         return this.keys.proof(kind + '|' + call + '|' + first + '|' + idPart(pair[0]) + '|' + idPart(pair[1]) + '|' + idPart(user));
     }
 
-    /**
-     * What a host does to someone else in the group call `name`, from its call screen: the call's rule asked again for
-     * the user, who must be its host (`admin`), then the act through WordPlus Cloud: `mute` their microphone, `speak`
-     * or `listen` (permit()'s `publish`), `remove`. `{ done }`, whether it changed anything.
-     */
-    private async moderateCall(name: unknown, act: unknown, target: unknown, me: UserId): Promise<CallGrant> {
-        const user = callUser(target as UserId | null);
-        if (!validRoom(name) || !MODERATION_ACTS.includes(act as string) || user === null || user === me) return { denied: 'bad_request' };
+    /** Whether `me` hosts the group call `name`: a rule that owns the name decides, else the proof a token of this server's own gave the page. */
+    private async hostsCall(name: string, me: UserId, held: unknown): Promise<boolean> {
         const found = this.groupRules.match(name);
         const answer = found ? await found.value.rule(me, found.params, name) : null;
-        if (!answer || typeof answer !== 'object' || !answer.admin) return { denied: 'forbidden' };
+        return found ? !!answer && typeof answer === 'object' && !!answer.admin : this.holdsGroupProof('host', name, me, held);
+    }
+
+    /**
+     * What a host does in the group call `name`, from its call screen: the call's rule asked again for the user, who must
+     * be its host (`admin`), then the act through WordPlus Cloud, as the host acts of Better Messages are:
+     *
+     * - `mute` turns their microphone off once, and they may turn it on again. `hold_mic` holds it off until the call
+     *   ends or `release_mic`, through a reload too.
+     * - `speak` and `listen` (permit()'s `publish`) hold until the call ends, or the other one, or a mode switch.
+     * - `remove` is a kick, which also keeps them out of a locked call. `ban` keeps them out for `minutes` (by default
+     *   until the call ends, at most a week), and `unban` lets them in again.
+     * - `rules` sets the room's rules (`rules`: any of `mode`, `locked`, `muted`), which hold until the call empties.
+     * - `ask` asks them to turn on a camera or microphone (`devices`), and keeps nothing.
+     * - `end` ends the call for everyone and lets go of everything it held but a ban given minutes.
+     * - `spotlight` or `unspotlight` (spotlight()), which may name the host themselves, and `unspotlight` no one, for everyone.
+     *
+     * `rules` and `end` name no user (null). `{ done }`, whether it changed anything (true for an act that always takes),
+     * with an ask's `id` and the rules now. Each act names the host as `by`, for the `call.moderated` webhook.
+     */
+    private async moderateCall(name: unknown, act: unknown, target: unknown, me: UserId, held: unknown, r: Record<string, unknown>): Promise<CallGrant> {
+        // No user is none, as the PHP and Python packages read it.
+        if (target === undefined) target = null;
+        const spotlights = act === 'spotlight' || act === 'unspotlight';
+        const unnamed = act === 'rules' || act === 'end';
+        const user = target === null && (act === 'unspotlight' || unnamed) ? null : callUser(target as UserId | null);
+        if (!validRoom(name) || !MODERATION_ACTS.includes(act as string)) return { denied: 'bad_request' };
+        if (unnamed && target !== null) return { denied: 'bad_request' };
+        if ((user === null && !((act === 'unspotlight' || unnamed) && target === null)) || (user === me && !spotlights)) return { denied: 'bad_request' };
+
+        // What an act carries beside its user, checked before anyone is asked.
+        const minutes = r.minutes ?? null;
+        if (act === 'ban' && minutes !== null && !(Number.isInteger(minutes) && (minutes as number) >= 1 && (minutes as number) <= BAN_MOST_MINUTES)) return { denied: 'bad_request' };
+        const devices = act === 'ask' ? askedDevices(r.devices) : null;
+        if (act === 'ask' && devices === null) return { denied: 'bad_request' };
+        const rules = act === 'rules' ? rulesChange(r.rules) : null;
+        if (act === 'rules' && rules === null) return { denied: 'bad_request' };
+
+        if (!(await this.hostsCall(name, me, held))) return { denied: 'forbidden' };
 
         const call = this.call(name);
+        const by = { by: me };
         try {
-            if (act === 'mute') return { done: await call.mute(user, 'microphone') };
-            if (act === 'remove') return { done: await call.remove(user) };
-            return { done: await call.permit(user, { publish: act === 'speak' }) };
-        } catch {
-            return { denied: 'server' };
+            if (spotlights) return { done: await call.spotlight(user, act === 'spotlight') };
+            if (act === 'rules') return { done: true, rules: await call.rules(rules!, by) };
+            if (act === 'end') return (await call.end(by), { done: true });
+            if (user === null) return { denied: 'bad_request' };
+            switch (act) {
+                case 'mute': return { done: await call.mute(user, 'microphone', by) };
+                case 'hold_mic': return (await call.mute(user, 'microphone', { hold: true, ...by }), { done: true });
+                case 'release_mic': return (await call.unmute(user, by), { done: true });
+                case 'remove': return { done: await call.remove(user, by) };
+                case 'ban': return (await call.ban(user, { ...(minutes === null ? {} : { minutes: minutes as number }), ...by }), { done: true });
+                case 'unban': return { done: await call.unban(user, by) };
+                case 'ask': return { done: true, id: (await call.ask(user, devices!, me)).id };
+                // The screen's Make Listener and its promotion hold, as in Better Messages.
+                default: return { done: await call.permit(user, { publish: act === 'speak', hold: true, ...by }) };
+            }
+        } catch (e) {
+            // What the host is to hear of, in the call screen's words: a fifth person in the spotlight, a host banned,
+            // an ask again within 30 s, someone no longer in the call.
+            return { denied: e instanceof RealtimeError && PASSED_ON.includes(e.code) ? e.code : 'server' };
+        }
+    }
+
+    /**
+     * A hand in the group call `name`, from its call screen: a user's own up or down (no `user`), which anyone the call's
+     * rule lets in may raise (or, with no rule, the `member` proof of a token of this server's own), or a host lowering
+     * someone's hand (`user`), or everyone's (`user` null). Hands are kept until lowered or their owner leaves. `{ done }`.
+     */
+    private async handInCall(name: unknown, up: unknown, target: unknown, me: UserId, host: unknown, member: unknown): Promise<CallGrant> {
+        if (!validRoom(name) || typeof up !== 'boolean') return { denied: 'bad_request' };
+        const call = this.call(name);
+
+        try {
+            if (target === undefined) {
+                const found = this.groupRules.match(name);
+                const answer = found ? await callAnswer(await found.value.rule(me, found.params, name), async () => null) : null;
+                if (!(found ? answer !== null : await this.holdsGroupProof('member', name, me, member))) return { denied: 'forbidden' };
+                return { done: await call.hand(me, up) };
+            }
+
+            // A host lowers another's hand, or everyone's.
+            const user = target === null ? null : callUser(target as UserId);
+            if (up || (target !== null && user === null)) return { denied: 'bad_request' };
+            if (!(await this.hostsCall(name, me, host))) return { denied: 'forbidden' };
+            return { done: user === null ? (await call.lowerHands({ by: me })) > 0 : await call.hand(user, false) };
+        } catch (e) {
+            return { denied: e instanceof RealtimeError && PASSED_ON.includes(e.code) ? e.code : 'server' };
+        }
+    }
+
+    /**
+     * Record or stop recording the group call `name`, from its call screen's Host Controls (`{ call, record: 'start' }`,
+     * `{ call, record: 'stop', recording }`): the call's rule asked again for the user, who must be allowed `record`
+     * (its `admin` where it says nothing of it), then WordPlus Cloud. `{ recording: { id, state } }`, or why not:
+     * `no_credits`, `not_included`, `already_recording` and the rest, as the server refuses it.
+     */
+    private async recordCall(name: unknown, action: unknown, recording: unknown, me: UserId, held?: unknown): Promise<CallGrant> {
+        if (!validRoom(name) || (action !== 'start' && action !== 'stop')) return { denied: 'bad_request' };
+        if (action === 'stop' && (typeof recording !== 'string' || !/^[A-Za-z0-9_-]{8,32}$/.test(recording))) return { denied: 'bad_request' };
+        const found = this.groupRules.match(name);
+        const answer = found ? await found.value.rule(me, found.params, name) : null;
+        const records = found ? !!answer && typeof answer === 'object' && !!(answer.record ?? answer.admin) : await this.holdsGroupProof('recorder', name, me, held);
+        if (!records) return { denied: 'forbidden' };
+
+        try {
+            if (action === 'stop') return { recording: { id: recording as string, state: await this.recordings.stop(recording as string) } };
+            return { recording: await this.recordings.start({ call: name, by: me }) };
+        } catch (e) {
+            return { denied: e instanceof RealtimeError ? e.code : 'server' };
         }
     }
 
@@ -1412,13 +1931,21 @@ export class Realtime {
     private async authorizeStream(name: unknown, user: UserId | null): Promise<CallGrant> {
         if (typeof name !== 'string' || !STREAM_NAME.test(name)) return { denied: 'bad_request' };
         const found = this.streamRules.match(name);
-        if (!found) return { denied: 'forbidden' };
+        if (!found) {
+            this.warnNoRule('streams', name);
+            return { denied: 'forbidden' };
+        }
 
-        const signedIn = known(user);
-        const raw = await found.value.rule(signedIn ? user : null, found.params, name);
+        const raw = await found.value.rule(known(user) ? user : null, found.params, name);
         const answer = typeof raw === 'string' ? { role: raw } : raw;
         if (!answer || !STREAM_ROLES.includes(answer.role)) return { denied: 'forbidden' };
 
+        return this.signStream(name, user, answer, found.value.settings, found.params);
+    }
+
+    /** A live stream's grant for this user, once a rule or the app's own route has said who they are in it. */
+    private async signStream(name: string, user: UserId | null, answer: Exclude<StreamAnswer, false | null | undefined | StreamRole>, settings: StreamSettings, params: Record<string, string>): Promise<CallGrant> {
+        const signedIn = known(user);
         const sub = signedIn ? String(user) : undefined;
         if (sub === undefined ? answer.role !== 'viewer' : !STREAM_USER.test(sub)) return { denied: 'no_user' };
 
@@ -1426,10 +1953,10 @@ export class Realtime {
         const named = typeof info?.name === 'string' && info.name !== '' ? info.name.slice(0, 64) : undefined;
         const avatar = typeof info?.avatar === 'string' && info.avatar.length <= 512 && info.avatar.startsWith('https://') ? info.avatar : undefined;
 
-        const settings = found.value.settings;
-        const setting = <T>(value: StreamSetting<T> | undefined): T | undefined => (typeof value === 'function' ? (value as (p: Record<string, string>) => T)(found.params) : value);
+        const setting = <T>(value: StreamSetting<T> | undefined): T | undefined => (typeof value === 'function' ? (value as (p: Record<string, string>) => T)(params) : value);
         const chat = setting(settings.chat) ?? {};
-        const now = nowS();
+        const signedAt = Date.now();
+        const now = Math.floor(signedAt / 1000);
         const exp = now + STREAM_TTL;
 
         const claims: Record<string, unknown> = {
@@ -1437,7 +1964,7 @@ export class Realtime {
             chat: (answer as { chat?: string }).chat, mod: (answer as { mod?: boolean }).mod, src: (answer as { src?: string[] }).src,
             q: (answer as { quality?: string }).quality,
             stage: setting(settings.stage), offline: chat.offline, links: chat.links, fresh: chat.fresh,
-            people: setting(settings.people), reactions: setting(settings.reactions), iat: now, exp,
+            people: setting(settings.people), reactions: setting(settings.reactions), iat: now, ms: signedAt, exp,
         };
         return { token: await streamGrant(claims, await this.streamKeyOf()), exp };
     }
@@ -1447,9 +1974,11 @@ export class Realtime {
     }
 
     private async signCalls(claims: Record<string, unknown>): Promise<CallGrant> {
-        const now = nowS();
+        const signedAt = Date.now();
+        const now = Math.floor(signedAt / 1000);
         const exp = now + clamp(this.options.callTokenTtl ?? CALL_TTL, 60, CALL_TTL);
-        return { token: await jwt({ iss: this.site, iat: now, exp, ...claims }, await this.callsKeyOf()), exp };
+        // `ms`, as a room token has it: when it was signed to the millisecond, for a token signed in the same second as a removal.
+        return { token: await jwt({ iss: this.site, iat: now, ms: signedAt, exp, ...claims }, await this.callsKeyOf()), exp };
     }
 
     /** A call's or a group call's info, sealed with the day's key: everyone the app knows opens it. */
@@ -1504,6 +2033,24 @@ export class Realtime {
 
     private webhookKeyOf(): Promise<Uint8Array> {
         return (this.webhookKey ??= hmac(this.secret, WEBHOOK_LABEL));
+    }
+}
+
+/** An emit to everyone, and a tab that doesn't get it back. `emit()` sends it. */
+export class EveryoneEmitter {
+    private skip: string | undefined;
+
+    constructor(private readonly realtime: Realtime) {}
+
+    /** The tab whose action made the event (the browser's `rt.tab`, sent as X-Realtime-Tab), which doesn't get it back. */
+    except(tab: string | null | undefined): this {
+        if (tab) this.skip = String(tab);
+        return this;
+    }
+
+    /** Sends the event to every page and app connected now, never sealed or kept. Throws RealtimeError with the server's reason. */
+    async emit(event: string, data?: unknown): Promise<void> {
+        await this.realtime.emitEvent({ everyone: true, event, data, ...(this.skip ? { except: this.skip } : {}) });
     }
 }
 
@@ -1577,10 +2124,49 @@ export class RoomQueries {
         return (await this.realtime.request('DELETE', '/wordplus/realtime/rooms/' + encodeURIComponent(this.room) + '/history' + (id ? '?id=' + encodeURIComponent(id) : ''))).deleted;
     }
 
-    /** Takes a user out of the room at once, refuses their tokens signed before, and moves the room's key on when keys have generations. */
-    async kick(user: UserId): Promise<void> {
+    /** Sends to the room, as `to( room ).emit()` does: the kept event ids, by room. */
+    emit(event: string, data?: unknown, options: EmitOptions = {}): Promise<Record<string, string>> {
+        return this.realtime.to(this.room).emit(event, data, options);
+    }
+
+    /**
+     * Takes a user out of the room at once, refuses their tokens signed before, and moves the room's key on when keys have
+     * generations. A reload asks the room's rule again, so to keep them out, the rule says no for them too.
+     */
+    async remove(user: UserId): Promise<void> {
         await this.realtime.request('POST', '/wordplus/realtime/rooms/' + encodeURIComponent(this.room) + '/kick', { user: String(user) });
         await this.realtime.rotateRoom(this.room).catch(() => {});
+    }
+
+    /**
+     * Takes everyone out of the room at once, on every server, each page hearing `kicked`, as `remove()` does for one. Those
+     * your rule still lets in can join again, so to close the room, have the rule say no first. A public room takes anyone
+     * back, as it always does.
+     */
+    async removeEveryone(): Promise<void> {
+        await this.realtime.request('POST', '/wordplus/realtime/rooms/' + encodeURIComponent(this.room) + '/kick', { everyone: true });
+        await this.realtime.rotateRoom(this.room).catch(() => {});
+    }
+
+    /**
+     * Asks the room's rule again for a user, in this room alone: their pages leave it and ask your server again by themselves,
+     * and come back with what the rule answers now, or hear why not. For a role that changed, such as a member made a reader.
+     * The others in the room see them leave and join again. Their other rooms and calls are left alone.
+     */
+    async recheck(user: UserId): Promise<void> {
+        await this.realtime.request('POST', '/wordplus/realtime/rooms/' + encodeURIComponent(this.room) + '/recheck', { user: String(user) });
+        await this.realtime.rotateRoom(this.room).catch(() => {});
+    }
+
+    /** `recheck()` for everyone in the room, for a rule whose answer changed for all of them. */
+    async recheckEveryone(): Promise<void> {
+        await this.realtime.request('POST', '/wordplus/realtime/rooms/' + encodeURIComponent(this.room) + '/recheck', { everyone: true });
+        await this.realtime.rotateRoom(this.room).catch(() => {});
+    }
+
+    /** @deprecated `remove()`. */
+    kick(user: UserId): Promise<void> {
+        return this.remove(user);
     }
 }
 
@@ -1629,6 +2215,11 @@ export class UserQueries {
     /** Online, or offline since `at`, and how many connections vouched for them are open. */
     async get(): Promise<UserState> {
         return (await this.realtime.request('GET', this.path)).user;
+    }
+
+    /** Sends to every connection they have open, as `toUser( id ).emit()` does: a page hears it with `rt.on( event )`. */
+    emit(event: string, data?: unknown, options: EmitOptions = {}): Promise<Record<string, string>> {
+        return this.realtime.toUser(this.id).emit(event, data, options);
     }
 
     /**
@@ -1690,29 +2281,176 @@ export class CallQueries {
         return (await this.realtime.request('GET', this.path)).call;
     }
 
-    /** Turns the microphone, camera or screen of someone off. They may turn it on again. Whether it was on. */
-    async mute(user: UserId, track: 'microphone' | 'camera' | 'screen'): Promise<boolean> {
-        return (await this.realtime.request('POST', this.path + '/mute', { user: String(user), track })).muted;
+    /**
+     * Turns someone's microphone off, or their camera or screen, once: they may turn it on again. With `hold` (a
+     * microphone only, the call screen's Mute Microphone) the call keeps it off until `unmute()` or the call ends,
+     * through a reload and a token signed later too. Whether it was on.
+     */
+    async mute(user: UserId, track: 'microphone' | 'camera' | 'screen' = 'microphone', options: CallActOptions & { hold?: boolean } = {}): Promise<boolean> {
+        return (await this.realtime.request('POST', this.path + '/mute', { user: String(user), track, ...actBody(options) })).muted;
     }
 
-    /** Takes someone out now. Their tokens signed before do not take them back in. Whether they were in it. */
-    async remove(user: UserId): Promise<boolean> {
-        return (await this.realtime.request('POST', this.path + '/remove', { user: String(user) })).removed;
+    /**
+     * Lets go of a microphone held off (`mute( user, 'microphone', { hold: true } )`, or Mute Everyone): they may turn it
+     * on again, until the next Mute Everyone. Whether they are in the call now.
+     */
+    async unmute(user: UserId, options: CallActOptions = {}): Promise<boolean> {
+        return (await this.realtime.request('POST', this.path + '/unmute', { user: String(user), ...actBody(options) })).changed;
+    }
+
+    /**
+     * Takes someone out now, a kick: their tokens signed before do not take them back in, and one your server signs
+     * after does, unless the call is locked, which keeps them out. Whether they were in it.
+     */
+    async remove(user: UserId, options: CallActOptions = {}): Promise<boolean> {
+        return (await this.realtime.request('POST', this.path + '/remove', { user: String(user), ...actBody(options) })).removed;
+    }
+
+    /**
+     * Takes someone out and keeps them out, whatever token they bring, for `minutes` (at most a week), or until the call
+     * ends when left out: their join is refused `banned`. A host's place is never banned (`forbidden`). Whether they
+     * were in it, and until when the ban holds (milliseconds), null until the call ends.
+     */
+    async ban(user: UserId, options: CallActOptions & { minutes?: number } = {}): Promise<{ removed: boolean; until: number | null }> {
+        const { removed, until } = await this.realtime.request('POST', this.path + '/ban', { user: String(user), ...actBody(options) });
+        return { removed, until };
+    }
+
+    /** Lets someone banned in again. Whether they were banned. */
+    async unban(user: UserId, options: CallActOptions = {}): Promise<boolean> {
+        return (await this.realtime.request('POST', this.path + '/unban', { user: String(user), ...actBody(options) })).unbanned;
+    }
+
+    /** Who is banned from it now, and until when, null until the call ends. */
+    async bans(): Promise<CallBan[]> {
+        return (await this.realtime.request('GET', this.path + '/bans')).bans;
     }
 
     /**
      * Changes what someone may do while it runs: `publish` to make a listener a speaker or a speaker a listener again,
      * which stops what they send, `subscribe` to stop or start getting the others. At once for them when they are in it,
      * and their page hears `permissions`. Their tokens signed before follow it too. Your rule decides every join after,
-     * so keep it there as well. Whether they were in it.
+     * so keep it there as well, and a `publish` held before goes. With `hold` (the call screen's Make Listener) `publish`
+     * holds for every join after too, until the other one, a mode switch or the call ends. Whether they were in it.
      */
-    async permit(user: UserId, can: { publish?: boolean; subscribe?: boolean }): Promise<boolean> {
-        return (await this.realtime.request('POST', this.path + '/permit', { user: String(user), ...can })).changed;
+    async permit(user: UserId, can: { publish?: boolean; subscribe?: boolean; hold?: boolean } & CallActOptions): Promise<boolean> {
+        const { publish, subscribe, ...options } = can;
+        const body = { user: String(user), ...(publish === undefined ? {} : { publish }), ...(subscribe === undefined ? {} : { subscribe }), ...actBody(options) };
+        return (await this.realtime.request('POST', this.path + '/permit', body)).changed;
     }
 
-    /** Ends it for everyone. Tokens signed before do not open it again. */
-    async end(): Promise<void> {
-        await this.realtime.request('POST', this.path + '/end');
+    /**
+     * Sets the call's rules, any of them, which hold until the call empties or ends: `mode` `broadcast` (only hosts send,
+     * and those promoted with `permit( user, { publish: true, hold: true } )`) or `participatory`, `locked` (only those
+     * already in get back in) and `muted` (Mute Everyone: every microphone but a host's held off). A mode switch lets go
+     * of every held `publish`, and Mute or Unmute Everyone of every held microphone. The rules now.
+     */
+    async rules(change: Partial<CallRules>, options: CallActOptions = {}): Promise<CallRules> {
+        return (await this.realtime.request('POST', this.path + '/rules', { ...change, ...actBody(options) })).rules;
+    }
+
+    /** Raises or lowers someone's hand, kept until lowered or they leave. Whether it changed. */
+    async hand(user: UserId, up: boolean): Promise<boolean> {
+        return (await this.realtime.request('POST', this.path + '/hand', { user: String(user), up })).changed;
+    }
+
+    /** Lowers every hand. How many were up. */
+    async lowerHands(options: CallActOptions = {}): Promise<number> {
+        const body = actBody(options);
+        return (await (Object.keys(body).length === 0 ? this.realtime.request('POST', this.path + '/hands/lower') : this.realtime.request('POST', this.path + '/hands/lower', body))).lowered;
+    }
+
+    /**
+     * Asks someone in it to turn on their camera or microphone, for `by`, who asks: their page hears it, and answers
+     * `by` alone. Nothing is kept. The same ask again within 30 s is refused `asked_recently`, and someone not in the
+     * call `not_in_call`. The ask's id and the devices asked.
+     */
+    async ask(user: UserId, devices: Array<'camera' | 'microphone'>, by: UserId): Promise<{ id: string; devices: Array<'camera' | 'microphone'> }> {
+        const { id, devices: asked } = await this.realtime.request('POST', this.path + '/ask', { user: String(user), devices, by: String(by) });
+        return { id, devices: asked };
+    }
+
+    /** Lets a listener speak, as a host does on the page: `permit( user, { publish: true } )`. */
+    letSpeak(user: UserId): Promise<boolean> {
+        return this.permit(user, { publish: true });
+    }
+
+    /** Makes a speaker a listener again, which stops what they send: `permit( user, { publish: false } )`. */
+    makeListener(user: UserId): Promise<boolean> {
+        return this.permit(user, { publish: false });
+    }
+
+    /** Puts someone on the main tiles for everyone in it, as a host does on the page. */
+    spotlightOn(user: UserId): Promise<boolean> {
+        return this.spotlight(user, true);
+    }
+
+    /** Takes someone off the main tiles, or everyone with no user. */
+    spotlightOff(user: UserId | null = null): Promise<boolean> {
+        return this.spotlight(user, false);
+    }
+
+    /**
+     * Puts someone on the main tiles for everyone in it (`on`), up to four (a fifth is refused `spotlight_full`), or
+     * takes them off, or everyone with `user` null. The room keeps it: a page that joins later sees it too, and every
+     * page in it hears `spotlight`. Whether it changed anything.
+     */
+    async spotlight(user: UserId | null, on: boolean): Promise<boolean> {
+        return (await this.realtime.request('POST', this.path + '/spotlight', { ...(user === null ? {} : { user: String(user) }), on })).changed;
+    }
+
+    /**
+     * Ends it for everyone. Tokens signed before do not open it again, and what it held goes: its rules, hands, held
+     * acts and the bans until it ends. A ban given minutes lasts its minutes. A join after it starts a new call.
+     */
+    async end(options: CallActOptions = {}): Promise<void> {
+        const body = actBody(options);
+        await (Object.keys(body).length === 0 ? this.realtime.request('POST', this.path + '/end') : this.realtime.request('POST', this.path + '/end', body));
+    }
+}
+
+/** A host act's `hold` and `by`, each only when given, so a call without them sends what 1.1.0 sent. */
+function actBody(options:{ hold?: boolean; by?: UserId; minutes?: number }): Record<string, unknown> {
+    return {
+        ...(options.hold === undefined ? {} : { hold: options.hold }),
+        ...(options.minutes === undefined ? {} : { minutes: options.minutes }),
+        ...(options.by === undefined ? {} : { by: String(options.by) }),
+    };
+}
+
+/**
+ * Recordings of the app's group calls and live streams, made by WordPlus Cloud with their transcripts
+ * (`/wordplus/realtime/recordings/*`). The files wait in WordPlus Cloud's landing bucket, linked from each recording,
+ * seven days at most: take them where the app keeps its files, then acknowledge them with sync().
+ */
+export class RecordingQueries {
+    private readonly path = '/wordplus/realtime/recordings/';
+
+    constructor(private readonly realtime: Realtime) {}
+
+    /** Starts recording a group call (`call`, its name) or a live stream (`stream`). `meta` comes back with it, 1 KB at most. */
+    async start(what: { call?: string; stream?: string; type?: 'video' | 'audio'; by?: UserId; meta?: string; settings?: RecordingSettings }): Promise<{ id: string; state: string }> {
+        const body = what.stream !== undefined
+            ? { product: 'stream', stream: what.stream }
+            : { product: 'call', room: what.call, type: what.type ?? 'video' };
+        const meta = what.meta ?? (what.by !== undefined ? JSON.stringify({ by: String(what.by) }) : '');
+
+        return (await this.realtime.request('POST', this.path + 'start', { ...body, meta, ...(what.settings ? { settings: what.settings } : {}) })).recording;
+    }
+
+    /** Stops one: its files are ready about half a minute later. Its state, `stopping`. */
+    async stop(id: string): Promise<string> {
+        return (await this.realtime.request('POST', this.path + 'stop', { recording: id })).state;
+    }
+
+    /** One recording now, its files linked once it is complete. */
+    async get(id: string): Promise<RecordingView> {
+        return (await this.realtime.request('POST', this.path + 'status', { recording: id })).recording;
+    }
+
+    /** The recordings finished since the last acknowledged, each until `ack` names it. */
+    async sync(ack: string[] = [], limit = 20): Promise<RecordingView[]> {
+        return (await this.realtime.request('POST', this.path + 'sync', { ack, limit })).recordings ?? [];
     }
 }
 
@@ -1779,8 +2517,13 @@ export class StreamQueries {
     }
 
     /** Out of the stream now, free to come back. Throws `host` for a host. */
-    async kick(user: UserId): Promise<void> {
+    async remove(user: UserId): Promise<void> {
         await this.realtime.request('POST', this.path + '/kick', { user: String(user) });
+    }
+
+    /** The same as `remove()`. */
+    kick(user: UserId): Promise<void> {
+        return this.remove(user);
     }
 
     /** Out of the stream until it is lifted. Throws `host` for a host. */
@@ -1855,7 +2598,11 @@ const STREAM_TTL = 600;
  */
 export async function streamGrant(claims: Record<string, unknown>, key: Uint8Array): Promise<string> {
     const ordered: Record<string, unknown> = {};
-    for (const name of CLAIM_ORDER) if (claims[name] !== undefined) ordered[name] = claims[name];
+    for (const name of CLAIM_ORDER) {
+        if (claims[name] !== undefined) ordered[name] = claims[name];
+        // `ms` right after `iat`, in every language: when it was signed, to the millisecond.
+        if (name === 'iat' && claims.ms !== undefined) ordered.ms = claims.ms;
+    }
     return jwt(ordered, key);
 }
 
@@ -1881,8 +2628,27 @@ function callUser(user: unknown): UserId | null {
  */
 const idPart = (user: UserId): string => (typeof user === 'number' ? String(user) : user.replace(/%/g, '%25').replace(/\|/g, '%7C'));
 
+/** The cloud's refusals of a host's act that its call screen says in its own words; any other is `server`. */
+const PASSED_ON: string[] = ['spotlight_full', 'forbidden', 'asked_recently', 'not_in_call', 'bad_request'];
+
+/** An ask's devices, each once: `camera`, `microphone` or both; null for anything else. */
+function askedDevices(devices: unknown): Array<'camera' | 'microphone'> | null {
+    if (!Array.isArray(devices) || devices.length === 0 || devices.length > 2) return null;
+    if (!devices.every((d) => d === 'camera' || d === 'microphone') || new Set(devices).size !== devices.length) return null;
+    return devices as Array<'camera' | 'microphone'>;
+}
+
+/** A change of a call's rules: at least one of `mode`, `locked` and `muted`, and nothing else; null for anything else. */
+function rulesChange(rules: unknown): Partial<CallRules> | null {
+    if (!rules || typeof rules !== 'object' || Array.isArray(rules)) return null;
+    const { mode, locked, muted, ...rest } = rules as Record<string, unknown>;
+    if (Object.keys(rest).length > 0 || (mode === undefined && locked === undefined && muted === undefined)) return null;
+    if ((mode !== undefined && mode !== 'broadcast' && mode !== 'participatory') || (locked !== undefined && typeof locked !== 'boolean') || (muted !== undefined && typeof muted !== 'boolean')) return null;
+    return { ...(mode !== undefined ? { mode } : {}), ...(locked !== undefined ? { locked } : {}), ...(muted !== undefined ? { muted } : {}) } as Partial<CallRules>;
+}
+
 /** A calls rule's answer, with the user's info by default; null for no. */
-async function callAnswer(answer: CallAnswer, defaultInfo: () => Promise<unknown>): Promise<{ info?: unknown; publish?: boolean; subscribe?: boolean; admin?: boolean; hidden?: boolean } | null> {
+async function callAnswer(answer: CallAnswer, defaultInfo: () => Promise<unknown>): Promise<{ info?: unknown; publish?: boolean; subscribe?: boolean; admin?: boolean; hidden?: boolean; record?: boolean } | null> {
     if (answer === false || answer === null || answer === undefined) return null;
     const out = typeof answer === 'object' ? { ...answer } : {};
     if (!('info' in out)) out.info = await defaultInfo();
@@ -1894,7 +2660,9 @@ function normalized(options: RoomOptions): RoomEntry['options'] {
     let history: { last: number; days: number } | null = null;
     if (typeof options.history === 'number' && options.history > 0) history = { last: Math.min(Math.floor(options.history), MAX_HISTORY), days: MAX_HISTORY_DAYS };
     else if (options.history && typeof options.history === 'object' && options.history.last > 0) {
-        history = { last: Math.min(Math.floor(options.history.last), MAX_HISTORY), days: Math.min(options.history.days ?? MAX_HISTORY_DAYS, MAX_HISTORY_DAYS) };
+        // The limit when not above 0, as the other packages take it: a time of nothing is no reason to keep nothing.
+        const days = options.history.seconds !== undefined ? Number(options.history.seconds) / SECONDS_A_DAY : Number(options.history.days);
+        history = { last: Math.min(Math.floor(options.history.last), MAX_HISTORY), days: days > 0 ? Math.min(days, MAX_HISTORY_DAYS) : MAX_HISTORY_DAYS };
     }
     const names = (list: unknown): string[] | '*' => (list === '*' ? '*' : Array.isArray(list) ? list.map(String) : []);
     return {
@@ -1945,6 +2713,23 @@ function toBase64(value: Uint8Array): string {
 
 /** An attempt at a call, as a page names it. */
 const validAttempt = (id: unknown): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(id);
+
+/** The rule of a `{pair}` room: the two in its name and nobody else, then the app's own rule if it has one, told who the other is. */
+function pairRoomRule(rule: RoomRule | null): RoomRule {
+    return (user, params, room) => {
+        const other = otherOf(params.pair, user);
+        if (other === null) return false;
+        return rule ? rule(user, { ...params, other }, room) : true;
+    };
+}
+
+/** The rule of a `{pair}` call: both of the two in its name and nobody else, then the app's own rule if it has one. */
+function pairCallRule(rule: CallRule | null): CallRule {
+    return (user, withUser, params, call, side) => {
+        if (otherOf(params.pair, user) !== String(withUser)) return false;
+        return rule ? rule(user, withUser, params, call, side) : true;
+    };
+}
 
 /** A call's two people as a page names them: two different users, or null. */
 function pairOf(pair: unknown): [UserId, UserId] | null {

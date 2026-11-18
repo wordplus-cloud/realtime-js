@@ -15,7 +15,32 @@ Add every address your pages are served from to the app in WordPlus Cloud: schem
 
 ## Its files
 
-`realtime-worker.js`, `realtime-rooms.min.js`, `realtime-rooms-e2ee.worker.js`, `realtime-ui.min.js` and `realtime-ui-streams.min.js` come from the realtime routes, `GET /api/realtime/files/{version}/{name}`, from the address of your pages, where a browser runs a worker, and each release serves the ones its package came with. Each answer is kept for a year as immutable, so a CDN in front of your app keeps them too, and a new version is a new folder.
+`realtime-worker.js`, `realtime-rooms.min.js`, `realtime-rooms-e2ee.worker.js`, `realtime-ui.min.js`, and `realtime-ui-streams.min.js` with `hls.light.min.js`, which its player loads where a browser plays no HLS of its own, come from the realtime routes, `GET /api/realtime/files/{version}/{name}`, from the address of your pages, where a browser runs a worker, and each release serves the ones its package came with. Each answer is kept for a year as immutable, so a CDN in front of your app keeps them too, and a new version is a new folder.
+
+## Another address
+
+A page served from another address than your routes, such as a single-page app at `https://app.shop.example.com` asking an API at `https://api.shop.example.com`, names your routes in full and sends its user in a header, as a browser sends no cookie to another address:
+
+```js
+const rt = await connect( { app: 's1500000007', endpoint: 'https://api.shop.example.com/api/realtime', headers: { Authorization: 'Bearer ' + token } } );
+```
+
+- **In WordPlus Cloud,** add the page address to the app, as every other ([its addresses](#its-addresses)).
+- **Your user function** (`realtime.node( user )`) reads that header and checks the token, as the rest of your API does. A page can send anything here, and whoever your function believes is who they are.
+- **CORS comes from your framework, not this package,** so a page never gets the header twice, which a browser refuses. For the page address alone:
+  - the address back exactly in `Access-Control-Allow-Origin`, with `Vary: Origin`
+  - `POST` for the routes and `GET` for the files, as a group call fetches its encryption worker from there, and the `OPTIONS` asked before them
+  - `Content-Type` and the headers the page sends (`Authorization` above)
+  - no `Access-Control-Allow-Credentials`, as the page sends no cookie
+- **The worker** at another address is one a browser never starts, so each tab of that page connects by itself.
+
+```js
+import cors from 'cors';   // npm install cors
+
+// Before the realtime routes.
+app.use( '/api/realtime', cors( { origin: [ 'https://app.shop.example.com' ], methods: [ 'GET', 'POST' ], allowedHeaders: [ 'Content-Type', 'Authorization' ], maxAge: 600 } ) );
+app.use( '/api/realtime', realtime.node( ( req ) => userOfToken( req.get( 'authorization' ) ) ) );
+```
 
 ## Behind a proxy
 

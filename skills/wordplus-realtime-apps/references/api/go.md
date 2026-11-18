@@ -29,7 +29,15 @@ WORDPLUS_SITE=… WORDPLUS_SECRET=… WORDPLUS_LOCAL_KEY=… go run .
 | `Key( label )`, `Entry( label )`, `Seal( text, label, nonce )`, `SealJSON( value, label )`, `Open( value )` | [sealing](sealing.md) |
 | `RoomGrant( user, rooms, denied )`, `PublicGrant( patterns )` | what the auth route answers, and the public grants ([room tokens](routes.md#room-tokens)) |
 | `Keys( user, profile )`, `Identity( user, profile, hidden )` | what the keys route answers with nothing asked ([keys and identity](routes.md#keys-and-identity)) |
+| `CallToken( me, to, kind, info )` | a token that lets `me` call `to`, for a route of your own to give the page once your app has said yes: `rt.startCall( token )`. `kind` is `audio`, or `video` for anything else ([a token to call](routes.md#a-token-to-call)) |
+| `NamedCallToken( me, to, name, kind, info )` | the same for a call with a name of your own, one a room could have, such as the chat it is in (`chat:34:42`), which `call.ended` and the other webhooks give back: the `name` of `callToken()` in Node. Empty is `call:` and the call's id |
+| `AddToCallToken( me, to, into, info )` | a token that rings `to` into the call `into` names, the `call.ref` the page sent: `call.add( token )`. It answers an error when `me` is not in that call ([a token to ring someone in](routes.md#a-token-to-ring-someone-in)) |
+| `GroupCallToken( me, name, GroupPlace{ … } )` | a token that lets `me` into the group call `name`: `rt.joinGroupCall( token )`. `GroupPlace` is `Kind`, `Listener`, `NoSubscribe`, `Admin`, `Hidden`, `Encrypt` and `Info` ([a token for a group call](routes.md#a-token-for-a-group-call)) |
+| `StreamToken( Stream{ … } )` | a token that lets someone into a live stream: `rt.joinStream( getToken )` ([live streams](routes.md#live-streams)) |
 | `Line( user )`, `CallSide( call, id, role, type, me, other, info )`, `GroupCall( … )` | what the calls route answers ([calls](routes.md#calls)) |
+| `ProvenSide( body, call, id, role, me, other )` | in your calls route: whether this side of a call holds what only this server makes, so it already said yes. Answer it with `CallSide`, and no rule of your own |
+| `ProvenRing( body, call, id, kind, me, from, info )` | in your calls route: whether someone rung into a group call holds the proof the ring brought, and what to answer them |
+| `HoldsHost( name, user, held )` | in your calls route: whether the `host` sent with a host's act is the proof `GroupCallToken` gave, still in time |
 | `StreamGrant( Stream{ … } )` | a live stream grant ([live streams](routes.md#live-streams)) |
 | `Webhook( header, path, body )` | a webhook checked, its events with their data opened ([webhooks](webhooks.md)) |
 
@@ -42,11 +50,32 @@ WORDPLUS_SITE=… WORDPLUS_SECRET=… WORDPLUS_LOCAL_KEY=… go run .
 | `order:{id}` | a sealed room only its customer joins, keeping its last 10 events |
 | `chat:{a}:{b}` | a sealed presence room for its two people, where pages send `message`, `typing` and `read`, and the webhook gets `message` |
 | `product:{id}` | a public room anyone joins, with a live count, from the public grant |
-| `support:{a}:{b}` | calls between its two people |
-| `meeting:{id}` | a group call for anyone signed in, encrypted end to end |
-| `show:{id}` | a live stream user 42 hosts, and everyone else watches, a visitor too |
+| `support:{a}:{b}` | calls by name between its two people, for pages on `rt.call()` |
+| `meeting:{id}` | a group call by name for anyone signed in, encrypted end to end |
+| `show:{id}` | a live stream by name user 42 hosts, and everyone else watches, a visitor too |
 
-Its routes answer the browser at `/api/realtime/`: `config` (the settings, which a page passes to `connect()`), `auth`, `keys`, `calls` and `webhook`.
+Its routes answer the browser at `/api/realtime/`: `config` (the settings, which a page passes to `connect()`), `auth`, `keys`, `calls` and `webhook`. Beside them, `GET /api/call-token` is the route of its own that decides who may call, and gives the page its token. Your own check goes where `mayCall` is:
+
+```go
+func callToken(w http.ResponseWriter, r *http.Request) {
+	me := r.Header.Get("X-User")
+	to := r.URL.Query().Get("to")
+
+	// Your own check, whatever your app needs.
+	if me == "" || !mayCall(me, to) {
+		w.WriteHeader(403)
+		return
+	}
+
+	kind := r.URL.Query().Get("type")
+
+	reply(w, map[string]string{
+		"token": app.CallToken(me, to, kind, profile(me)),
+	})
+}
+```
+
+The person called answers through the calls route, whose `ProvenSide` sees the proof their ring brought, with no rule of its own.
 
 The auth route, as the rules decide it:
 

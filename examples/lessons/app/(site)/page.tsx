@@ -6,6 +6,7 @@ import { coursesOf, lessonsIn } from '@/lib/lessons';
 import { liveNow } from '@/lib/realtime';
 import { WORLDS } from '@/lib/worlds';
 import { LiveMark } from './live';
+import { PendingLink } from '../pending';
 
 export default function Home() {
     return (
@@ -42,7 +43,7 @@ async function Start() {
     }
     return (
         <div className="flex gap-3">
-            <Link href="/signup" className="rounded-full bg-teal-700 px-6 py-3 font-medium text-white hover:bg-teal-800">{WORLDS ? 'Try it' : 'Create an account'}</Link>
+            <PendingLink href="/signup" className="rounded-full bg-teal-700 px-6 py-3 font-medium text-white hover:bg-teal-800">{WORLDS ? 'Try it' : 'Create an account'}</PendingLink>
             {!WORLDS && <Link href="/signin" className="rounded-full border border-stone-300 px-6 py-3 font-medium hover:bg-white">Sign in</Link>}
         </div>
     );

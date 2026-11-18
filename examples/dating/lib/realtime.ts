@@ -3,9 +3,6 @@ import { currentUserId } from './auth';
 import { chatIn, keepMessage, mayChat, membersOf, nameOf, photoOf, profileOf, react, type Message } from './dating';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
     // Who is asking: the signed-in user, or null.
     user: () => currentUserId(),
     // What the other person sees in the chat and the call: the name and photo.
@@ -26,23 +23,13 @@ export const realtime = createRealtime({
 // at /api/realtime/auth.
 realtime.room(
     'chat:{id}',
+    async (user, { id }) => mayChat(user, id),
     {
         history: 50,
         emit: ['message', 'typing', 'reaction', 'read'],
         webhook: ['message', 'reaction'],
     },
-    async (user, { id }) => mayChat(user, id),
 );
-
-// Video and voice calls in a chat, by the name of its room: the one asking and the other one may both use the chat. A
-// page asks to call, or to answer, at /api/realtime/calls.
-realtime.calls('chat:{id}', async (user, other, { id }) => {
-    // The one asking: who calls, as they call, or who is called, as they answer.
-    const userMayChat = await mayChat(user, id);
-    // The other one of the call.
-    const otherMayChat = await mayChat(other, id);
-    return userMayChat && otherMayChat;
-});
 
 /** Keeps a message, and the first time, tells the others in its chat, on whatever page they are. */
 export async function keepAndTell(message: Message) {

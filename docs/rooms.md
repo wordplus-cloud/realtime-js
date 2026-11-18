@@ -21,19 +21,19 @@ Each room is named after what it carries: `order:42` for the updates of order 42
 
 ```ts
 // 1. The updates of an order, the last 20 kept.
-realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => {
+realtime.room( 'order:{id}', async ( user, { id } ) => {
     // An order that is not there lets nobody in.
     const order = await findOrder( id );
     if ( order === null ) return false;
 
     // Its customer, and nobody else.
     return order.userId === user;
-} );
+}, { history: 20 } );
 
 // 2. A chat of two, such as chat:34:42: the two in the name, and nobody else.
-realtime.room( 'chat:{a}:{b}', { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] }, ( user, { a, b } ) => {
+realtime.room( 'chat:{a}:{b}', ( user, { a, b } ) => {
     return [ a, b ].includes( String( user ) );
-} );
+}, { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] } );
 
 // 3. The page of a product: anyone, signed in or not, and a live count. No rule to run.
 realtime.room( 'product:{id}', { public: true, count: true } );
@@ -103,7 +103,8 @@ realtime.room("product:{id}", public=True, count=True)
 
 A chat's room can be named two ways, and its rule follows the name:
 
-- **After its two people,** `chat:{a}:{b}`, with their ids, the smaller first, so both of them name the same room: `chat:34:42`. The rule reads the two from the name and needs no table. This suits a conversation that is only ever those two, such as a customer and the agent helping them.
+- **After its two people, the short way,** `chat:{pair}`: declared with that name, `chat:34:42` is those two's and nobody else's, with no rule to write. Both reach it with `rt.join( 'chat:{pair}', { with: 34 } )`, which fills in the two ids, the smaller first. A rule of yours, where it has one, is asked only about those two, with `other` in its `params`.
+- **After its two people, with your own rule,** `chat:{a}:{b}`, for what `{pair}` doesn't check, such as that the two share an order: `chat:34:42` again, the smaller id first. The rule reads the two from the name and needs no table. This suits a conversation that is only ever those two, such as a customer and the agent helping them.
 - **By a number of its own,** `chat:{id}`, with its members in your database: `chat:7`. The rule asks whether the one asking is a member. Two people or a hundred, it is the same rule, and someone may join the chat later. The [dating site](nextjs/dating-site.md) names every chat this way.
 
 A numbered chat, `chat:7`, keeps its members in your database, and `isMemberOf` is your own lookup there. A page that joins it asks your server, and this rule answers:
@@ -114,13 +115,13 @@ A numbered chat, `chat:7`, keeps its members in your database, and `isMemberOf` 
 **Node**
 
 ```ts
-realtime.room( 'chat:{id}', { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] }, async ( user, { id } ) => {
+realtime.room( 'chat:{id}', async ( user, { id } ) => {
     // 1. Visitors stay out.
     if ( user === null ) return false;
 
     // 2. The members of chat 7, however many, and nobody else.
     return isMemberOf( id, user );
-} );
+}, { presence: true, history: 50, emit: [ 'message', 'typing', 'read' ], webhook: [ 'message' ] } );
 ```
 
 **PHP**
@@ -159,7 +160,7 @@ A call in such a chat takes the name of its room, and its rule asks the same of 
 |---|---|---|
 | `presence` | off | Its members are listed with their info. `join` and `leave` tell the others ([presence](presence.md)) |
 | `count` | off | A live count of who is in it, at any size, without a list. Presence counts too |
-| `history` | none | Events kept for pages that reconnect: a number, up to 1,000, for 5 minutes. Or `{ last, days }` for less (0.002 of a day is about 3 minutes) |
+| `history` | none | Events kept for pages that reconnect: a number, up to 1,000, for 5 minutes. Or `{ last, seconds }` for less: `{ last: 50, seconds: 120 }` |
 | `emit` | none | Events pages may send to the room: names, or `'*'` for any ([events from the page](events.md)) |
 | `webhook` | none | Which of the page events your server gets too ([webhooks](sending.md#webhooks)) |
 | `public` | off | Anyone may join, signed in or not. Its grant names no user, so it may sit in a page a CDN caches. Not sealed |
@@ -197,7 +198,7 @@ const { events, more } = await order.history( { limit: 50 } );                 /
 const older = await order.history( { before: events[ 0 ].id, limit: 50 } );
 ```
 
-- **Your server** reads and erases it the same way: `realtime.in( room ).history()` and `.forget( id )` ([sending](sending.md#asking-about-a-room)).
+- **Your server** reads and erases it the same way: `realtime.room( name ).history()` and `.forget( id )` ([sending](sending.md#asking-about-a-room)).
 - **Sealed:** events are kept as they were sent, sealed, so WordPlus Cloud keeps what it cannot read. A member reads them with the room keys your keys route gives them. After a kick, newer events are under a key the kicked user never gets.
 
 ## Several servers, several packages
@@ -210,4 +211,5 @@ Each with the rules of your server and the code of the page:
 
 - [Live updates and notifications](use-cases/live-updates.md): an order moving on, and a notice to one user in every tab
 - [Chat](use-cases/chat.md): conversations of two and of a group, kept by your server
+- [What your server keeps for a chat](use-cases/chat-server.md): the tables, unread counts from a last-read marker, and a push to a member with nothing open
 - [Editing together](use-cases/collaboration.md): who is in a document, their cursors and their changes

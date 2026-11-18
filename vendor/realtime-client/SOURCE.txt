@@ -1,1 +1,1 @@
-@wordplus/realtime-client 1.0.63 a8db041
+@wordplus/realtime-client 1.0.87 c634aaa

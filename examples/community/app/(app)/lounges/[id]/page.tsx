@@ -28,7 +28,7 @@ async function Lounge({ params }: PageProps<'/lounges/[id]'>) {
                 <h1 className="flex items-center gap-2 text-xl font-semibold"><Kind kind={lounge.kind} />{lounge.name}</h1>
                 <p className="text-stone-600">{lounge.about}</p>
             </div>
-            <LoungeRoom room={`lounge:${lounge.id}`} name={lounge.name} kind={lounge.kind} people={people} host={host} />
+            <LoungeRoom id={lounge.id} room={`lounge:${lounge.id}`} name={lounge.name} kind={lounge.kind} people={people} host={host} />
         </section>
     );
 }

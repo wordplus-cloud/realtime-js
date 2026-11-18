@@ -39,7 +39,7 @@ export async function GET(request: Request) {
             members: people.map((one) => one.name).join(', '),
             meeting: meetingOf(team.id),
             in_meeting: await namesOf(inIt),
-            answer: team.lead === me ? `{ admin: true }: ${person?.name} leads ${team.name}` : `true: ${person?.name} is in ${team.name}`,
+            answer: team.lead === me ? `admin: true: ${person?.name} leads ${team.name}` : `admin: false: ${person?.name} is in ${team.name}`,
             others: await namesOf(others),
             channel_name: channels[0]?.name ?? '',
             channel_room: channels[0] ? roomOf(channels[0].id) : '',

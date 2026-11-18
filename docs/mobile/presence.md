@@ -9,6 +9,8 @@ Your server says who may join and what the others see of them, as for your pages
 ## React Native
 
 ```tsx
+import { Text } from 'react-native';
+
 function InTheShop( { rt, me }: { rt: Realtime; me: number } ) {
     const [ members, setMembers ] = useState<Array<[ string, unknown ]>>( [] );
 
@@ -37,10 +39,10 @@ shop.on( 'leave', ( { id } ) => remove( id ) );
 Or the Better Messages list, with a call button for each of the others, as in a browser, once `await rt.callScreen()` has loaded the elements (`rt.ui()` loads them without calls):
 
 ```html
-<online-list room="shop" title="In the shop now" call="support:{pair}" type="video"></online-list>
+<online-list room="shop" title="In the shop now" token-url="https://shop.example.com/api/call-token" type="video"></online-list>
 ```
 
-The list asks your calls route which of its members the user may call, as it does on a page ([ready-made](../presence.md#ready-made)).
+Each of the others has a call button, which asks your route as it is pressed, as on a page, and someone your route refuses is told so ([ready-made](../presence.md#ready-made)). `token-url` is written in full, as in [calls](calls.md#capacitor-and-ionic).
 
 ## Counting
 

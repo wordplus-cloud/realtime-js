@@ -17,24 +17,16 @@ const isAgent = (id) => USERS[id]?.agent === true;
 
 // The WordPlus package, with your keys from .env.
 const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE,
-    secret: process.env.WORDPLUS_SECRET,
-    localKey: process.env.WORDPLUS_LOCAL_KEY,
     // The name the other person sees in the call.
     profile: (id) => (USERS[id] ? { name: USERS[id].name } : null),
 });
 
-// The rule: who may call whom.
-// It runs when Ben calls, and again when Ann answers.
-realtime.calls('support:{a}:{b}', (user, withUser, { a, b }) => {
-    // 1. Both people are the two in the name, such as support:34:42.
-    const named = [a, b];
-    if (!named.includes(String(user))) return false;
-    if (!named.includes(String(withUser))) return false;
-
-    // 2. One of them is an agent: customers never call each other.
-    return isAgent(user) || isAgent(withUser);
-});
+// Who may call whom: two of your users, one of them an agent.
+// Customers never call each other.
+const mayCall = (me, to) => {
+    if (!USERS[me] || !USERS[to] || String(me) === String(to)) return false;
+    return isAgent(me) || isAgent(to);
+};
 
 const app = express();
 
@@ -46,9 +38,19 @@ app.use(session({
     saveUninitialized: false,
 }));
 
-// The route the page asks before a call, /api/realtime/calls,
-// and the others the package answers, for the user of the session.
+// The routes the package answers, for the user of the session:
+// the page connects, rings and answers through them.
 app.use('/api/realtime', realtime.node((req) => req.session.user ?? null));
+
+// Your route, the one the button asks before a call: /api/call-token?to=34&type=video.
+// Your own check first, then the token that lets this user call that one.
+app.get('/api/call-token', async (req, res) => {
+    const me = req.session.user;
+    const to = req.query.to;
+    if (!mayCall(me, to)) return res.sendStatus(403);
+
+    res.json({ token: await realtime.callToken(me, to, { type: req.query.type }) });
+});
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static('public'));
@@ -72,7 +74,7 @@ app.post('/login', (req, res) => {
 });
 
 // The button that calls Ann, user 34, for Ben. A note for Ann.
-const CALL_BUTTON = `<call-button to="34" call="support:{pair}" type="video" name="Ann">
+const CALL_BUTTON = `<call-button to="34" token-url="/api/call-token" type="video" name="Ann">
         Call support
     </call-button>`;
 const ON_DUTY = '<p>You are on duty. Calls from customers ring here.</p>';

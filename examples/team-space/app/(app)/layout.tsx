@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
+import { RealtimeProvider } from '@wordplus/realtime/next';
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 import { nameOf } from '@/lib/team';
@@ -22,11 +21,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 async function Connected({ children }: { children: React.ReactNode }) {
-    await connection(); // made for each request: the settings are signed for this colleague, now
     const me = await currentUserId();
     if (!me) redirect('/signin');
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <Screens />
             <MeetingsLive />
             <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur">

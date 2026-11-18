@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { useOnline, usePresence, useRealtime, useRoom, useUserEvent } from '@wordplus/realtime/react';
+import { useOnline, usePresence, useRoom, useUserEvent } from '@wordplus/realtime/react';
 import { CallSpot } from '@wordplus/realtime-ui/react';
 import { endNow, imHere, letIn } from '../../actions';
 import { relative, timeOf, useNow } from '../../when';
@@ -24,11 +24,10 @@ const OPENS_BEFORE = 10 * 60 * 1000;
 /**
  * The visit: a group call of two, visit:{id}, shown here in the page while it is on. It opens ten minutes before its
  * time. The client says they are ready and waits in the waiting room, a presence room the expert's pages see them in,
- * and the expert lets them in: from then on the visit's rule lets the client come in, and their page comes in by
+ * and the expert lets them in: from then on the visit's token route lets the client come in, and their page comes in by
  * itself. Opened from a session taken now (?join=1), both come straight in.
  */
 export function Visit({ id, expert, startsAt, endsAt, ended: endedBefore, admitted: admittedBefore, other }: Props) {
-    const rt = useRealtime();
     const router = useRouter();
     const path = usePathname();
     const params = useSearchParams();
@@ -84,8 +83,9 @@ export function Visit({ id, expert, startsAt, endsAt, ended: endedBefore, admitt
                 <span className="text-stone-500 tabular-nums">{now < startsAt ? `Starts at ${timeOf(startsAt)}` : `${left} min left`}</span>
                 {expert && <ExpertControls id={id} client={other} admitted={admitted} onLetIn={() => { setAdmitted(true); setJoin('video'); }} />}
             </div>
-            {/* Its group call, in the page while it is on: everyone's camera, and the call's controls. */}
-            <CallSpot rt={rt} call={`visit:${id}`} join={join} joinWith="microphone camera" className="h-[32rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
+            {/* Its group call, in the page while it is on: everyone's camera, and the call's controls. It asks this site's
+                route for a token (/api/visit-token), which lets the client in once the expert has. */}
+            <CallSpot call={`visit:${id}`} tokenUrl={`/api/visit-token?id=${id}`} join={join} joinWith="microphone camera" className="h-[32rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
                 {expert ? (
                     <ExpertLobby id={id} client={other} admitted={admitted} onJoin={() => setJoin('video')} />
                 ) : (

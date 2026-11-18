@@ -9,12 +9,15 @@
  *     window.Echo = new Echo( { broadcaster: WordplusConnector, ...window.wordplusRealtimeConfig } );
  *
  * The settings are the page's, as @wordplusRealtime writes them, and the connector connects with them, or takes a page's
- * connection as it is: `realtime: rt`. Each channel is the room of its name, as the `wordplus` broadcaster names them:
+ * connection as it is: `realtime: rt`. With connect()'s options instead (`app`, `endpoint`), Echo's `auth.headers`,
+ * `bearerToken` and `csrfToken` sign the requests. Each channel is the room of its name, as the `wordplus` broadcaster names them:
  *
  *   - `channel( name )`, `private( name )` and `join( name )` join the room `name`, a public, private or presence channel
  *     of routes/channels.php, which decides who joins as it does for the broadcaster.
  *   - `listen( 'OrderUpdated' )` hears `App\Events\OrderUpdated` (the namespace option, App.Events by default), and
  *     `listen( '.updated' )` the event as named, as Echo has them. `notification()` hears a broadcast notification.
+ *   - `listenToAll( ( event, data ) => … )` hears every event of the channel by those names, and `stopListeningToAll()`
+ *     stops it, as on Echo's Pusher channels.
  *   - `whisper( 'typing', data )` sends `typing` to the others, dropped rather than queued, and `listenForWhisper(
  *     'typing' )` hears it: the room's `emit` option lists it.
  *   - `here()`, `joining()` and `leaving()` give each member as routes/channels.php answered for them.
@@ -37,16 +40,38 @@ export interface WordplusEchoOptions extends Partial<ConnectOptions> {
 
 const NOTIFICATION = '.Illuminate\\Notifications\\Events\\BroadcastNotificationCreated';
 
+/**
+ * connect()'s options from Echo's: a server's config() as it is (its `auth` names the route), else the page's settings
+ * with Echo's own ways of signing a request among the headers, as Echo's other connectors send them: `auth.headers`,
+ * `bearerToken` (Authorization) and `csrfToken` (X-CSRF-TOKEN). The headers given as `headers` stand over them.
+ */
+function connectOptions(options: WordplusEchoOptions): ConnectOptions | BrowserConfig {
+    const auth = options.auth as { endpoint?: unknown; headers?: Record<string, string> } | undefined;
+    if (typeof auth?.endpoint === 'string') return options as unknown as BrowserConfig;
+
+    const headers: Record<string, string> = { ...auth?.headers };
+    if (typeof options.csrfToken === 'string' && options.csrfToken) headers['X-CSRF-TOKEN'] = options.csrfToken;
+    if (typeof options.bearerToken === 'string' && options.bearerToken) headers.Authorization = 'Bearer ' + options.bearerToken;
+    return { ...(options as ConnectOptions), headers: { ...headers, ...options.headers } };
+}
+
 /** An event name as Echo writes it, as the server names it: `.updated` as it is, `OrderUpdated` in the namespace. */
 function eventName(event: string, namespace: string | false | undefined): string {
     if (event.startsWith('.') || event.startsWith('\\')) return event.slice(1);
     return (namespace ? namespace + '.' + event : event).replace(/\./g, '\\');
 }
 
+/** An event name as the server names it, as Echo writes it back: `OrderUpdated` of the namespace, `.updated` any other. */
+function echoName(event: string, namespace: string | false | undefined): string {
+    const prefix = namespace ? namespace.replace(/\./g, '\\') + '\\' : null;
+    return prefix && event.startsWith(prefix) ? event.slice(prefix.length) : '.' + event;
+}
+
 /** A channel of Echo: a room, its events and whispers. */
 export class WordplusChannel {
     protected readonly room: Room;
     private readonly heard = new Map<string, Array<[Callback, Callback]>>();
+    private everything: Array<[Callback, Callback]> = [];
 
     constructor(rt: Realtime, readonly name: string, protected readonly options: WordplusEchoOptions) {
         this.room = rt.join(name);
@@ -68,6 +93,28 @@ export class WordplusChannel {
             if (!callback || given === callback) this.room.off(name, heard);
         }
         this.heard.set(name, (this.heard.get(name) ?? []).filter(([given]) => callback && given !== callback));
+        return this;
+    }
+
+    /**
+     * Hears every event of the channel, `( event, data ) => …`, as Echo's Pusher channel does: `OrderUpdated` for one of
+     * the namespace, `.updated` for any other, a whisper and a notification included, each a name listen() takes. Not
+     * the room's own (who joins and leaves, its count, a refusal), as Echo leaves out Pusher's.
+     */
+    listenToAll(callback: Callback): this {
+        const heard: Callback = (event: string, data: unknown) => callback(echoName(event, this.options.namespace), data);
+        this.everything.push([callback, heard]);
+        this.room.onAny(heard);
+        return this;
+    }
+
+    /** Stops hearing every event: one callback, or all of this channel's. */
+    stopListeningToAll(callback?: Callback): this {
+        for (const [given, heard] of this.everything) {
+            // One by one, as another of Echo's channels of the same name hears on the same room.
+            if (!callback || given === callback) this.room.offAny(heard);
+        }
+        this.everything = this.everything.filter(([given]) => callback && given !== callback);
         return this;
     }
 
@@ -161,7 +208,7 @@ export class WordplusConnector {
     }
 
     connect(): void {
-        this.rt = this.options.realtime ?? connectNow(this.options as unknown as ConnectOptions | BrowserConfig);
+        this.rt = this.options.realtime ?? connectNow(connectOptions(this.options));
     }
 
     listen(name: string, event: string, callback: Callback): WordplusChannel {

@@ -77,3 +77,4 @@ export declare class Keyring {
 export declare function keyring(): Keyring;
 /** Calls `visit` with every value in a payload, `DEPTH` levels deep. */
 export declare function walk(value: unknown, depth: number, visit: (item: unknown, key: string) => void): void;
+export declare function utf8Decode(bytes: Uint8Array): string;

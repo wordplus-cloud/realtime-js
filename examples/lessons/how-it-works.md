@@ -80,9 +80,9 @@ All together, as this page was made:
 
 ## watch: Who may watch this lesson
 
-One rule decides it, the same for this page and for the stream: its teacher teaches it, anyone may watch an open lesson, signed in or not, and only the course's students the others.
+One check decides it, the same for this page and for the stream: its teacher teaches it, anyone may watch an open lesson, signed in or not, and only the course's students the others.
 
-The rule, in the site's own words. Here for __me_name__ and __lesson_title__:
+The check, in the site's own words. Here for __me_name__ and __lesson_title__:
 
 ```ts title="lib/lessons.ts"
 export async function mayWatch(user: string | null, lesson: Lesson): Promise<boolean> {
@@ -95,39 +95,33 @@ export async function mayWatch(user: string | null, lesson: Lesson): Promise<boo
 }
 ```
 
-The stream of each lesson takes it as its rule. Its teacher hosts, with the picture up to 1080p, and the stream takes guests on stage and reactions.
+The stream of each lesson starts from a token this server makes, saying who this person is in it. Its teacher hosts, with the picture up to 1080p, whoever may watch watches, and a visitor reads the chat. Everyone else gets no token.
 
 ```ts title="lib/realtime.ts"
-realtime.streams(
-    'lesson:{id}',
-    async (user, { id }) => {
-        // user: __me_id__, id: '__lesson_id__'
-        const lesson = await lessonOf(id);
-        if (!lesson) return false;
-        const me = user === null ? null : String(user);
-        if (me === lesson.teacher) return { role: 'host', quality: '1080p' };
-        return (await mayWatch(me, lesson)) ? 'viewer' : false;
-        // For __me_name__: __role__
-    },
-    { stage: true, reactions: true },
-);
-```
-
-The rule runs here, on this server, each time a page asks to join the stream. The page gets a pass signed with the app's secret, or why not.
-
-```ts title="app/api/realtime/calls/route.ts"
-export async function POST(request: Request) {
-    if (!request.headers.get('content-type')?.includes('application/json')) {
-        return new Response(null, { status: 415 });
-    }
-    const ask = await request.json();               // { stream: '__room__' }
-    const user = await currentUserId();             // __me_id__
-    const pass = await realtime.authorizeCall(ask, user);
-    return Response.json(pass);
+export async function lessonToken(user: string | null, id: string): Promise<string | null> {
+    // user: __me_id__, id: '__lesson_id__'
+    const lesson = await lessonOf(id);
+    if (!lesson) return null;
+    const settings = { stage: true, reactions: true };
+    if (user === lesson.teacher) return realtime.streamToken(user, roomOf(lesson.id), { role: 'host', quality: '1080p', settings });
+    if (!(await mayWatch(user, lesson))) return null;
+    return realtime.streamToken(user, roomOf(lesson.id), user === null ? { chat: 'read', settings } : { settings });
+    // For __me_name__: __role__
 }
 ```
 
-The lesson's page asks the same rule, so it shows the stream to whoever may watch, its teacher the way to their studio, and anyone else the way in.
+The player asks the site's own route for it, as it opens and again as each token runs out. It answers the token, or 403.
+
+```ts title="app/api/lesson-token/route.ts"
+export async function GET(request: Request) {
+    const id = new URL(request.url).searchParams.get('id') ?? '';     // '__lesson_id__'
+    const token = await lessonToken(await currentUserId(), id);      // for __me_id__
+    if (!token) return new Response(null, { status: 403 });
+    return Response.json({ token }, { headers: { 'Cache-Control': 'no-store' } });
+}
+```
+
+The lesson's page asks the same check, so it shows the stream to whoever may watch, its teacher the way to their studio, and anyone else the way in.
 
 ```tsx title="app/(site)/lessons/[id]/page.tsx"
 async function Lesson({ params }: { params: Promise<{ id: string }> }) {
@@ -138,7 +132,7 @@ async function Lesson({ params }: { params: Promise<{ id: string }> }) {
     const teaches = me === lesson.teacher;
     // … the lesson's title
             {(await mayWatch(me, lesson)) ? (
-                <LiveStream name={roomOf(lesson.id)} title={lesson.title} loginUrl="/signin" studioUrl={teaches ? `/studio/${lesson.id}` : undefined} />
+                <LiveStream name={roomOf(lesson.id)} tokenUrl={`/api/lesson-token?id=${lesson.id}`} title={lesson.title} loginUrl="/signin" studioUrl={teaches ? `/studio/${lesson.id}` : undefined} />
             ) : (
                 // … for the students of its course alone: Sign in, or Join the course
             )}
@@ -155,47 +149,45 @@ All together, as this page was made and the stream joined:
             {(await mayWatch(me, lesson)) ? (
     // __may_watch__: the stream, or the way in
 
-// The stream in the page asks this server to join '__room__':
-// app/api/realtime/calls/route.ts
-    const ask = await request.json();
-    const user = await currentUserId();
-    const pass = await realtime.authorizeCall(ask, user);
+// The player asks this server for the token of '__room__':
+// app/api/lesson-token/route.ts
+    const token = await lessonToken(await currentUserId(), id);
 
-// … which runs the rule:
+// … which makes it:
 // lib/realtime.ts
-        const lesson = await lessonOf(id);
-        if (me === lesson.teacher) return { role: 'host', quality: '1080p' };
-        return (await mayWatch(me, lesson)) ? 'viewer' : false;
+    const lesson = await lessonOf(id);
+    if (user === lesson.teacher) return realtime.streamToken(user, roomOf(lesson.id), { role: 'host', quality: '1080p', settings });
+    if (!(await mayWatch(user, lesson))) return null;
     // __role__
 
-// WordPlus Cloud takes the pass, and the stream plays: __live_here__.
+// WordPlus Cloud takes the token, and the stream plays: __live_here__.
 ```
 
 ## stage: A hand raised, and the stage
 
-A student who is signed in raises a hand in the player, and the teacher brings them on stage from the studio, with their camera and microphone. The site writes no code for it: its rule lets the stream take guests, and WordPlus Cloud's ready-made player and studio do the rest.
+A student who is signed in raises a hand in the player, and the teacher brings them on stage from the studio, with their camera and microphone. The site writes no code for it: its tokens let the stream take guests, and WordPlus Cloud's ready-made player and studio do the rest.
 
-The rule's settings, the same for every lesson: a stage for guests, and reactions.
+The stream's settings, the same in every token of a lesson: a stage for guests, and reactions.
 
 ```ts title="lib/realtime.ts"
-realtime.streams(
-    'lesson:{id}',
-    // … the rule of "Who may watch this lesson"
-    { stage: true, reactions: true },
-);
+export async function lessonToken(user: string | null, id: string): Promise<string | null> {
+    // … the lesson, as in "Who may watch this lesson"
+    const settings = { stage: true, reactions: true };
+    // … the token, the teacher's or a viewer's, with them
+}
 ```
 
-While the lesson is live, the player offers a student who is signed in **Ask to join on stage**. A visitor who isn't signed in is never offered it, and neither is anyone where the rule says `stage: false`.
+While the lesson is live, the player offers a student who is signed in **Ask to join on stage**. A visitor who isn't signed in is never offered it, and neither is anyone where the settings say `stage: false`.
 
 The teacher's studio lists each hand raised under **Guests**, with **Invite**. The student accepts with **Join stage**, and everyone watching sees them beside the teacher. The teacher can **Mute** them, or **Remove from stage**, and the student can **Leave stage**: either way they are back watching, without reloading the page.
 
 All together, for __me_name__ in __lesson_title__:
 
 ```ts note="All together"
-// __me_name__ raises a hand in the player: WordPlus Cloud checks the pass this server signed (stage: true) and tells
+// __me_name__ raises a hand in the player: WordPlus Cloud checks the token this server signed (stage: true) and tells
 // __teacher_name__'s studio. __teacher_name__ presses Invite, __me_name__ presses Join stage, and the cloud gives them
 // a place on stage for their camera and microphone. Remove from stage, or Leave stage, and they are back watching.
-// No request reaches this server after the pass.
+// No request reaches this server after the token.
 ```
 
 ## studio: Your studio
@@ -229,6 +221,7 @@ async function LessonStudio({ params }: { params: Promise<{ id: string }> }) {
     return (
         <LiveStream
             name={roomOf(lesson.id)}
+            tokenUrl={`/api/lesson-token?id=${lesson.id}`}
             view="studio-page"
             title={`${lesson.position}. ${lesson.title}`}
             url={`/lessons/${lesson.id}`}
@@ -242,7 +235,7 @@ async function LessonStudio({ params }: { params: Promise<{ id: string }> }) {
 The lesson's page shows its teacher the way there, in place of a studio, with the player's `studioUrl`.
 
 ```tsx title="app/(site)/lessons/[id]/page.tsx"
-                <LiveStream name={roomOf(lesson.id)} title={lesson.title} loginUrl="/signin" studioUrl={teaches ? `/studio/${lesson.id}` : undefined} />
+                <LiveStream name={roomOf(lesson.id)} tokenUrl={`/api/lesson-token?id=${lesson.id}`} title={lesson.title} loginUrl="/signin" studioUrl={teaches ? `/studio/${lesson.id}` : undefined} />
 ```
 
 All together, as __me_name__ goes live:
@@ -255,7 +248,7 @@ All together, as __me_name__ goes live:
 // app/(site)/studio/[id]/page.tsx
     if (me !== lesson.teacher) redirect(`/lessons/${lesson.id}`);
             view="studio-page"
-    // The studio asks this server for the stream's pass, and the rule of lib/realtime.ts answers host.
+    // The studio asks /api/lesson-token for the stream's token, and lessonToken in lib/realtime.ts makes it the host's.
     // Go live, and the stream.live webhook tells the students ("Going live, and who hears it").
 ```
 
@@ -320,7 +313,7 @@ All together, as __teacher_name__ goes live. The webhook needs the site at an ad
 
 A student joins a course to watch all its lessons, and follows its teacher to hear when they go live. Leaving the course takes them out of its lessons live now, at once.
 
-Joining is one row in the database: the rule reads it the next time the page asks.
+Joining is one row in the database: the token route reads it the next time the player asks.
 
 ```ts title="app/(site)/actions.ts"
 export async function joinCourse(course: string) {
@@ -331,7 +324,7 @@ export async function joinCourse(course: string) {
 }
 ```
 
-Leaving goes further: the rule says no from now on, and this server takes the student out of each of the course's lessons live now, as the rule would on their next try.
+Leaving goes further: the token route says no from now on, and this server takes the student out of each of the course's lessons live now, as the route would when their token runs out.
 
 ```ts title="app/(site)/actions.ts"
 export async function leaveCourse(course: string) {
@@ -341,7 +334,7 @@ export async function leaveCourse(course: string) {
     const live = await liveNow();
     for (const lesson of await lessonsOf(course)) {
         // The course's lessons for its students, live now: __closed_live__
-        if (!lesson.open && live.has(lesson.id)) await realtime.stream(roomOf(lesson.id)).kick(id);
+        if (!lesson.open && live.has(lesson.id)) await realtime.stream(roomOf(lesson.id)).remove(id);
     }
     revalidatePath('/', 'layout');
 }
@@ -364,10 +357,10 @@ All together, for __me_name__ leaving __course_title__:
 // app/(site)/actions.ts
     await leave(id, course);
     for (const lesson of await lessonsOf(course)) {
-        if (!lesson.open && live.has(lesson.id)) await realtime.stream(roomOf(lesson.id)).kick(id);
+        if (!lesson.open && live.has(lesson.id)) await realtime.stream(roomOf(lesson.id)).remove(id);
     // taken out of: __closed_live__
 
-// Their player asks to join again, and the rule says no:
+// Their player asks for a token again, and the check says no:
 // lib/lessons.ts
     return isEnrolled(user, lesson.course);
     // false: no longer in __course_title__

@@ -10,23 +10,23 @@ What your app sends and receives through WordPlus Cloud is sealed, as in a brows
 | The `info` of a presence member | the room key | the same |
 | Events your server sends a user (`toUser`) | the key of the user | the apps and pages of that user |
 | Your users in the directory | the day key | everyone your app knows |
-| The media of a call between two people, and of a group call encrypted end to end (Capacitor) | a key for that call | its people |
+| The media of a call between two people, and of a group call encrypted end to end | a key for that call | its people |
 
 A room your server declares `public: true` is not sealed, and neither is one with `seal: false`. The realtime servers see room names, event names, user ids, which key a value needs, and sealed values. They never hold a key.
 
 ## Calls and live streams
 
-In Capacitor, as in a browser:
+In Capacitor and in React Native, as in a browser:
 
 - **A call between two people** is encrypted end to end on every path: direct between the two, through our relays, or through our media servers.
-- **A group call** is encrypted end to end when it comes from a call, as someone is added, or when its rule says `encrypt: true` ([permissions](../permissions.md#group-calls)).
+- **A group call** is encrypted end to end when your server says so, with `encrypt: true` in its token or its rule ([permissions](../permissions.md#group-calls)).
 - **A live stream** is not encrypted end to end: its picture and its chat are for everyone watching, so they are encrypted on the way, and the media servers see them.
 
-React Native has no calls or live streams yet ([calls](calls.md)).
+In React Native, calls and streams come from `@wordplus/realtime-react-native`, on iOS for now ([calls](calls.md#react-native)).
 
 ## Sealing needs random numbers
 
-React Native has no `crypto.getRandomValues`, which sealing needs: import `react-native-get-random-values` first, before anything else, in `index.ts`. `connect()` says so if it is missing. The Capacitor web view has it.
+React Native has no `crypto.getRandomValues`, which sealing needs in rooms: import `react-native-get-random-values` first, before anything else, in `index.ts`. `connect()` of `@wordplus/realtime/native` says so if it is missing. The Capacitor web view has it.
 
 ## Keys and sign-in
 

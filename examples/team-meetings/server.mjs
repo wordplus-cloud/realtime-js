@@ -19,21 +19,13 @@ const TEAM = { id: 7, name: 'Design team', lead: 34, members: [34, 42] };
 
 // The WordPlus package, with your keys from .env.
 const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE,
-    secret: process.env.WORDPLUS_SECRET,
-    localKey: process.env.WORDPLUS_LOCAL_KEY,
     // The name the others see in the meeting.
     profile: (id) => (USERS[id] ? { name: USERS[id].name } : null),
 });
 
-// The rule: who may join the meeting of a team, such as team:7.
-// It runs each time someone joins.
-realtime.groupCalls('team:{id}', (user, { id }) => {
-    // The members of the team, and nobody else.
-    if (!(Number(id) === TEAM.id && TEAM.members.includes(user))) return false;
-    // The lead hosts it: mute, let speak and remove, from the call screen.
-    return user === TEAM.lead ? { admin: true } : true;
-}, { encrypt: true }); // its video and sound encrypted end to end
+// Who may join the meeting of a team, such as team:7:
+// the members of the team, and nobody else.
+const mayJoin = (me, id) => Number(id) === TEAM.id && TEAM.members.includes(Number(me));
 
 const app = express();
 
@@ -45,9 +37,28 @@ app.use(session({
     saveUninitialized: false,
 }));
 
-// The route the page asks before it joins, /api/realtime/calls,
-// and the others the package answers, for the user of the session.
+// The routes the package answers, for the user of the session:
+// the page connects, and the call screen joins and hosts through them.
 app.use('/api/realtime', realtime.node((req) => req.session.user ?? null));
+
+// Your route, the one the button asks before it joins: /api/meeting-token?id=7.
+// It runs each time someone joins.
+app.get('/api/meeting-token', async (req, res) => {
+    const me = req.session.user;
+    const { id } = req.query;
+
+    // 1. Your own check: the members of the team, and nobody else.
+    if (!mayJoin(me, id)) return res.sendStatus(403);
+
+    // 2. What they may do in it: the lead hosts, and mutes, lets speak
+    // and removes, from the call screen.
+    const token = await realtime.groupCallToken(me, 'team:' + id, {
+        admin: me === TEAM.lead,
+        encrypt: true, // its video and sound encrypted end to end
+    });
+
+    res.json({ token });
+});
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static('public'));
@@ -79,10 +90,10 @@ app.post('/meetings/7/end', async (req, res) => {
     res.redirect('/');
 });
 
-// The button that joins the meeting, for everyone: the rule decides.
-const JOIN_BUTTON = `<room-button room="team:7" type="video" title="Design team">
+// The button that joins the meeting, for everyone: your route decides.
+const JOIN_BUTTON = `<group-call-button call="team:7" token-url="/api/meeting-token?id=7" type="video" title="Design team">
         Join the meeting
-    </room-button>`;
+    </group-call-button>`;
 // The button that ends it, for the lead.
 const END_BUTTON = `<form method="post" action="/meetings/7/end">
         <button>End the meeting for everyone</button>

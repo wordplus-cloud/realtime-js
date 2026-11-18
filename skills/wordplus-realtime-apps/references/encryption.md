@@ -82,7 +82,7 @@ Rotating needs somewhere to keep the key generations, shared by your servers, an
 
 **Node**
 
-```ts
+```ts fragment
 createRealtime( { …, generations: {
     get: async ( name ) => Number( await redis.get( 'rt-gen:' + name ) ) || null,
     set: async ( name, n ) => void ( await redis.set( 'rt-gen:' + name, n ) ),
@@ -176,7 +176,8 @@ In the browser:
 
 ```ts
 import { keyring, labelOf } from '@wordplus/realtime';
-await keyring().ensure( [ labelOf( sealed ) ] );   // asks your keys route for `note:…` if the page lacks it
+const label = labelOf( sealed );                   // `note:…`, or null for what isn't sealed
+if ( label ) await keyring().ensure( [ label ] );  // asks your keys route for it if the page lacks it
 const note = keyring().openJson( sealed );         // undefined when this user may not have it
 ```
 

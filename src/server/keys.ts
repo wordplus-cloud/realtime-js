@@ -175,9 +175,15 @@ export class Keys {
      * A user's entry in the directory: `pd`, the profile with every text sealed with the day's key however deep (numbers,
      * true and false as they are), and `pdh`, which spares the server a write when nothing changed, an HMAC of the plain
      * profile under a key derived from the local key, so the server can't confirm a name it guessed.
+     *
+     * Where the profile is sealed, the hash's last 8 digits are the day, as WordPress has the day in its hash (wordplus/
+     * realtime 64ca239). So a page of a new day sends a new hash, the server takes its fresh entry, and the entry it keeps
+     * stays within the day keys a page holds, where one who kept reconnecting kept an entry sealed weeks ago. Its first 56
+     * digits say the profile alone, which RealtimeProvider reads, so a new day doesn't connect a page again.
      */
-    async profile(user: UserId, plain: Record<string, unknown>): Promise<{ pd: Record<string, unknown>; pdh: string }> {
-        const label = this.dayLabel();
+    async profile(user: UserId, plain: Record<string, unknown>, seal = true): Promise<{ pd: Record<string, unknown>; pdh: string }> {
+        const day = dayOf();
+        const label = this.dayLabel(day);
         const full = { ...plain, user_id: user };
         const pd: Record<string, unknown> = {};
 
@@ -188,22 +194,23 @@ export class Keys {
                 continue;
             }
             // What JSON can't carry is left out, as WordPress's profile() leaves it.
-            const kept = await this.sealedValue(value, label, 0);
+            const kept = await this.sealedValue(value, label, seal, 0);
             if (kept !== null || value === null) pd[field] = kept;
         }
 
-        return { pd, pdh: hex(await hmac(await this.key('profile-hash'), JSON.stringify(full))) };
+        const hash = hex(await hmac(await this.key('profile-hash'), JSON.stringify(full)));
+        return { pd, pdh: seal ? hash.slice(0, 56) + day.toString(16).padStart(8, '0') : hash };
     }
 
-    private async sealedValue(value: unknown, label: string, depth: number): Promise<unknown> {
-        if (typeof value === 'string') return value === '' ? value : this.seal(value, label);
+    private async sealedValue(value: unknown, label: string, seal: boolean, depth: number): Promise<unknown> {
+        if (typeof value === 'string') return !seal || value === '' ? value : this.seal(value, label);
         if (typeof value === 'number' || typeof value === 'boolean' || value === null) return value;
         if (typeof value !== 'object' || value === undefined || depth >= 8) return null;
 
-        if (Array.isArray(value)) return Promise.all(value.map((item) => this.sealedValue(item, label, depth + 1)));
+        if (Array.isArray(value)) return Promise.all(value.map((item) => this.sealedValue(item, label, seal, depth + 1)));
 
         const sealed: Record<string, unknown> = {};
-        for (const [key, item] of Object.entries(value as Record<string, unknown>)) sealed[key] = await this.sealedValue(item, label, depth + 1);
+        for (const [key, item] of Object.entries(value as Record<string, unknown>)) sealed[key] = await this.sealedValue(item, label, seal, depth + 1);
         return sealed;
     }
 }

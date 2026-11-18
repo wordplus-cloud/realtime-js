@@ -15,9 +15,9 @@ The whole site is in the package, `examples/marketplace`: sign-up, eleven neighb
 | **The market as it is now**: an item put up, reserved, sold or repriced shows on every page at once | the room `market`, which every page joins and only your server speaks in, and `useRoom` asking the server for the page again ([rooms](rooms.md)) |
 | **How many others are looking** at an item now, on its page | the room `listing:{id}`, public and counted by WordPlus Cloud, with no table of yours ([counting](presence.md#counting)) |
 | **A new price**, an item reserved or sold, on every page of it at once | `realtime.to( room ).emit()` from the server action that keeps it ([to a room](sending.md#to-a-room)) |
-| **A conversation about an item**, between its seller and one buyer, kept, with typing, reactions and read ticks | `<Chat>` on the room `deal:{id}`, whose rule lets in those two alone ([the ready-made chat](events.md#ready-made-the-chat)) |
+| **A conversation about an item**, between its seller and one buyer, kept, with typing, reactions and read ticks | `<Chat>` on the room `deal:{id}`, whose rule lets in those two alone ([the ready-made conversation window](events.md#ready-made-the-chat)) |
 | **Photos in the conversation**, kept by your server and opened by the two alone | the chat's `upload`, your route asking the room's own rule with `realtime.mayJoin` ([files](../use-cases/chat.md#files)) |
-| **A video call** from the conversation, to see the item before coming over, beside the messages | `<Chat to name avatar call>`, and a calls rule of the same name, `deal:{id}` ([the call in its chat](calls.md#the-call-in-its-chat)) |
+| **A video call** from the conversation, to see the item before coming over, beside the messages | `<Chat to name avatar tokenUrl>`, and a route of yours that answers a token to the seller and the buyer alone, named `deal:{id}` ([the call in its chat](calls.md#the-call-in-its-chat)) |
 | **Offers** made, taken or declined with one click, both pages showing it at once | server actions that keep it, then say so in the conversation's room and to the other one ([to a user](sending.md#to-a-user)) |
 | **A notice** of a message, an offer or an answer, on whatever page someone is | `realtime.toUser( id ).emit()`, and `useUserEvent` in the layout ([to a user](sending.md#to-a-user)) |
 | **Whether the seller is online**, or when they were last seen | `useOnline()`: WordPlus Cloud tells the page as neighbours come and go ([who is online](presence.md#who-is-online-across-your-app)) |
@@ -28,7 +28,7 @@ You need:
 
 - **Node.js 22** or newer.
 - **Postgres 15** or newer, with a database of its own for the site.
-- **An app in WordPlus Cloud.** Apps are in early access, so first [ask for it](https://www.wordplus.cloud/contact). Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
+- **An app in WordPlus Cloud.** If you have no subscription yet, [choose your connections](https://www.wordplus.cloud/pricing#apps) first. Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
 
 ```bash
 cd examples/marketplace
@@ -157,7 +157,7 @@ create table if not exists file (
 );
 ```
 
-The rule of a conversation, and what it reads. Item 7 is looked at in the room `listing:7`, and conversation 3 is the room `deal:3`, its call of the same name. A buyer's conversation about an item is made the first time they write to its seller, and a seller has none about their own item:
+The rule of a conversation, and what it reads. Item 7 is looked at in the room `listing:7`, and conversation 3 is the room `deal:3`, its call of the same name, which your token route names. A buyer's conversation about an item is made the first time they write to its seller, and a seller has none about their own item:
 
 ```ts title="lib/market.ts"
 /** The conversation of a buyer about an item: theirs, or a new one the first time they write to its seller. */
@@ -189,21 +189,20 @@ export function idIn(name: string, kind: 'listing' | 'deal'): string | null {
 
 ### Your server and WordPlus Cloud
 
-The realtime side of your server is one file: who is asking and what neighbours see of each other, the room of each item, the market's room, the room of each conversation with its rule, its call, and the webhooks. Those keep the messages and the reactions, and tell the other one of the conversation of each message, on whatever page they are.
+The realtime side of your server is one file: who is asking and what neighbours see of each other, the room of each item, the market's room, the room of each conversation with its rule, and the webhooks. Those keep the messages and the reactions, and tell the other one of the conversation of each message, on whatever page they are.
 
 - **An item's room** is public, with a count: anyone on its page is counted, signed in or not, and nobody is listed. Its rule needs no code, and as it names no `emit`, no page says anything in it: only your server does.
 - **The market's room** lets in anyone signed in, and only your server speaks in it too.
-- **A conversation's room** lets in its seller and its buyer alone (`mayTalk` above), and its call asks the same of both of them, the one who calls and the one called.
+- **A conversation's room** lets in its seller and its buyer alone (`mayTalk` above). Its call asks the same of both of them, in a route of its own ([see it on a call](#see-it-on-a-call)).
+- **The keys of your app** come from the environment, `WORDPLUS_SITE`, `WORDPLUS_SECRET` and `WORDPLUS_LOCAL_KEY`, so `createRealtime()` names none.
 
 ```ts title="lib/realtime.ts"
 import { createRealtime } from '@wordplus/realtime/server';
 import { currentUserId } from './auth';
 import { dealOf, filesFor, idIn, keepMessage, mayTalk, nameOf, personOf, photoOf, react, type Message } from './market';
+import { WORLDS, webhooksInEveryWorld } from './worlds';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
     // Who is asking: the signed-in neighbour, or null.
     user: () => currentUserId(),
     // What neighbours see of each other: in a conversation and its call.
@@ -212,6 +211,8 @@ export const realtime = createRealtime({
         return person ? { name: person.name, avatar: photoOf(person.id) } : null;
     },
 });
+// The public demo: the webhooks read and keep the market of every visitor's world (lib/worlds.ts).
+if (WORLDS) webhooksInEveryWorld(realtime);
 
 // An item, listing:{id}: anyone on its page is in it, counted live, and hears its price or status change. Public: a
 // count for anyone, signed in or not, with no list of who.
@@ -226,12 +227,9 @@ realtime.room('market', async (user) => user !== null);
 // (below), to be kept. The server tells it of offers made and answered. A page asks to join at /api/realtime/auth.
 realtime.room(
     'deal:{id}',
-    { history: 50, emit: ['message', 'typing', 'reaction', 'read'], webhook: ['message', 'reaction'] },
     async (user, { id }) => mayTalk(user, id),
+    { history: 50, emit: ['message', 'typing', 'reaction', 'read'], webhook: ['message', 'reaction'] },
 );
-
-// Its call: to see the item before coming over. Both of them may use it. A page asks to call at /api/realtime/calls.
-realtime.calls('deal:{id}', async (user, other, { id }) => (await mayTalk(user, id)) && (await mayTalk(other, id)));
 
 /** Keeps a message, and the first time, tells the other one of the conversation, on whatever page they are. */
 export async function keepAndTell(message: Message) {
@@ -261,7 +259,7 @@ realtime.on('reaction', async ({ from, data }) => {
 });
 ```
 
-The rules run on your server, in two routes of your own, each time a page asks: to join a room, or to call. The page gets a pass signed with the app's secret, or why not.
+The rules of the rooms run on your server, in a route of your own, each time a page asks to join. The page gets a pass signed with the app's secret, or why not.
 
 ```ts title="app/api/realtime/auth/route.ts"
 // POST /api/realtime/auth: a page asks to join rooms, as { rooms: ['deal:3', 'listing:7', 'market'] }. This server runs
@@ -283,11 +281,13 @@ export async function POST(request: Request) {
 }
 ```
 
+Once a call has started with a token from your route ([see it on a call](#see-it-on-a-call)), its line runs through `/api/realtime/calls`: a page holds the line of its neighbour there, so their calls ring, answers a call that rings, and keeps a call going. Every ask carries a proof that only your server makes, so this route needs no rule of its own:
+
 ```ts title="app/api/realtime/calls/route.ts"
-// POST /api/realtime/calls: a page asks to call the other one of a conversation, to see the item on video, as
-// { call: 'deal:3', to: '10', role: 'caller', … }, or to answer. This server runs the call's rule (realtime.calls in
-// lib/realtime.ts) for the neighbour signed in, and answers a pass for it, signed with the app's secret, or why not.
-// With the pass, WordPlus Cloud rings the other one.
+// POST /api/realtime/calls: the line of a call, once it started with a token from /api/deal-call-token. A page holds
+// the line of its neighbour here, so their calls ring, answers a call that rings, and keeps a call going. Every ask
+// carries a proof that only this server makes: the token that rang, which says this server already said yes. This
+// route checks it for the neighbour signed in, and answers a pass signed with the app's secret, or why not.
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 
@@ -307,12 +307,11 @@ The SDK's other routes, the webhooks among them, and the browser files:
 
 ```ts title="app/api/realtime/[...path]/route.ts"
 // WordPlus Cloud's other routes: the keys of sealed rooms (POST /api/realtime/keys), the webhooks the cloud sends
-// (POST /api/realtime/webhook), and the browser's files (GET). Joining rooms and calling are the site's own routes,
-// auth/route.ts and calls/route.ts beside this one.
+// (POST /api/realtime/webhook), and the browser's files (GET). Joining rooms and the line of a call are the site's own
+// routes, auth/route.ts and calls/route.ts beside this one.
 import { realtime } from '@/lib/realtime';
 
-export const GET = realtime.route;
-export const POST = realtime.route;
+export const { GET, POST } = realtime.handlers;
 ```
 
 ### Every page connected
@@ -323,8 +322,7 @@ Every page of a neighbour connects through the layout of their pages: one connec
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
+import { RealtimeProvider } from '@wordplus/realtime/next';
 import { currentUserId } from '@/lib/auth';
 import { personOf } from '@/lib/market';
 import { realtime } from '@/lib/realtime';
@@ -343,12 +341,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 async function Connected({ children }: { children: React.ReactNode }) {
-    await connection(); // made for each request: the settings are signed for this neighbour, now
     const me = await currentUserId();
     if (!me) redirect('/signin');
     const person = await personOf(me);
+    // The settings signed for this neighbour, for this request alone, and the page connected with them.
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <Screens />
             <MarketLive />
             <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur">
@@ -377,15 +375,14 @@ The call screen, with the look of the chat and the calls:
 ```tsx title="app/(app)/screens.tsx"
 'use client';
 
-// The look of the ready-made chat and call screens, and the call screen itself: it takes no place on the page, shows the
+// The look of the ready-made conversation window and call screens, and the call screen itself: it takes no place on the page, shows the
 // ring over it, and a call in a window in the corner wherever the page has no place of its own for it.
 import '@wordplus/realtime-ui/calls.css';
 import '@wordplus/realtime-ui/chat.css';
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallScreen } from '@wordplus/realtime-ui/react';
 
 export function Screens() {
-    return <CallScreen rt={useRealtime()} />;
+    return <CallScreen />;
 }
 ```
 
@@ -677,7 +674,6 @@ async function Deal({ params }: PageProps<'/messages/[id]'>) {
 ```tsx title="app/(app)/messages/[id]/chat.tsx"
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; to: string; name: string; avatar: string };
@@ -685,18 +681,17 @@ type Props = { room: string; to: string; name: string; avatar: string };
 /**
  * The conversation about the item, kept by this app's server, with typing, reactions, read ticks and photos, and its
  * call: the buyer sees the item on video before coming over. The other one's name and call buttons are on its top bar,
- * and a call shows in the chat itself, beside the messages. On localhost, where no webhook reaches this server, onSent
- * tells it of each message.
+ * each asking this server's route for a token (tokenUrl), and a call shows in the chat itself, beside the messages. On
+ * localhost, where no webhook reaches this server, onSent tells it of each message.
  */
 export function DealChat({ room, to, name, avatar }: Props) {
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             to={to}
             name={name}
             avatar={avatar}
-            call
+            tokenUrl="/api/deal-call-token"
             placeholder={`Message ${name}`}
             messages={`/api/messages?room=${room}`}
             upload="/api/files"
@@ -826,21 +821,48 @@ export async function filesFor(deal: string, given: unknown): Promise<KeptFile[]
 }
 ```
 
-- **The room's rule** lets the chat send what it uses, `message`, `typing`, `reaction` and `read`, and names `message` and `reaction` in `webhook` for your server to keep ([the ready-made chat](events.md#ready-made-the-chat)).
+- **The room's rule** lets the chat send what it uses, `message`, `typing`, `reaction` and `read`, and names `message` and `reaction` in `webhook` for your server to keep ([the ready-made conversation window](events.md#ready-made-the-chat)).
 - **Sealed:** what the two write goes through WordPlus Cloud sealed with keys from your local key, which never leaves your servers ([encryption](encryption.md#what-is-sealed)).
 - **Someone else** who finds the address of a conversation gets the page of nothing found, and its messages and photos answer 403 and 404.
 
 ### See it on a call
 
-A buyer sees the item on video before coming over, from the conversation itself. Its call has the name of its room, `deal:{id}`, and its rule asks the same as the room's of both of them, the one who calls and the one called (`lib/realtime.ts` above):
+A buyer sees the item on video before coming over, from the conversation itself. Who may call whom is your app's own logic, and the SDK holds none of it. The call buttons of `<Chat>` ask a route of yours for a token, with the name of the conversation, `/api/deal-call-token?to=10&type=video&name=deal:3`. Your route makes its own check, then answers a token your server signs for this call alone, or refuses. With the token, WordPlus Cloud rings the other one, on whatever page of the site they are, and they answer with no token of their own. This route lets a call through when:
 
-```ts title="lib/realtime.ts"
-// Its call: to see the item before coming over. Both of them may use it. A page asks to call at /api/realtime/calls.
-realtime.calls('deal:{id}', async (user, other, { id }) => (await mayTalk(user, id)) && (await mayTalk(other, id)));
+1. **The one calling** is of the conversation: its seller or its buyer (`mayTalk`).
+2. **So is the one called,** who is not the one calling.
+
+```ts title="app/api/deal-call-token/route.ts"
+// GET /api/deal-call-token?to=10&type=video&name=deal:3: a conversation's video or audio call button asks for a token
+// before it calls, to see the item before coming over. This server makes its own check for the neighbour signed in:
+// the call is that of a conversation, and both of them are its seller and its buyer (mayTalk). Then it answers a token
+// for this call alone, signed with the app's secret, which takes the name of the conversation, so the call shows in it.
+// With the token, WordPlus Cloud rings the other one, who answers with no token of their own.
+import { currentUserId } from '@/lib/auth';
+import { idIn, mayTalk } from '@/lib/market';
+import { realtime } from '@/lib/realtime';
+
+export async function GET(request: Request) {
+    const ask = new URL(request.url).searchParams;
+    const me = await currentUserId();
+    const to = ask.get('to') ?? '';
+    const name = ask.get('name') ?? '';
+    // The name comes from the page: deal:3 is conversation 3, and any other name is refused.
+    const deal = idIn(name, 'deal');
+
+    // 1. The one calling is of the conversation.
+    if (!me || !deal || !(await mayTalk(me, deal))) return new Response(null, { status: 403 });
+    // 2. So is the one called, who is not the one calling.
+    if (to === me || !(await mayTalk(to, deal))) return new Response(null, { status: 403 });
+
+    // The call takes the name of the conversation, so it shows there.
+    return Response.json({ token: await realtime.callToken(me, to, { type: ask.get('type'), name }) });
+}
 ```
 
-`<Chat>` with `to` puts the other one on its top bar, by the name and photo the page gives, with a video and an audio call button, and `call` shows their call in the chat itself, beside the messages (`chat.tsx` above). A page asks your calls route for a pass, which runs the rule, and with it WordPlus Cloud rings the other one, on whatever page of the site they are ([the call in its chat](calls.md#the-call-in-its-chat)).
-
+- **The name comes from the page,** so the route checks it: `idIn()` reads conversation 3 from `deal:3`, and any other name is refused with a 403.
+- **The token takes the name of the conversation,** so the call shows in its chat: `<Chat>` with `to` puts the other one on its top bar, by the name and photo the page gives, with a video and an audio call button, and `tokenUrl` names this route (`chat.tsx` above, [the call in its chat](calls.md#the-call-in-its-chat)).
+- **A token rings once,** and is for its neighbour alone. The chat asks again for each call.
 - **On any other page** the call goes on in the corner, and comes back to the chat when its page opens again.
 - **Taller during a call:** the page gives the chat more height while a call is in it, `has-[[data-call]]:h-[38rem]`, and the messages a column of 300px beside the call, `--realtime-chat-beside-call`.
 - **Between the two of them,** the call is encrypted end to end on every path, direct between their browsers or through our relays ([encryption](encryption.md#calls-and-live-streams)).

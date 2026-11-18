@@ -14,15 +14,15 @@ The chat of Ann and Ben is named after them, `chat:34:42`, the smaller id first.
 
 ```ts
 // lib/realtime.ts
-realtime.room( 'chat:{a}:{b}', {
+realtime.room( 'chat:{a}:{b}', ( user, { a, b } ) => {
+    // 3. The two people in the name, and nobody else.
+    return [ a, b ].includes( String( user ) );
+}, {
     // 1. What the pages may send to it.
     emit: [ 'message', 'typing', 'reaction', 'read' ],
     // 2. What your app gets too, and the last 50 kept for a page that reconnects.
     webhook: [ 'message', 'reaction' ],
     history: 50,
-}, ( user, { a, b } ) => {
-    // 3. The two people in the name, and nobody else.
-    return [ a, b ].includes( String( user ) );
 } );
 ```
 
@@ -41,6 +41,7 @@ A page sends to a room it has joined, and hears what the others send:
 
 const chat = useRoom( 'chat:34:42', {
     message: ( data: { text: string }, meta ) => draw( data.text, meta.from ),   // meta: { from, id, at }
+    typing: ( data: { on: boolean }, meta ) => showTyping( meta.from, data.on ),
 } );
 
 chat.emit( 'message', { text: 'Hi' } );                                // sent, nothing waited for
@@ -98,7 +99,7 @@ export async function GET( request: Request, { params }: { params: Promise<{ a: 
 ```
 
 - **Check there anything that matters:** the events do not go through your app before they are sent on.
-- **On localhost** no webhook reaches your app, as a webhook needs an address on the internet. While you build there, the ready-made chat tells your app of each message it sent through `onSent`, for a route of yours to keep by the same id ([the ready-made chat](#ready-made-the-chat)). Or a tunnel gives your computer an address ([while you develop](../sending.md#while-you-develop)).
+- **On localhost** no webhook reaches your app, as a webhook needs an address on the internet. While you build there, the ready-made conversation window (`<Chat>`) tells your app of each message it sent through `onSent`, for a route of yours to keep by the same id ([the ready-made conversation window](#ready-made-the-chat)). Or a tunnel gives your computer an address ([while you develop](../sending.md#while-you-develop)).
 - **`at`** is in milliseconds, and `reactions` maps each reaction to who chose it. A reaction comes as `{ id, key }`: the one reaction of the user to message `id`, an empty `key` taking it back.
 - **A gap:** a page back after the 5 minutes a room keeps its events, or after more came than it keeps, gets what the room still had, then `error` on the room with `{ code: 'gap' }`, still joined. Some events are lost to it, so ask your route for the newest page again: `useRoom( 'chat:34:42', { error: ( e ) => e.code === 'gap' && reload() } )`.
 
@@ -111,19 +112,18 @@ The Better Messages conversation, on any room: your app conversation paged back 
 ```tsx
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 export function Conversation() {
     return (
         <div style={ { height: 520 } }>
-            <Chat rt={ useRealtime() } room="chat:34:42" messages="/chat/34/42/messages" placeholder="Write a message" />
+            <Chat room="chat:34:42" messages="/chat/34/42/messages" placeholder="Write a message" />
         </div>
     );
 }
 ```
 
-- **Its stylesheet** is `@wordplus/realtime-ui/chat.css`, imported once, as `screens.tsx` of [getting started](getting-started.md#4-the-page) does.
+- **Its stylesheet** is in `@wordplus/realtime-ui/styles.css`, imported once, as the layout of [getting started](getting-started.md#4-the-page) does, or on its own as `chat.css`.
 - **`messages`** is your route, asked with the page cookies. `load={ async ( before ) => ( { messages, more } ) }` replaces it, for a token or another shape: `before` is `null` for the newest page, or the oldest message shown (`{ id, at }`). With neither, it shows what the room still has.
 - **Its room rule** lets it send what it uses: `emit: [ 'message', 'typing', 'reaction', 'read' ]`, and names `message` and `reaction` in `webhook` for your app to keep.
 - **What it sends** is what you would: `message` as `{ text }` with an ack, with its `files` where it has any, `typing` as `{ on }` and `read` as `{ id }`, both volatile, and `reaction` as `{ id, key }`. Your own pages and apps on the same room read it.
@@ -133,8 +133,22 @@ export function Conversation() {
 - **`onSent`** hears each message the room took, for your route to keep it and tell the other person where no webhook reaches you ([telling the other person](../use-cases/chat.md#telling-the-other-person)):
 
 ```tsx
-<Chat rt={ rt } room={ room } messages={ `/chat/messages?room=${ room }` }
+<Chat room={ room } messages={ `/chat/messages?room=${ room }` }
       onSent={ ( m ) => fetch( '/chat/sent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( m ) } ) } />
+```
+
+```ts
+// app/chat/sent/route.ts: the message kept by its id, as the webhook keeps it. Once the webhook reaches you, it is the one to trust.
+export async function POST( request: Request ) {
+    const { id, room, text, at } = await request.json();
+
+    // What the page sent doesn't say who from: it is the one asking, if the room's own rule lets them in it.
+    const user = await currentUserId();
+    if ( ! ( await realtime.mayJoin( room, user ) ) ) return new Response( null, { status: 403 } );
+
+    await db.messages.upsert( { id, room, from: user, text, at } );
+    return new Response( null, { status: 204 } );
+}
 ```
 
 - **Files** come in with `upload`, your route for them: the composer gets its paperclip, and takes files pasted or dropped on the chat. Each file goes to your route as it is picked, and your server keeps it: WordPlus Cloud carries only where it is ([files](../use-cases/chat.md#files)). Your route asks the room's own rule whether the person may be in that conversation, with `realtime.mayJoin`:
@@ -156,12 +170,12 @@ export async function POST(request: Request) {
 ```
 
 ```tsx
-<Chat rt={ rt } room={ room } messages={ `/api/messages?room=${ room }` } upload="/api/files" accept="image/*,.pdf" maxFileSize={ 10 * 1024 * 1024 } />
+<Chat room={ room } messages={ `/api/messages?room=${ room }` } upload="/api/files" accept="image/*,.pdf" maxFileSize={ 10 * 1024 * 1024 } />
 ```
 
 Keep a message's `files` only as your route kept them for that room, and serve each file only to those in the conversation ([files](../use-cases/chat.md#files)).
 
-`<Typing rt={ rt } room="…" />` is the typing line alone, for a page that draws its own messages.
+`<Typing room="…" />` is the typing line alone, for a page that draws its own messages.
 
 ## Use cases
 

@@ -14,23 +14,24 @@ Open `/signup` and click Omar, who sells the turntable. Open the site in a priva
 
 | File | |
 |---|---|
-| `lib/realtime.ts` | the realtime server part, once: who is asking, what others see of them, an item's room that counts who looks at it, the market's room, the conversations about an item with their rule and their call, and the webhooks: each message kept with its photos, and told to the other one of the conversation |
+| `lib/realtime.ts` | the realtime server part, once: who is asking, what others see of them, an item's room that counts who looks at it, the market's room, the conversations about an item with their rule, and the webhooks: each message kept with its photos, and told to the other one of the conversation |
 | `lib/market.ts`, `db/schema.sql` | the neighbours, the items with their photos, the conversations about them, who may read and write in one (`mayTalk`: its seller and its buyer), the offers and their answers, the messages and the photos sent |
 | `db/fill.mjs`, `db/items/` | the ready-made market, its items with their photos and the conversations about them: `npm run seed` on a site of your own, and each visitor's world on the public demo |
 | `app/(app)/actions.ts` | what the pages do: write to a seller, a new price, sold, an offer and its answer, each kept here, then said in the item's room, the market's and the conversation's, and to the other one on whatever page they are |
-| `app/api/realtime/auth/route.ts`, `calls/route.ts` | where the rules run: a page asks to join a conversation or to call in it, and gets a pass signed with the app's secret |
+| `app/api/realtime/auth/route.ts`, `calls/route.ts` | where the room rules run, and the line of a call: a page asks to join a conversation, to answer a call or to keep one going, and gets a pass signed with the app's secret |
+| `app/api/deal-call-token/route.ts` | who may call whom, the site's own check: a call button asks it for a token, which this server answers only to the seller and the buyer of the conversation |
 | `app/api/realtime/[...path]/route.ts` | the SDK's other routes, the webhooks among them, and the browser files |
 | `app/api/messages/route.ts`, `app/api/chat/sent/route.ts` | a conversation's messages as this server keeps them, and a message a page sent, kept where no webhook arrives |
 | `app/api/files/route.ts`, `app/files/[id]/route.ts` | a photo for a conversation, kept here once the room's rule says yes (`realtime.mayJoin`), and opened by its two alone |
 | `app/api/listings/route.ts`, `app/item-photos/[id]/route.ts` | an item put up with its photos, which every market page shows as it comes, and its photos |
-| `app/(app)/layout.tsx`, `screens.tsx`, `live.tsx` | every page of a neighbour: `RealtimeProvider` with `config()`, the call screen, the market kept current (`MarketLive`), and the notices of a message, an offer and its answer (`useUserEvent`) |
+| `app/(app)/layout.tsx`, `screens.tsx`, `live.tsx` | every page of a neighbour: `RealtimeProvider realtime={ realtime }`, the call screen, the market kept current (`MarketLive`), and the notices of a message, an offer and its answer (`useUserEvent`) |
 | `app/(app)/market/page.tsx`, `grid.tsx` | the items, those for sale first, by category |
 | `app/(app)/listings/[id]/page.tsx`, `seller.tsx` | an item: who else looks at it now (`Looking`), its seller online or not (`useOnline`), and for its seller, the price, sold, and who asks about it |
-| `app/(app)/messages/page.tsx`, `messages/[id]/page.tsx`, `offer.tsx`, `chat.tsx` | the conversations, the latest first, and one about an item: its offer, and the chat with its photos and its call (`Chat` with `to`, `call` and `upload`) |
+| `app/(app)/messages/page.tsx`, `messages/[id]/page.tsx`, `offer.tsx`, `chat.tsx` | the conversations, the latest first, and one about an item: its offer, and the chat with its photos and its call (`Chat` with `to`, `tokenUrl` and `upload`) |
 | `app/(app)/sell/page.tsx`, `form.tsx` | putting an item up |
 | `lib/auth.ts`, `app/account.ts`, `proxy.ts` | sign-up and sign-in with Better Auth, and the market's pages kept for those signed in |
 
-A call needs no code of the site but its rule: the call screen and the chat do the rest. The messages come back to this server by webhook, which needs the site at an address WordPlus Cloud reaches: on localhost none arrives, so the chat's `onSent` keeps them instead (`app/api/chat/sent/route.ts`), unless a tunnel gives it one (`cloudflared tunnel --url http://localhost:3000`, then that address with `/api/realtime/webhook` as the app's webhook).
+A call needs no code of the site but its token route: the call screen and the chat do the rest. The messages come back to this server by webhook, which needs the site at an address WordPlus Cloud reaches: on localhost none arrives, so the chat's `onSent` keeps them instead (`app/api/chat/sent/route.ts`), unless a tunnel gives it one (`cloudflared tunnel --url http://localhost:3000`, then that address with `/api/realtime/webhook` as the app's webhook).
 
 `MARKET_DEMO=1` is for the demo: the ready-made neighbours of `db/people.json` in one click, and **How this page works** under each page, in short steps with their code, from `how-it-works.md` (`app/how-it-works.tsx`, and `scripts/how-it-works.mjs`, which reads it before `dev` and `build`). Leave it out, and the site shows neither.
 

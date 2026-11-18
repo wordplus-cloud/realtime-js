@@ -4,9 +4,6 @@ import { chatIn, isConversation, isMember, keepMessage, mayChat, meetingOf, memb
 import { WORLDS, endMeetingOnDemo, webhooksInEveryWorld } from './worlds';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
     // Who is asking: the signed-in user, or null.
     user: () => currentUserId(),
     // What colleagues see of each other: in the chats, the list of who is online and the calls.
@@ -23,33 +20,39 @@ if (WORLDS) webhooksInEveryWorld(realtime);
 // and reactions come here too (below), to be kept. A page asks to join at /api/realtime/auth.
 realtime.room(
     'chat:{id}',
+    async (user, { id }) => mayChat(user, id),
     {
         history: 50,
         emit: ['message', 'typing', 'reaction', 'read'],
         webhook: ['message', 'reaction'],
     },
-    async (user, { id }) => mayChat(user, id),
 );
 
-// A call in a conversation between two, by the name of its room: both of them may use it. A channel has no call of its
-// own, as its team meets in its meeting room. A page asks to call, or to answer, at /api/realtime/calls.
-realtime.calls('chat:{id}', async (user, other, { id }) => {
-    if (!(await isConversation(id))) return false;
-    // The one asking: who calls, as they call, or who is called, as they answer.
-    const userMayChat = await mayChat(user, id);
-    // The other one of the call.
-    const otherMayChat = await mayChat(other, id);
-    return userMayChat && otherMayChat;
-});
+/**
+ * The token of a call in a conversation between two, by the name of its room, chat:{id}, which the chat's call buttons
+ * send: the one calling and the one called may both use the chat. A channel has no call of its own, as its team meets
+ * in its meeting room. Null to refuse. A page asks for it at /api/chat-call-token.
+ */
+export async function chatCallToken(user: string, to: string, name: string, type: string | null): Promise<string | null> {
+    // The name comes from the page: a conversation between two of this site, and no other.
+    const chat = chatIn(name);
+    if (!chat || !(await isConversation(chat))) return null;
+    // The one calling, and the one called.
+    if (!(await mayChat(user, chat)) || !(await mayChat(to, chat))) return null;
+    // The call takes the name of the chat, so it shows there.
+    return realtime.callToken(user, to, { type, name });
+}
 
-// The meeting room of each team: meeting:{id}, where {id} is the team's number, a group call on WordPlus Cloud's media
-// servers for the members of the team. Its lead hosts it: the call screen gives them mute and remove on everyone's
-// tile. A page asks to join at /api/realtime/calls too.
-realtime.groupCalls('meeting:{id}', async (user, { id }) => {
-    if (!(await isMember(id, user))) return false;
-    const team = await teamOf(id);
-    return team?.lead === String(user) ? { admin: true } : true;
-});
+/**
+ * The token of a team's meeting room, meeting:{id}, where {id} is the team's number: a group call on WordPlus Cloud's
+ * media servers for the members of the team. Its lead hosts it: the call screen gives them mute and remove on
+ * everyone's tile. Null to refuse. A page asks for it at /api/meeting-token.
+ */
+export async function meetingToken(user: string, team: string): Promise<string | null> {
+    if (!(await isMember(team, user))) return null;
+    const lead = (await teamOf(team))?.lead === user;
+    return realtime.groupCallToken(user, meetingOf(team), { admin: lead });
+}
 
 // The meetings on now: every page of a colleague joins it, to hear when someone comes into a meeting or leaves it, and
 // show its lists as they are now. Only the server says anything in it.

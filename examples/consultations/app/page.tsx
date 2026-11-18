@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { WORLDS } from '@/lib/worlds';
+import { PendingLink } from './pending';
 
 export default function Home() {
     return (
@@ -13,7 +14,7 @@ export default function Home() {
             {WORLDS ? (
                 // The public demo has no accounts to make: its ready-made people (lib/worlds.ts).
                 <div className="flex gap-3">
-                    <Link href="/signup" className="rounded-full bg-teal-700 px-6 py-3 font-medium text-white hover:bg-teal-800">Try it</Link>
+                    <PendingLink href="/signup" className="rounded-full bg-teal-700 px-6 py-3 font-medium text-white hover:bg-teal-800">Try it</PendingLink>
                 </div>
             ) : (
                 <div className="flex gap-3">

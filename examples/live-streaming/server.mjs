@@ -18,25 +18,9 @@ const HOST = 34;
 
 // The WordPlus package, with your keys from .env.
 const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE,
-    secret: process.env.WORDPLUS_SECRET,
-    localKey: process.env.WORDPLUS_LOCAL_KEY,
     // The name the others see in the chat of the stream.
     profile: (id) => (USERS[id] ? { name: USERS[id].name } : null),
 });
-
-// The rule: who is who in a live stream, such as live:1.
-// It runs each time someone opens the stream.
-realtime.streams('live:{id}', (user) => {
-    // 1. A visitor who is not signed in watches, and signs in to write.
-    if (user === null) return 'viewer';
-
-    // 2. Ann hosts: she goes live, and ends the stream.
-    if (user === HOST) return 'host';
-
-    // 3. Everyone else watches, and writes in the chat.
-    return 'viewer';
-}, { reactions: true });
 
 const app = express();
 
@@ -48,9 +32,31 @@ app.use(session({
     saveUninitialized: false,
 }));
 
-// The route the page asks before it opens the stream, /api/realtime/calls,
-// and the others the package answers, for the user of the session.
+// The routes the package answers, for the user of the session:
+// the page connects, and the stream runs through them.
 app.use('/api/realtime', realtime.node((req) => req.session.user ?? null));
+
+// Your route, the one the stream asks before it opens: /api/stream-token?id=1.
+// It runs as someone opens the stream, and again as each token runs out.
+app.get('/api/stream-token', async (req, res) => {
+    const me = USERS[req.session.user] ? req.session.user : null;
+
+    // 1. Your own check: the stream of this app, live:1, and no other.
+    if (req.query.id !== '1') return res.sendStatus(403);
+
+    // 2. Who they are in it, and the settings of the stream: it takes reactions.
+    const settings = { reactions: true };
+    const token = await realtime.streamToken(me, 'live:1', me === null
+        // A visitor who is not signed in watches, and signs in to write.
+        ? { chat: 'read', settings }
+        : me === HOST
+            // Ann hosts: she goes live, and ends the stream.
+            ? { role: 'host', settings }
+            // Everyone else watches, and writes in the chat.
+            : { settings });
+
+    res.json({ token });
+});
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static('public'));
@@ -76,7 +82,7 @@ app.post('/login', (req, res) => {
 
 // The stream: the player and its chat for everyone,
 // and the studio, with Go live, for Ann.
-const STREAM = `<live-stream name="live:1" title="Live with Ann">
+const STREAM = `<live-stream name="live:1" token-url="/api/stream-token?id=1" login-url="/login" title="Live with Ann">
     </live-stream>`;
 
 // The page, for anyone: the settings of the user, or of a visitor,

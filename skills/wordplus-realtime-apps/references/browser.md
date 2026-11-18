@@ -1,10 +1,12 @@
 # Browser reference: `@wordplus/realtime`
 
-## `connect( options )` → `Promise<Realtime>`
+## `connect( options? )` → `Promise<Realtime>`
+
+With no options, the page asks your routes at `/api/realtime`, whose keys route names your app and says who the user is. A keys route that fails leaves the page connected without the keys of its user, as a page with no user is, and `rt.on( 'error' )` hears `keys_failed` with the `status` it answered.
 
 | Option | |
 |---|---|
-| `app` | your app key (`site` names it too) |
+| `app` | your app key, public as every page carries it. Your keys route names it when left out. `site` is the same in its old word |
 | `endpoint` | your routes, `/api/realtime` by default. In full in an app |
 | `routes` | a route at an address of its own, in place of `{endpoint}/{name}`, as your server `routes` put it: `{ calls: '/check-call' }`. Your server `config()` names them by itself |
 | `headers` | sent with every request to your routes, such as a CSRF token |
@@ -20,25 +22,30 @@
 | `screen` | the ready-made parts on every page: `{ lang, strings, add, prefix }`. `prefix` goes before every element name, `shop` making `<shop-chat-room>` ([elements](elements.md#your-own-names)) |
 | `server`, `path`, `api` | WordPlus Cloud by default |
 
-Or your server `config()` as it is: `connect( config )`. `connectNow()` connects without asking your keys route first.
+Or your server `config()` as it is: `connect( config )`. `connectNow()` connects without asking your keys route first, so it needs `app`.
 
-A promise of the SDK that rejects holds a `RealtimeError`, or an `Error` with the same `code` ([errors](errors.md)).
+A promise of the SDK that rejects holds a `RealtimeError`, whose `code` is a `RealtimeErrorCode`, a union of every code ([errors](errors.md)).
 
 ## `Realtime`
 
 | Member | |
 |---|---|
-| `join( name )` | → `Room`, the same one again for the same name ([rooms](rooms.md#joining)) |
+| `join( name, { with }? )` | → `Room`, the same one again for the same name ([rooms](rooms.md#joining)). `{pair}` in the name is this user and `with`, the smaller id first, so both of them name the same room: `rt.join( 'chat:{pair}', { with: 34 } )`, as `rt.room()` and `rt.leave()` take it too. `rt.join<Events, Info>( name )` says what its events carry and what its members bring, for your own checking: `Events` an object of event names and their data, as `{ message: { text: string } }` ([what an event carries](events.md#what-an-event-carries)) |
 | `room( name )`, `leave( name )` | a room this tab joined, or `undefined`. Leaving it (the other tabs of the browser keep theirs) |
 | `online` | who is online across your app ([presence](presence.md#who-is-online-across-your-app)) |
 | `users( ids )` | → `Promise<{ [id]: profile }>`: your users from the directory, opened ([encryption](encryption.md#your-users)) |
 | `user` | the user your server vouched for on this page, or `null` |
-| `on( event, fn )`, `off( event?, fn? )` | what your server sends this user (`toUser().emit()`), `fn( data, { at } )`, and those of the connection itself: `connected`, `disconnected` (with the reason), `moved` (to another server without a drop), `error` (`{ code }`: the connection refused), `signed_out` (your server disconnected the user, and the page asks your routes again) |
+| `on( event, fn )`, `off( event?, fn? )` | what your server sends this user (`toUser().emit()`), `fn( data, { at } )`, and those of the connection itself: `connected`, `disconnected` (with the reason), `moved` (to another server without a drop), `error` (`{ code }`: the connection refused, or `keys_failed` with the `status` of your keys route, heard even by a listener added after `connect()` returned), `signed_out` (your server disconnected the user, and the page asks your routes again) |
 | `answer( event, fn )` | answers what your server asks this user (`user( id ).ask()`): `fn( data, { at } )` returns the reply, or a promise of it, sealed with the key of the user. One answer an event. `null` takes it away ([sending](sending.md#a-user)) |
 | `tab` | this tab name, for the `except` of an emit (send it as `X-Realtime-Tab`) |
 | `connected` | whether the connection is up now |
-| `calls()` | → `Promise<Calls>`, loading the call engine the first time ([calls](calls.md)). In React Native it rejects with `no_webrtc` ([React Native](react.md#react-native)) |
-| `callScreen( { lang, strings, add, prefix } )` | → `Promise<boolean>`: the call screen and the ready-made parts ([calls](calls.md#the-call-screen)). `false` where there is no page to draw on, as in React Native |
+| `startCall( token )` | → `Promise<Call>`: starts a call with a token from your own route (`realtime.callToken()` there), and rings the person it names in every tab and app they have open. A token rings once, so get a new one for each call ([who may call](calls.md#who-may-call)) |
+| `onIncomingCall( fn )` | → `Promise` of a function that stops listening. `fn( incoming )` hears each call ringing for this user, and from now on their calls ring on this page. `incoming.accept()` and `incoming.decline()` take no token |
+| `joinGroupCall( token )` | → `Promise<GroupCall>`: joins a group call with a token from your own route (`realtime.groupCallToken()` there), which says what this user may do in it. Someone removed from the call needs a new token to come back ([group calls](calls.md#group-calls)) |
+| `joinStream( getToken, { video }? )` | → `Promise<Stream>`: joins a live stream as your own route says (`realtime.streamToken()` there). A token lasts ten minutes, so `getToken` is a function asked again as each runs out, and it may be a single token instead ([live streams](streams.md#who-is-who)). `video: false` for a page that shows only the chat or the details: the picture comes once something wants it (`watch()`) |
+| `call( name, { to, type } )`, `groupCall( name, { type } )`, `stream( name, { video }? )` | the same by name, for an app with `calls()`, `groupCalls()` and `streams()` rules, which keep working. With no rule they reject with `forbidden` |
+| `calls()` | → `Promise<Calls>`, loading the call engine the first time, and holding the line of the user, so their calls ring here ([calls](calls.md)). On the connection of `@wordplus/realtime/native` it and all of the above that start a call, a group call or a stream reject with `no_webrtc`, as calls in React Native come from `@wordplus/realtime-react-native` ([React Native](react.md#react-native)) |
+| `callScreen( { lang, strings, add, prefix } )` | → `Promise<boolean>`: the call screen and the ready-made parts ([calls](calls.md#the-call-screen)). `false` where there is no page to draw on, as on the connection of `@wordplus/realtime/native` |
 | `ui( { lang, strings, prefix } )` | → `Promise<boolean>`: the ready-made parts without calls |
 | `streamScreen( { lang, strings, prefix } )` | → `Promise<boolean>`: the live streams drawn ready, `<live-stream>` and `<stream-studio>` ([live streams](streams.md#drawn-ready)). `false` where there is no page to draw on |
 | `close()` | leaves every room, stops ringing on this page and forgets the keys the page held ([keys](#keys)). The other tabs of the browser keep the connection |
@@ -51,7 +58,7 @@ A promise of the SDK that rejects holds a `RealtimeError`, or an `Error` with th
 | `ready` | a promise, resolved once joined. An emit before then waits for it |
 | `on( event, fn )`, `once( event, fn )`, `off( event?, fn? )` | an event, `fn( data, meta )` with meta `{ from, id, at, replayed? }`, or those of the room itself: `joined` (the members), `join` (`{ id, info }`), `leave` (`{ id }`), `count` (n), `error` (`{ code }`), `kicked`. `from` is the user who sent it, none for your server. `replayed` marks an event missed while the connection was down |
 | `onAny( fn )`, `offAny( fn? )` | every event of the room, `fn( event, data, meta )` |
-| `emit( event, data )` | to the others in the room, as its rule allows ([events](events.md)). Nothing is waited for |
+| `emit( event, data )` | to the others in the room, as its rule allows ([events](events.md)). Nothing is waited for. An event the rule turns away is said once, in the console and as the room `error`, with its `event` beside its `code` |
 | `emitWithAck( event, data )` | → `Promise<{ id, at }>` once WordPlus Cloud took it, or a refusal ([errors](errors.md#events-from-the-page)) |
 | `volatile`, `timeout( ms )` | an emitter that drops rather than holds an event while the connection is down, or whose acks wait at most `ms` |
 | `history( { before, after, limit } )` | → `Promise<{ events, more }>`, oldest first. 50 by default, 100 at most |
@@ -74,18 +81,19 @@ A promise of the SDK that rejects holds a `RealtimeError`, or an `Error` with th
 
 | Member | |
 |---|---|
-| `start( name, { to, type } )` | → `Promise<Call>`: rings every open tab of `to`. `type` `video` by default |
-| `group( name, { type } )` | → `Promise<GroupCall>`: the group call `name`, encrypted end to end when its rule says `encrypt` |
-| `stream( name, { video }? )` | → `Promise<Stream>` ([live streams](streams.md)). `video: false` for a page that shows only the chat or the details: the picture comes once something wants it (`watch()`) |
+| `startCall( token )`, `joinGroupCall( token )`, `joinStream( getToken, { video }? )` | the same as on `rt` |
+| `tokenFrom( url, ask )` | → `Promise<string>`: a token from a route of yours, as `token-url` asks: a GET with `ask` in its query, the page's cookies and the headers your other routes take, read from `{ token }`. `forbidden` for an answer of 401 or 403, `auth_failed` for any other trouble |
+| `start( name, { to, type } )`, `group( name, { type } )`, `stream( name, { video }? )` | the same as `rt.call()`, `rt.groupCall()` and `rt.stream()` |
+| `devices()` | → `Promise<{ cameras, microphones, speakers }>`, each `{ id, label }`, for a choice before a call. A label is empty until the browser gave the site a device |
 | `people( name )` | → `Promise<{ id, name, avatar }[]>`: whom the user may add to calls named `name`, `[]` when your server lists nobody |
-| `may( [ { call, to } ] )` | → `Promise<Array<boolean \| null>>`: whether the user may call each person about each call, as your `calls()` rule answers for a caller, in the order asked. `null` where your route gave no answer: placing the call still asks the rule ([your server routes](api/routes.md#calls)) |
+| `may( [ { call, to } ] )` | → `Promise<Array<boolean \| null>>`: for an app with a `calls()` rule, whether it lets the user call each person about each call, in the order asked. `null` where your route gave no answer ([your server routes](api/routes.md#calls)) |
 | `incoming()` | → `Incoming[]`: the calls ringing for this page now |
 | `stopRinging()` | the page holds the line no more: calls no longer ring here |
-| `on( event, fn )`, `off( event, fn? )` | `incoming` (an `Incoming`), `call` (a `Call` this page started or answered), `group` (a `GroupCall` it joined: by `group()`, by answering a ring into one, or a call of its that went on as one), `error` (`{ code }`: the line refused, or `room_failed` for a group call whose media did not connect). `call` and `group` hear the calls the call screen makes too, so a page can keep its own rules, such as how long a call may last |
+| `on( event, fn )`, `off( event, fn? )` | `incoming` (an `Incoming`), `call` (a `Call` this page started or answered), `group` (a `GroupCall` it joined: with a token, by answering a ring into one, or a call of its that went on as one), `error` (`{ code }`: the line refused, or `room_failed` for a group call whose media did not connect). `call` and `group` hear the calls the call screen makes too, so a page can keep its own rules, such as how long a call may last |
 
 ## `Incoming`
 
-A call ringing for the page user ([calls](calls.md#calling)).
+A call ringing for the page user, which takes no token to answer ([calls](calls.md#calling)).
 
 | Member | |
 |---|---|
@@ -109,8 +117,14 @@ A call between two people ([calls](calls.md)).
 | `peer` | `{ user, info }`, the other side |
 | `remote` | what the other side sends: `{ camera, microphone, screen, screenAudio, media, quality }`. `media` is what they switched on, `{ camera, microphone, screen_share, screen_share_audio }`, whether it arrived yet or not. `quality` is `excellent`, `good`, `poor`, `lost` or `unknown` |
 | `endReason` | why it ended ([why a call ended](calls.md#why-a-call-ended)) |
-| `setTrack( source, track )` | sends a track of this side, `null` to stop it |
-| `add( user )` | → `Promise<Invite>`: rings someone in, and the call goes on as a group call. `not_connected` before the call is up |
+| `setCamera( on, { deviceId }? )`, `setMicrophone( on, { deviceId }? )` | → `Promise`: opens the browser's device and sends it, or stops it with `false`. The device named, the one last named, or the browser's own choice, and named while on, it moves there. Closed as the call ends. `device_denied`, `device_missing`, `device_busy` or `no_devices` where it cannot open |
+| `setScreenShare( on )` | → `Promise<boolean>`: shares a screen, its sound with it where the browser gives it, or stops: whether one is shared now. A person who picks nothing in the browser's dialog is no error |
+| `camera`, `microphone`, `screen` | what this side sends now, each a `MediaStreamTrack` or `null`, for a picture of its own |
+| `devices()` | → `Promise<{ cameras, microphones, speakers }>`, each `{ id, label }` |
+| `startAudio()` | → `Promise`: the sound of the other side, where the browser held it back (`autoplay_blocked`). Call it from a click |
+| `setTrack( source, track )` | sends a track of your own, `null` to stop it. It stays yours: the call never closes it |
+| `ref` | what the page sends your route to ring someone into this call: `realtime.callToken( me, to, { into: ref } )` ([adding people](calls.md#adding-people)) |
+| `add( token )` | → `Promise<Invite>`: rings someone in, with that token, and the call goes on as a group call. `not_connected` before the call is up, `forbidden` for a token of another call. A user id in its place asks a `calls()` rule that owns the call |
 | `end()` | hangs up, or calls it off while it rings (`cancelled`) |
 | `on( event, fn )`, `off` | `state`, `path`, `remote`, `waiting` (`{ until, reason }`), `reacquire` (the source the other side stopped hearing: open the device again), `autoplay_blocked` (a click must start the sound), `group` (the `GroupCall` it goes on as), `ended` (the reason) |
 
@@ -123,13 +137,24 @@ A group call ([group calls](calls.md#group-calls)).
 | `state` | `connecting`, `waiting`, `connected`, `reconnecting`, `ended` |
 | `self` | this page user as the others see them, a `Person`. `null` until connected |
 | `people()` | everyone else in it, each a `Person` |
-| `can` | what this page may do now, `{ publish, subscribe, admin? }`: its rule, or what your server changed since with `permit` ([speakers and listeners](calls.md#speakers-and-listeners)) |
-| `setTrack( source, track )` | → `Promise`: sends a track of this user, `null` to stop it. While the page may not send, the track is kept and goes out once your server lets it speak |
-| `moderate( act, user )` | → `Promise<boolean>`, for its host (the rule `admin`): `mute` turns the microphone of `user` off (they may turn it on again), `speak` lets a listener send, `listen` makes a speaker a listener, `remove` takes them out. Through your calls route, which asks the rule again. Whether it changed anything. `forbidden` for a page that is not its host, `not_moderated` in a group call a call went on as |
+| `can` | what this page may do now, `{ publish, subscribe, admin? }`: its token, or what your server changed since with `permit` ([speakers and listeners](calls.md#speakers-and-listeners)) |
+| `setCamera( on, { deviceId }? )`, `setMicrophone( on, { deviceId }? )` | → `Promise`: opens the browser's device and sends it, or stops it with `false`, as on a `Call`. `not_allowed` for a listener, whom the browser is never asked about. Closed as the call ends, and as your server makes the user a listener |
+| `setScreenShare( on )` | → `Promise<boolean>`: as on a `Call` |
+| `setSpeaker( deviceId )` | → `Promise`: where the voices of the others play, one of `devices().speakers`, on a browser that lets a page choose |
+| `camera`, `microphone`, `screen` | what this page sends now, each a `MediaStreamTrack` or `null`, for a picture of its own |
+| `devices()` | → `Promise<{ cameras, microphones, speakers }>`, each `{ id, label }` |
+| `startAudio()`, `audioBlocked` | → `Promise`: the sound of the others, where the browser held it back (`autoplay_blocked`). Call it from a click. Whether it does now |
+| `quality` | how the connection of this page is, as the media server rates it: `excellent`, `good`, `poor`, `lost` or `unknown` |
+| `setTrack( source, track )` | → `Promise`: sends a track of your own, `null` to stop it. It stays yours: the call never closes it. While the page may not send, the track is kept and goes out once your server lets it speak |
+| `mute( user )` | → `Promise<boolean>`, as each of the next, for its host (your token's `admin`): turns their microphone off, which they may turn on again. Through the SDK's calls route, on a proof in the token that only your server makes. Whether it changed anything. `forbidden` for a page that is not its host, `not_moderated` in a group call a call went on as |
+| `remove( user )` | takes them out of the call |
+| `letSpeak( user )`, `makeListener( user )` | lets a listener send. Makes a speaker a listener |
+| `spotlightOn( user )`, `spotlightOff( user? )` | puts them on the main tiles for everyone, the host too, up to four, `spotlight_full` for a fifth. Takes them off, or everyone with no user |
+| `moderate( act, user )` | the same by the name of the act: `mute`, `speak`, `listen`, `remove`, `spotlight`, `unspotlight` |
+| `spotlit` | the user ids a host put in the spotlight for everyone, in the order they went in, at most four. Empty while nobody is in it. `spotlight` is the same by their identities |
 | `leave()` | the others go on |
 | `encrypted` | whether its media is encrypted end to end |
-| `group`, `add( user )`, `invites()` | for the group call a call went on as: its call id, ringing someone in (→ `Promise<Invite>`, `not_a_call` in any other), and the rings so far. `group` is `null` in any other |
-| `livekit` | the room of the media server, for what this API does not cover |
+| `group`, `ref`, `add( token )`, `invites()` | for the group call a call went on as: its call id, what the page sends your route to ring someone in, ringing them with the token it answers (→ `Promise<Invite>`, `not_a_call` in any other), and the rings so far. `group` and `ref` are `null` in any other |
 | `on( event, fn )`, `off` | the events below |
 
 A `Person`:
@@ -138,11 +163,12 @@ A `Person`:
 |---|---|
 | `identity` | their name in the room, `user_<id>` |
 | `user` | their user id: a number for an id of digits, else the text your server gave |
-| `info` | what your rule gave them, opened. `null` until its key comes, when they come again as `person` |
+| `info` | what your token gave them, opened. `null` until its key comes, when they come again as `person` |
 | `camera`, `microphone`, `screen`, `screenAudio` | their tracks, `null` for one they do not send |
 | `speaking` | whether they speak now |
-| `publish` | whether they may send: the rule, or what your server changed since |
+| `publish` | whether they may send: their token, or what your server changed since |
 | `cameraPaused`, `screenPaused` | their camera or screen held back for the connection of this page: the picture stays on its last frame and comes again by itself |
+| `quality` | how their connection is, as the media server rates it: `excellent`, `good`, `poor`, `lost` or `unknown`. They come again as `person` when it changes |
 
 Its events:
 
@@ -150,17 +176,20 @@ Its events:
 |---|---|
 | `state` | the state |
 | `waiting` | `{ until, reason }` |
-| `person` | a `Person`: someone arrived, or what they send or may send changed |
+| `person` | a `Person`: someone arrived, or what they send or may send, or how their connection is, changed |
 | `person_left` | a `Person` who left |
 | `speakers` | the `Person` list of those speaking now |
 | `permissions` | `{ publish, subscribe, admin? }`: your server changed what this page may do (`permit`) |
+| `spotlit` | the user ids in the spotlight now: a host changed it, or it was on as this page joined. `spotlight` is the same by their identities |
+| `autoplay_blocked` | the browser holds the sound back until a click: `startAudio()` |
+| `quality` | how the connection of this page is now |
 | `invite` | an `Invite`: someone rung into this group call |
 | `error` | `{ code }`: `publish_failed` (a track of this page did not go out, its `source` beside), `encryption_failed` (a frame did not encrypt or open) |
 | `ended` | the reason: `left` (this page left), `removed` (your server or its host took the user out), `closed` (your server ended it for everyone), or `disconnected:<n>`, the reason of the media server by its number |
 
 ## `Invite`
 
-Someone rung into a call.
+Someone rung into a call. `Invite` and its `InviteState` are types of the package, for a list of your own: `import type { Invite } from '@wordplus/realtime'`.
 
 | Member | |
 |---|---|
@@ -173,7 +202,7 @@ A remote track has `attach( element )`, `detach( element? )` and `mediaStreamTra
 
 ## `Stream`
 
-A live stream, as your `streams()` rule made the page user its host, a guest or a viewer ([live streams](streams.md)). A live stream is not encrypted end to end. Its actions reject with a code ([errors](errors.md#live-streams)).
+A live stream, as your token made the page user its host, a guest or a viewer ([live streams](streams.md)). A live stream is not encrypted end to end. Its actions reject with a code ([errors](errors.md#live-streams)).
 
 | Member | |
 |---|---|
@@ -195,14 +224,15 @@ A live stream, as your `streams()` rule made the page user its host, a guest or 
 | `hand( up )` | → `Promise`: a viewer signed in asks to come on stage, or no longer (`false`) |
 | `joinStage()` | → `Promise`: on stage once invited (`invited`), with the camera and microphone |
 | `leaveStage()` | → `Promise`: off stage, back to watching |
-| `chat.send( text )` | a message in the chat, as its rule lets this user write |
+| `chat.send( text )` | a message in the chat, as your token lets this user write |
 | `chat.delete( id )`, `chat.pin( id )`, `chat.unpin()`, `chat.timeout( user, seconds )`, `chat.slow( seconds )`, `chat.clear()` | keeping the chat, for its host and mods ([permissions](permissions.md#live-streams)) |
-| `preview( { camera, microphone } )`, `setCamera( on )`, `setMicrophone( on )`, `setScreenShare( on )` | for its host and a guest: the picture and sound before and while live. `setScreenShare` → whether it shares |
+| `preview( { camera, microphone } )`, `setCamera( on, { deviceId }? )`, `setMicrophone( on, { deviceId }? )`, `setScreenShare( on )` | for its host and a guest: the picture and sound before and while live. `setScreenShare` → whether it shares |
+| `devices()` | → `Promise<{ cameras, microphones, speakers }>`, each `{ id, label }` |
 | `goLive()`, `end()` | for its host |
 | `invite( user )`, `unstage( user )` | for its host: asks someone who raised a hand, or anyone signed in who watches, on stage. Takes a guest off it |
 | `layout( mode, user? )` | for its host: how the stage shows, `grid`, `speaker` (the one speaking large) or `spotlight` (`user` alone) |
 | `ingest( renew? )` | for its host: → `{ url, key }` to stream from OBS, `renew` for a new key, which stops an encoder on the old one |
-| `kick( user )`, `ban( user )` | for its host and mods: out of the stream, free to come back, or kept out |
+| `remove( user )`, `ban( user )` | for its host and mods: out of the stream, free to come back, or kept out. `kick( user )` is the same as `remove( user )` |
 | `leave()` | leaves the picture, what this page sends, and the chat |
 
 A `user` is your user id. Its events:
@@ -258,7 +288,7 @@ These are the fields the type names. The object may carry more, which can change
 | Field | |
 |---|---|
 | `identity` | their place on the stage, `u:<id>.<8 hex>`, or `ingest` for the OBS picture |
-| `name`, `avatar` | as your rule gave them |
+| `name`, `avatar` | as your token gave them |
 | `role` | `host` or `guest` |
 | `local` | whether it is this page |
 | `camera`, `screen` | their picture tracks, `null` for one they do not send |

@@ -14,13 +14,14 @@ Open `/signup` and click Mia, then open it again in a private window and click L
 
 | File | |
 |---|---|
-| `lib/realtime.ts` | the realtime server part, once: who is asking, what others see of them, the rules of the chat rooms and calls, and the webhooks that keep the messages |
-| `app/api/realtime/auth/route.ts`, `calls/route.ts` | where the rules run: a page asks to join a room or to call, and gets a pass signed with the app's secret |
+| `lib/realtime.ts` | the realtime server part, once: who is asking, what others see of them, the rules of the chat rooms, and the webhooks that keep the messages |
+| `app/api/realtime/auth/route.ts`, `calls/route.ts` | where the room rules run, and the line of a call: a page asks to join a room, to answer a call or to keep one going, and gets a pass signed with the app's secret |
+| `app/api/chat-call-token/route.ts` | who may call whom, the site's own check: a call button asks it for a token, which this server answers only to two people who may use the chat |
 | `app/api/realtime/[...path]/route.ts` | the SDK's other routes, the webhooks among them, and the browser files, in two lines |
-| `app/(app)/layout.tsx`, `screens.tsx`, `live.tsx` | every page of a member: `RealtimeProvider` with the member's `config()`, the call screen, a call at the top of each page, the notices and who is online |
+| `app/(app)/layout.tsx`, `screens.tsx`, `live.tsx` | every page of a member: `RealtimeProvider realtime={ realtime }` for the member, the call screen, a call at the top of each page, the notices and who is online |
 | `app/(app)/members/catalog.tsx` | the people, those online first (`useOnline`), and Video, which opens their chat and calls |
-| `app/(app)/members/[id]/chat.tsx` | the chat and its calls: `<Chat to name avatar call startCall>` |
-| `app/(app)/actions.ts` | block and report: `realtime.in( room ).kick()` and a `closed` event to both |
+| `app/(app)/members/[id]/chat.tsx` | the chat and its calls: `<Chat to name avatar tokenUrl startCall>` |
+| `app/(app)/actions.ts` | block and report: `realtime.room( room ).remove()` and a `closed` event to both |
 | `app/api/messages`, `app/api/chat/sent` | the conversation for the chat, and each message the chat sent, kept on localhost where no webhook arrives |
 | `lib/dating.ts`, `db/schema.sql` | the profiles, the blocks, the chats with their members, and the messages: who may meet whom (`canMeet`) and who may use a chat (`mayChat`) |
 | `lib/auth.ts`, `app/account.ts`, `proxy.ts` | sign-up and sign-in with Better Auth |

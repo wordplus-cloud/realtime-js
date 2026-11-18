@@ -43,9 +43,9 @@ async function Event({ params }: PageProps<'/events/[id]'>) {
                     </form>
                 )}
             </header>
-            {/* The player and its chat: WordPlus Cloud's ready-made screens, which ask this server for the stream's pass
-                (/api/realtime/calls) with the rule of lib/realtime.ts. */}
-            <LiveStream name={`event:${event.id}`} title={event.title} studioUrl={hosts ? `/studio/${event.id}` : undefined} />
+            {/* The player and its chat: WordPlus Cloud's ready-made screens, which ask this server's route for a token
+                (/api/event-token), again as each runs out. */}
+            <LiveStream name={`event:${event.id}`} tokenUrl={`/api/event-token?id=${event.id}`} title={event.title} studioUrl={hosts ? `/studio/${event.id}` : undefined} />
         </article>
     );
 }

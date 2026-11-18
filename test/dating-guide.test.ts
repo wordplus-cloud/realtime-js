@@ -27,7 +27,7 @@ describe('the dating site guide', () => {
 
     it('quotes the realtime side whole', () => {
         // The files a reader adds to their own app: whole, not a part.
-        for (const file of ['lib/realtime.ts', 'app/api/realtime/[...path]/route.ts', 'app/(app)/layout.tsx', 'app/(app)/members/[id]/chat.tsx', 'app/(app)/members/catalog.tsx']) {
+        for (const file of ['lib/realtime.ts', 'app/api/realtime/[...path]/route.ts', 'app/api/realtime/calls/route.ts', 'app/api/chat-call-token/route.ts', 'app/(app)/layout.tsx', 'app/(app)/members/[id]/chat.tsx', 'app/(app)/members/catalog.tsx']) {
             const block = quoted.find((q) => q.file === file);
             expect(block, `${file} is quoted`).toBeDefined();
             expect(asQuoted(readFileSync(join(example, file), 'utf8')).trim()).toBe(block!.text.trim());

@@ -24,6 +24,7 @@ async function Studio({ params }: PageProps<'/studio/[id]'>) {
     return (
         <LiveStream
             name={`event:${event.id}`}
+            tokenUrl={`/api/event-token?id=${event.id}`}
             view="studio-page"
             title={event.title}
             url={`/events/${event.id}`}

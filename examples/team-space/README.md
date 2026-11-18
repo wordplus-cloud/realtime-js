@@ -14,19 +14,20 @@ Open `/signup` and click Mia, who leads Design, then start the Design meeting fr
 
 | File | |
 |---|---|
-| `lib/realtime.ts` | the realtime server part, once: who is asking, what others see of them, the chats with their rule, the calls of a conversation between two, each team's meeting room with its rule and host, what meetings are on now, and the webhooks: the messages kept, a meeting starting, which tells its team, and someone coming or going, which tells every page |
+| `lib/realtime.ts` | the realtime server part, once: who is asking, what others see of them, the chats with their rule, the tokens of a call in a conversation between two (`chatCallToken`) and of each team's meeting room with its host (`meetingToken`), what meetings are on now, and the webhooks: the messages kept, a meeting starting, which tells its team, and someone coming or going, which tells every page |
 | `lib/team.ts`, `db/schema.sql` | the colleagues, the teams with their leads and members, the chats, a channel of a team or a conversation between two, and who may use each (`mayChat`) |
-| `app/api/realtime/auth/route.ts`, `calls/route.ts` | where the rules run: a page asks to join a chat, or to call, come into a meeting or mute someone there, and gets a pass signed with the app's secret |
+| `app/api/chat-call-token/route.ts`, `app/api/meeting-token/route.ts` | the site's own routes for a call and a meeting: each answers a token for the colleague signed in, or 403 |
+| `app/api/realtime/auth/route.ts`, `calls/route.ts` | a page asks to join a chat, where the rule of the rooms runs, and what it asks of a call once it has its token: to answer, or a lead's mute or remove |
 | `app/api/realtime/[...path]/route.ts` | the SDK's other routes, the webhooks among them, and the browser files |
 | `app/api/messages/route.ts`, `app/api/chat/sent/route.ts` | a chat's messages as this server keeps them, and a message a page sent, kept where no webhook arrives |
-| `app/(app)/layout.tsx`, `screens.tsx`, `live.tsx` | every page of a colleague: `RealtimeProvider` with `config()`, the call screen, who is online, the meetings on now kept current (`MeetingsLive`), and the notices of a message and a meeting starting |
+| `app/(app)/layout.tsx`, `screens.tsx`, `live.tsx` | every page of a colleague: `RealtimeProvider` from `@wordplus/realtime/next`, the call screen, who is online, the meetings on now kept current (`MeetingsLive`), and the notices of a message and a meeting starting |
 | `app/(app)/teams/page.tsx` | your teams, and the meetings on now |
-| `app/(app)/teams/[id]/page.tsx`, `meeting.tsx`, `channel.tsx` | a team: its meeting room (`CallSpot` and `GroupCallButton`), its channels (`Chat` with the team's names, `people`), and who is in it, online first |
+| `app/(app)/teams/[id]/page.tsx`, `meeting.tsx`, `channel.tsx` | a team: its meeting room (`CallSpot` and `GroupCallButton`, with `tokenUrl`), its channels (`Chat` with the team's names, `people`), and who is in it, online first |
 | `app/(app)/people/page.tsx`, `directory.tsx` | everyone, those online first (`useOnline`), each with Message and Call |
-| `app/(app)/people/[id]/page.tsx`, `chat.tsx`, `app/(app)/messages/page.tsx` | a conversation with a colleague and its call (`Chat` with `call`), and every conversation, the latest first |
+| `app/(app)/people/[id]/page.tsx`, `chat.tsx`, `app/(app)/messages/page.tsx` | a conversation with a colleague and its call (`Chat` with `tokenUrl`), and every conversation, the latest first |
 | `lib/auth.ts`, `app/account.ts`, `proxy.ts` | sign-up and sign-in with Better Auth, and the colleagues' pages kept for those signed in |
 
-A meeting needs no code of the site but its rule: the call screen does the rest, the lead's mute and remove included. The notice of a meeting starting, and the meetings on now keeping up by themselves, come by webhook, which needs the site at an address WordPlus Cloud reaches: on localhost none arrives, unless a tunnel gives it one (`cloudflared tunnel --url http://localhost:3000`, then that address with `/api/realtime/webhook` as the app's webhook).
+A meeting needs no code of the site but its token route: the call screen does the rest, the lead's mute and remove included. The notice of a meeting starting, and the meetings on now keeping up by themselves, come by webhook, which needs the site at an address WordPlus Cloud reaches: on localhost none arrives, unless a tunnel gives it one (`cloudflared tunnel --url http://localhost:3000`, then that address with `/api/realtime/webhook` as the app's webhook).
 
 `TEAM_DEMO=1` is for the demo: the ready-made colleagues of `db/people.json` in one click, and **How this page works** under each page, in short steps with their code, from `how-it-works.md` (`app/how-it-works.tsx`, and `scripts/how-it-works.mjs`, which reads it before `dev` and `build`). Leave it out, and the site shows neither.
 

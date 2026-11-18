@@ -13,13 +13,13 @@ The whole site is in the package, `examples/lessons`: sign-up, three teachers wi
 | On the site | What makes it |
 |---|---|
 | **A teacher's studio**, the lessons they teach, each a click from going live | a page of yours, with what `realtime.listStreams()` says is live |
-| **A teacher goes live** in a lesson, from the browser or OBS, with the chat and the hands raised beside the picture | `<LiveStream view="studio-page">` on the lesson's stream, `lesson:{id}`: WordPlus Cloud's studio as a page of its own ([the studio as a page of its own](../elements.md#the-studio-as-a-page-of-its-own)) |
-| **Students watch**, with a chat and reactions | `<LiveStream>` on the same stream, the player and its chat, for whoever your rule lets watch ([live streams](streams.md)) |
-| **An open lesson** for anyone, signed in or not, the others for the course's students | one rule, `mayWatch`, which the stream and the lesson's page both ask |
-| **A hand raised**, and the student on stage with their camera | the stream's `stage: true`: the ready-made player and studio do the rest ([guests on stage](../streams.md#guests-on-stage)) |
+| **A teacher goes live** in a lesson, from the browser or OBS, with the chat and the hands raised beside the picture | `<LiveStream view="studio-page" tokenUrl>` on the lesson's stream, `lesson:{id}`: WordPlus Cloud's studio as a page of its own ([the studio as a page of its own](../elements.md#the-studio-as-a-page-of-its-own)) |
+| **Students watch**, with a chat and reactions | `<LiveStream tokenUrl>` on the same stream, the player and its chat, for whoever your token route lets watch ([live streams](streams.md)) |
+| **An open lesson** for anyone, signed in or not, the others for the course's students | one check, `mayWatch`, which the stream's token and the lesson's page both ask |
+| **A hand raised**, and the student on stage with their camera | the stream's `settings: { stage: true }` in its tokens: the ready-made player and studio do the rest ([guests on stage](../streams.md#guests-on-stage)) |
 | **A notice** when a lesson they may watch goes live, on whatever page they are | the `stream.live` webhook, and `realtime.toUser( ids ).emit()` ([webhooks](sending.md#webhooks)) |
 | **What is live now**, with how many watch each, current on every page as lessons go live and end | `realtime.listStreams()`: WordPlus Cloud knows, with no table of yours. The `stream.live` and `stream.ended` webhooks, told to a room every page joins ([rooms](rooms.md)) |
-| **Leaving a course** takes the student out of its lessons live now | `realtime.stream( name ).kick()`, and your rule from then on ([taking access away](../permissions.md#taking-access-away)) |
+| **Leaving a course** takes the student out of its lessons live now | `realtime.stream( name ).remove()`, and your token route from then on ([taking access away](../permissions.md#taking-access-away)) |
 
 ## Run it
 
@@ -27,7 +27,7 @@ You need:
 
 - **Node.js 22** or newer.
 - **Postgres 15** or newer, with a database of its own for the site.
-- **An app in WordPlus Cloud.** Apps are in early access, so first [ask for it](https://www.wordplus.cloud/contact). Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
+- **An app in WordPlus Cloud.** If you have no subscription yet, [choose your connections](https://www.wordplus.cloud/pricing#apps) first. Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
 
 ```bash
 cd examples/lessons
@@ -74,7 +74,7 @@ Sign-up and sign-in are ordinary Next.js and are left out here: they are `app/ac
 
 ### Who may watch a lesson
 
-One rule decides who may watch each lesson, the same for the stream and for the lesson's page: its teacher teaches it, anyone may watch an open lesson, signed in or not, and only the students of its course the others. The database holds the people, the courses and their lessons, who is in which course, and who follows whom:
+One check decides who may watch each lesson, the same for the stream's token and for the lesson's page: its teacher teaches it, anyone may watch an open lesson, signed in or not, and only the students of its course the others. The database holds the people, the courses and their lessons, who is in which course, and who follows whom:
 
 ```sql title="db/schema.sql"
 -- The lessons part of the database. Better Auth makes its own tables first (npx auth migrate), as this one refers to
@@ -122,7 +122,7 @@ create table if not exists follow (
 );
 ```
 
-The rule, and what it reads:
+The check, and what it reads:
 
 ```ts title="lib/lessons.ts"
 /** The stream of a lesson: lesson:7. */
@@ -143,7 +143,7 @@ export async function isEnrolled(user: string, course: string): Promise<boolean>
 
 /**
  * Who may watch a lesson: its teacher, anyone for an open one, signed in or not, and otherwise the students of its
- * course. The same rule decides the stream (lib/realtime.ts) and what the lesson's page shows.
+ * course. The same check decides the stream's token (lib/realtime.ts) and what the lesson's page shows.
  */
 export async function mayWatch(user: string | null, lesson: Lesson): Promise<boolean> {
     if (user === lesson.teacher) return true;
@@ -155,17 +155,16 @@ export async function mayWatch(user: string | null, lesson: Lesson): Promise<boo
 
 ### Your server and WordPlus Cloud
 
-The realtime side of your server is one file: who is asking, what others see of them, the stream of each lesson with its rule, what is live now with the room that tells every page, and the webhooks of a lesson going live and ending. The stream's rule answers `host` for its teacher, with the picture up to 1080p, `viewer` for whoever `mayWatch` lets in, signed in or not, and `false` for anyone else. Its settings let the stream take guests on stage, and reactions.
+Who is who in a lesson's stream is the site's own logic. The page asks a route of the site for a token, the route checks who asks, and answers a token that says who this person is in the stream, or 403. WordPlus Cloud then holds the page to it.
+
+The realtime side of your server is one file: who is asking, what others see of them, the token of each lesson's stream, what is live now with the room that tells every page, and the webhooks of a lesson going live and ending. `lessonToken` makes its teacher the host, with the picture up to 1080p, lets whoever `mayWatch` lets in watch, signed in or not, a visitor reading the chat, and answers null for anyone else. The settings in every token let the stream take guests on stage, and reactions.
 
 ```ts title="lib/realtime.ts"
 import { createRealtime } from '@wordplus/realtime/server';
 import { currentUserId } from './auth';
-import { followersOf, lessonIn, lessonOf, mayWatch, personOf, studentsOf } from './lessons';
+import { followersOf, lessonIn, lessonOf, mayWatch, personOf, roomOf, studentsOf } from './lessons';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
     // Who is asking: the signed-in user, or null for a visitor.
     user: () => currentUserId(),
     // What others see of them in a lesson: on stage, in its chat, in the teacher's list of hands.
@@ -175,21 +174,22 @@ export const realtime = createRealtime({
     },
 });
 
-// The stream of each lesson: lesson:{id}, where {id} is the lesson's number. Its teacher goes live in it, and whoever
-// may watch the lesson (mayWatch in lib/lessons.ts) watches: anyone for an open lesson, else the course's students.
-// A student signed in may raise a hand, and the teacher brings them on stage. A page asks to join at
-// /api/realtime/calls.
-realtime.streams(
-    'lesson:{id}',
-    async (user, { id }) => {
-        const lesson = await lessonOf(id);
-        if (!lesson) return false;
-        const me = user === null ? null : String(user);
-        if (me === lesson.teacher) return { role: 'host', quality: '1080p' };
-        return (await mayWatch(me, lesson)) ? 'viewer' : false;
-    },
-    { stage: true, reactions: true },
-);
+/**
+ * The token of a lesson's stream, lesson:{id}, where {id} is the lesson's number, for whoever asks, signed in or not, or
+ * null to refuse. Its teacher hosts it, with the picture up to 1080p. Whoever may watch the lesson (mayWatch in
+ * lib/lessons.ts) watches: anyone for an open lesson, else the course's students. A visitor reads its chat, and signs in
+ * to write. A student signed in may raise a hand, and the teacher brings them on stage. A page asks for it at
+ * /api/lesson-token.
+ */
+export async function lessonToken(user: string | null, id: string): Promise<string | null> {
+    const lesson = await lessonOf(id);
+    if (!lesson) return null;
+    // The same in every token of the stream: a stage for guests, and reactions.
+    const settings = { stage: true, reactions: true };
+    if (user === lesson.teacher) return realtime.streamToken(user, roomOf(lesson.id), { role: 'host', quality: '1080p', settings });
+    if (!(await mayWatch(user, lesson))) return null;
+    return realtime.streamToken(user, roomOf(lesson.id), user === null ? { chat: 'read', settings } : { settings });
+}
 
 // What is live: every page joins it, a visitor's too, to hear when a lesson goes live or ends and show its lists as they
 // are now. Only the server says anything in it.
@@ -228,12 +228,29 @@ realtime.on('stream.ended', async ({ stream }) => {
 });
 ```
 
-The rule runs on your server, in a route of your own, each time a page asks to join a lesson's stream: the page gets a pass signed with the app's secret, or why not. A visitor who isn't signed in asks too, with `user` null.
+The page asks for the token at a route of the site, as the player opens and again as each token runs out, so someone who left the course is turned away then. A visitor who isn't signed in asks too, with `user` null. The route builds the name of the stream from the lesson's number:
+
+```ts title="app/api/lesson-token/route.ts"
+// GET /api/lesson-token?id=7: the token of lesson 7's stream for whoever asks, signed in or not, or 403. The player and
+// the studio ask it as they open, and again as each token runs out, so someone who left the course is turned away then.
+// What they may do in the stream is lessonToken's, in lib/realtime.ts.
+import { currentUserId } from '@/lib/auth';
+import { lessonToken } from '@/lib/realtime';
+
+export async function GET(request: Request) {
+    const id = new URL(request.url).searchParams.get('id') ?? '';
+    const token = await lessonToken(await currentUserId(), id);
+    if (!token) return new Response(null, { status: 403 });
+    return Response.json({ token }, { headers: { 'Cache-Control': 'no-store' } });
+}
+```
+
+Once a page has its token, what it asks of the stream goes to the SDK's calls route, here a route of the site's own so its code shows. It starts nothing by itself: with no token, no page joins.
 
 ```ts title="app/api/realtime/calls/route.ts"
-// POST /api/realtime/calls: a page asks to join a lesson's stream, as { stream: 'lesson:7' }. This server runs the
-// stream's rule (realtime.streams in lib/realtime.ts) for whoever asks, signed in or not, and answers a pass for the
-// stream, signed with the app's secret, or why not: the teacher's to go live, a viewer's to watch.
+// POST /api/realtime/calls: what a page asks of a lesson's stream once it has its token from /api/lesson-token. The
+// package checks each ask against what only this server signs, for whoever asks, signed in or not, and answers. It
+// starts nothing by itself: with no token from /api/lesson-token, no page joins a stream.
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 
@@ -253,22 +270,21 @@ The SDK's other routes, the webhooks among them, and the browser files:
 
 ```ts title="app/api/realtime/[...path]/route.ts"
 // WordPlus Cloud's other routes: the webhooks the cloud sends (POST /api/realtime/webhook), among them a lesson going
-// live, and the browser's files (GET). Joining a lesson's stream is the site's own route, calls/route.ts beside this one.
+// live, and the browser's files (GET). A lesson's stream starts from the site's own route, app/api/lesson-token, and
+// what a page asks of it once it has its token is calls/route.ts beside this one.
 import { realtime } from '@/lib/realtime';
 
-export const GET = realtime.route;
-export const POST = realtime.route;
+export const { GET, POST } = realtime.handlers;
 ```
 
 ### Every page connected
 
-Every page of the site connects, a visitor's as well as a member's, so an open lesson needs no account, and every page hears a lesson going live. One connection for all of them, kept as people move between pages:
+Every page of the site connects, a visitor's as well as a member's, so an open lesson needs no account, and every page hears a lesson going live. One connection for all of them, kept as people move between pages. `RealtimeProvider` of `@wordplus/realtime/next` signs the page's settings on the server for the person the layout found, `null` for a visitor, so the page connects with no request first:
 
 ```tsx title="app/(site)/layout.tsx"
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
+import { RealtimeProvider } from '@wordplus/realtime/next';
 import { currentUserId } from '@/lib/auth';
 import { coursesOf, personOf } from '@/lib/lessons';
 import { realtime } from '@/lib/realtime';
@@ -286,13 +302,12 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
 }
 
 async function Connected({ children }: { children: React.ReactNode }) {
-    await connection(); // made for each request: the settings are signed for this person, now
     const me = await currentUserId();
     const person = me ? await personOf(me) : null;
     // A teacher goes live from their studio, a link away on every page.
     const teaches = me ? (await coursesOf(me)).length > 0 : false;
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur">
                 <nav className="site-width mx-auto flex max-w-4xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3">
                     <Link href="/" className="text-xl font-bold text-teal-700">Live Lessons</Link>
@@ -354,7 +369,7 @@ The list keeps up by itself. When a lesson goes live or ends, WordPlus Cloud sen
 
 ### A lesson: the stream, or the way in
 
-The lesson's page asks the same rule. Whoever may watch gets `<LiveStream>`, the player and its chat. Its teacher sees the way to their studio over the player, at the address `studioUrl` gives: **Go live in the studio**, and while live **Open the studio**. Anyone else is told the lesson is for the course's students, and how to join it.
+The lesson's page asks the same check. Whoever may watch gets `<LiveStream>`, the player and its chat, whose `tokenUrl` is the route above. Its teacher sees the way to their studio over the player, at the address `studioUrl` gives: **Go live in the studio**, and while live **Open the studio**. Anyone else is told the lesson is for the course's students, and how to join it.
 
 ```tsx title="app/(site)/lessons/[id]/page.tsx"
 import Link from 'next/link';
@@ -390,9 +405,9 @@ async function Lesson({ params }: { params: Promise<{ id: string }> }) {
 
             {(await mayWatch(me, lesson)) ? (
                 // The player and its chat: WordPlus Cloud's ready-made screens, which ask this server for the stream's
-                // pass (/api/realtime/calls) with the rule of lib/realtime.ts. Its teacher goes live in the studio
+                // token (/api/lesson-token, from lessonToken in lib/realtime.ts). Its teacher goes live in the studio
                 // (/studio/{id}), which the player shows them the way to.
-                <LiveStream name={roomOf(lesson.id)} title={lesson.title} loginUrl="/signin" studioUrl={teaches ? `/studio/${lesson.id}` : undefined} />
+                <LiveStream name={roomOf(lesson.id)} tokenUrl={`/api/lesson-token?id=${lesson.id}`} title={lesson.title} loginUrl="/signin" studioUrl={teaches ? `/studio/${lesson.id}` : undefined} />
             ) : (
                 <div className="rounded-3xl bg-white p-8 text-center shadow-sm">
                     <p className="text-lg font-medium">This lesson is for the students of {lesson.courseTitle}.</p>
@@ -493,7 +508,7 @@ async function CourseLessons({ course, live }: { course: Course; live: Map<strin
 }
 ```
 
-Each lesson's studio is a page with WordPlus Cloud's studio in it, drawn ready as a page of its own, `view="studio-page"`: the picture as large as fits, with the camera and microphone, the screen, OBS and **Go live** under it, and beside it, in tabs, the chat, the guests (the hands raised, and who is on stage) and the stream, with the link to the lesson to share. `url` is the lesson's page, and `backUrl` the way back to the studio's first page. Only the lesson's teacher stays: anyone else goes to the lesson.
+Each lesson's studio is a page with WordPlus Cloud's studio in it, drawn ready as a page of its own, `view="studio-page"`: the picture as large as fits, with the camera and microphone, the screen, OBS and **Go live** under it, and beside it, in tabs, the chat, the guests (the hands raised, and who is on stage) and the stream, with the link to the lesson to share. `url` is the lesson's page, and `backUrl` the way back to the studio's first page. Its `tokenUrl` is the same route, which makes the teacher the host. Only the lesson's teacher stays: anyone else goes to the lesson.
 
 ```tsx title="app/(site)/studio/[id]/page.tsx"
 import { notFound, redirect } from 'next/navigation';
@@ -523,6 +538,7 @@ async function LessonStudio({ params }: { params: Promise<{ id: string }> }) {
     return (
         <LiveStream
             name={roomOf(lesson.id)}
+            tokenUrl={`/api/lesson-token?id=${lesson.id}`}
             view="studio-page"
             title={`${lesson.position}. ${lesson.title}`}
             url={`/lessons/${lesson.id}`}
@@ -545,9 +561,9 @@ body:has(.lesson-studio) .site-width {
 
 ### A hand raised, and the stage
 
-Coming on stage needs no code of yours: the rule's `stage: true` lets the stream take guests, and WordPlus Cloud's ready-made player and studio do the rest.
+Coming on stage needs no code of yours: `settings: { stage: true }` in its tokens lets the stream take guests, and WordPlus Cloud's ready-made player and studio do the rest.
 
-- **While the lesson is live**, the player offers a student who is signed in **Ask to join on stage**. A visitor who isn't signed in is never offered it, and neither is anyone where the rule's settings say `stage: false`.
+- **While the lesson is live**, the player offers a student who is signed in **Ask to join on stage**. A visitor who isn't signed in is never offered it, and neither is anyone where the settings say `stage: false`.
 - **The teacher's studio** lists each hand raised under **Guests**, with **Invite**. The student accepts with **Join stage**, and everyone watching sees them beside the teacher, camera and microphone.
 - **The teacher** can **Mute** a guest, or **Remove from stage**, and the student can **Leave stage**: either way they are back watching, without reloading the page.
 
@@ -617,7 +633,7 @@ export function LiveMark({ viewers }: { viewers: number }) {
 
 ### Joining a course, and following a teacher
 
-Joining a course and following a teacher are rows in your database, which the rule and the webhook read. Leaving a course goes further: your rule says no from then on, and your server takes the student out of the course's lessons live now, as the rule would on their next try.
+Joining a course and following a teacher are rows in your database, which the token route and the webhook read. Leaving a course goes further: your token route says no from then on, and your server takes the student out of the course's lessons live now, as the route would when their token runs out.
 
 ```ts title="app/(site)/actions.ts"
 'use server';
@@ -643,14 +659,14 @@ export async function joinCourse(course: string) {
     revalidatePath('/', 'layout'); // every page shows it
 }
 
-/** Leave a course: out of its lessons live now at once, as the rule says no to them from here on. */
+/** Leave a course: out of its lessons live now at once, as their token route says no to them from here on. */
 export async function leaveCourse(course: string) {
     const id = await me();
     await leave(id, course);
 
     const live = await liveNow();
     for (const lesson of await lessonsOf(course)) {
-        if (!lesson.open && live.has(lesson.id)) await realtime.stream(roomOf(lesson.id)).kick(id);
+        if (!lesson.open && live.has(lesson.id)) await realtime.stream(roomOf(lesson.id)).remove(id);
     }
     revalidatePath('/', 'layout'); // every page shows it
 }
@@ -666,12 +682,12 @@ export async function followTeacher(teacher: string, on: boolean) {
 
 ## Make it yours
 
-- **Who may watch** is `mayWatch` in `lib/lessons.ts`, which the stream and the lesson's page ask. A plan of your own, a lesson's date or a course with few places are each a line there.
-- **What students may do** is the rule's answer: `{ role: 'viewer', chat: 'read' }` keeps someone from writing, and `{ role: 'viewer', mod: true }` makes a teacher's assistant keep the chat ([live streams in depth](../streams.md#who-is-who)).
-- **The stage** is off for a stream whose settings say `stage: false`.
+- **Who may watch** is `mayWatch` in `lib/lessons.ts`, which the stream's token and the lesson's page ask. A plan of your own, a lesson's date or a course with few places are each a line there.
+- **What students may do** is what `lessonToken` puts in their token: `{ chat: 'read' }` keeps someone from writing, and `{ mod: true }` makes a teacher's assistant keep the chat ([live streams in depth](../streams.md#who-is-who)).
+- **The stage** is off for a stream whose tokens say `settings: { stage: false }`.
 - **The studio** may also be in the lesson's page itself: leave out `studioUrl`, and its teacher sees the studio under the player there.
 - **Your own sign-in:** `currentUserId()` in `lib/auth.ts` is all the realtime side asks of it.
-- **Its look** is Tailwind's in your pages, and in the player and the studio the `--estream-*` tokens in `app/globals.css`, such as `--estream-accent` ([customizing](customizing.md)).
+- **Its look** is Tailwind's in your pages, and in the player and the studio the `--wplus-live-stream-*` tokens in `app/globals.css`, such as `--wplus-live-stream-accent` ([customizing](customizing.md)).
 - **Take out the demo:** `LESSONS_DEMO` off, then `db/people.json`, `db/seed.mjs`, `public/people`, `app/demo-people.tsx`, `how-it-works.md`, `app/how-it-works.tsx`, `app/how-it-works-cards.tsx`, `app/api/how-it-works`, `scripts/how-it-works.mjs`, the `predev` and `prebuild` scripts that run it, the `.how-it-works-code` styles in `app/globals.css`, `lib/worlds.ts`, `db/worlds.sql` and `proxy.ts` (the public demo's own), and their lines in the layout, the home page, `lib/db.ts`, `lib/realtime.ts`, and the sign-up and sign-in pages.
 
 ## Put it online

@@ -12,12 +12,12 @@ The whole site is in the package, `examples/team-space`: sign-up, eleven colleag
 
 | On the site | What makes it |
 |---|---|
-| **A meeting room for each team**, its call in the page, screens shared | `<CallSpot>` and `<GroupCallButton>` on the group call `meeting:{id}`, which `realtime.groupCalls()` opens to the team ([the call in the page](calls.md#the-call-in-the-page)) |
+| **A meeting room for each team**, its call in the page, screens shared | `<CallSpot>` and `<GroupCallButton>` on the group call `meeting:{id}`, with a token from your route that lets in the team ([the call in the page](calls.md#the-call-in-the-page)) |
 | **Opening the team page** while its meeting is on takes you into it, with no button to press, your camera and microphone off until you turn them on | `join` on the spot, given only while someone is in the meeting, as `realtime.call( room ).get()` says ([straight into a meeting](calls.md#straight-into-a-meeting)) |
-| **The lead hosts it**: mute anyone, or take them out, from their tile | the rule's `{ admin: true }` for the team's lead: the call screen does the rest ([permissions](../permissions.md#group-calls)) |
-| **Channels** for each team, kept, with typing, reactions and read ticks | `<Chat>` on the room `chat:{id}`, with the names and photos of the team, `people` ([the ready-made chat](events.md#ready-made-the-chat)) |
+| **The lead hosts it**: mute anyone, or take them out, from their tile | `admin: true` in the token of the team's lead: the call screen does the rest ([permissions](../permissions.md#group-calls)) |
+| **Channels** for each team, kept, with typing, reactions and read ticks | `<Chat>` on the room `chat:{id}`, with the names and photos of the team, `people` ([the ready-made conversation window](events.md#ready-made-the-chat)) |
 | **Who is online**, on every page and on People, those online first | `useOnline()`: WordPlus Cloud tells the page as colleagues come and go ([who is online](presence.md#who-is-online-across-your-app)) |
-| **A conversation with a colleague**, and its call beside the messages | `<Chat to name avatar call>`, and a calls rule of the same name, `chat:{id}` ([the call in its chat](calls.md#the-call-in-its-chat)) |
+| **A conversation with a colleague**, and its call beside the messages | `<Chat to name avatar tokenUrl>`, and your route that answers a token for a call of the same name, `chat:{id}` ([the call in its chat](calls.md#the-call-in-its-chat)) |
 | **Call** on People opens the conversation and calls | `startCall`, from the address it links to |
 | **A notice** when their team starts a meeting, or a colleague writes, on whatever page they are | the `group.joined` and `message` webhooks, and `realtime.toUser( ids ).emit()` ([webhooks](sending.md#webhooks)) |
 | **The meetings on now**, with how many are in each, current on every page | `realtime.listCalls()`: WordPlus Cloud knows, with no table of yours. The `group.joined` and `group.left` webhooks, told to a room every page joins ([rooms](rooms.md)) |
@@ -28,7 +28,7 @@ You need:
 
 - **Node.js 22** or newer.
 - **Postgres 15** or newer, with a database of its own for the site.
-- **An app in WordPlus Cloud.** Apps are in early access, so first [ask for it](https://www.wordplus.cloud/contact). Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
+- **An app in WordPlus Cloud.** If you have no subscription yet, [choose your connections](https://www.wordplus.cloud/pricing#apps) first. Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
 
 ```bash
 cd examples/team-space
@@ -75,7 +75,7 @@ Sign-up and sign-in are ordinary Next.js and are left out here: they are `app/ac
 
 ### Who may use what
 
-Two rules decide it all: a chat is for its members, and a meeting room for its team. The database holds the colleagues, the teams with their leads and members, and the chats, each a channel of a team, whose members are the team, or a conversation between two:
+Two checks decide it all: a chat is for its members, and a meeting room for its team. The database holds the colleagues, the teams with their leads and members, and the chats, each a channel of a team, whose members are the team, or a conversation between two:
 
 ```sql title="db/schema.sql"
 -- The team part of the database. Better Auth makes its own tables first (npx auth migrate), as this one refers to "user",
@@ -136,7 +136,7 @@ create table if not exists message (
 create index if not exists message_chat on message (chat_id, at);
 ```
 
-The rules, and what they read. A team meets in a group call named after it, `meeting:3` for team 3, and a chat is a room named after its number, `chat:7`:
+The checks, and what they read. A team meets in a group call named after it, `meeting:3` for team 3, and a chat is a room named after its number, `chat:7`:
 
 ```ts title="lib/team.ts"
 /** Whether someone is in a team. A visitor who isn't signed in (null) never is. */
@@ -184,7 +184,9 @@ export async function isConversation(chat: string): Promise<boolean> {
 
 ### Your server and WordPlus Cloud
 
-The realtime side of your server is one file: who is asking and what colleagues see of each other, the room of each chat with its rule, the call of a conversation between two, the meeting room of each team with its rule, the meetings on now with the room that tells every page, and the webhooks. Those keep the messages, tell a team that its meeting started, and tell every page that someone came into a meeting or left it. The meeting rule answers `{ admin: true }` for the team's lead, which makes them its host, `true` for the rest of the team, and `false` for anyone else.
+Who may come into a meeting, and who may call whom, is the site's own logic. The page asks a route of the site for a token, the route checks who asks, and answers a token that says what this colleague may do, or 403. WordPlus Cloud then holds the page to it. Rooms are still declared once, each with its rule.
+
+The realtime side of your server is one file: who is asking and what colleagues see of each other, the room of each chat with its rule, the token of a call in a conversation between two (`chatCallToken`), the token of each team's meeting room (`meetingToken`), the meetings on now with the room that tells every page, and the webhooks. Those keep the messages, tell a team that its meeting started, and tell every page that someone came into a meeting or left it. `meetingToken` makes the team's lead its host, with `admin: true`, lets the rest of the team in, and answers null for anyone else.
 
 ```ts title="lib/realtime.ts"
 import { createRealtime } from '@wordplus/realtime/server';
@@ -192,9 +194,6 @@ import { currentUserId } from './auth';
 import { chatIn, isConversation, isMember, keepMessage, mayChat, meetingOf, membersOf, nameOf, peopleIn, personOf, photoOf, react, teamIn, teamOf, type Message } from './team';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
     // Who is asking: the signed-in user, or null.
     user: () => currentUserId(),
     // What colleagues see of each other: in the chats, the list of who is online and the calls.
@@ -209,33 +208,39 @@ export const realtime = createRealtime({
 // and reactions come here too (below), to be kept. A page asks to join at /api/realtime/auth.
 realtime.room(
     'chat:{id}',
+    async (user, { id }) => mayChat(user, id),
     {
         history: 50,
         emit: ['message', 'typing', 'reaction', 'read'],
         webhook: ['message', 'reaction'],
     },
-    async (user, { id }) => mayChat(user, id),
 );
 
-// A call in a conversation between two, by the name of its room: both of them may use it. A channel has no call of its
-// own, as its team meets in its meeting room. A page asks to call, or to answer, at /api/realtime/calls.
-realtime.calls('chat:{id}', async (user, other, { id }) => {
-    if (!(await isConversation(id))) return false;
-    // The one asking: who calls, as they call, or who is called, as they answer.
-    const userMayChat = await mayChat(user, id);
-    // The other one of the call.
-    const otherMayChat = await mayChat(other, id);
-    return userMayChat && otherMayChat;
-});
+/**
+ * The token of a call in a conversation between two, by the name of its room, chat:{id}, which the chat's call buttons
+ * send: the one calling and the one called may both use the chat. A channel has no call of its own, as its team meets
+ * in its meeting room. Null to refuse. A page asks for it at /api/chat-call-token.
+ */
+export async function chatCallToken(user: string, to: string, name: string, type: string | null): Promise<string | null> {
+    // The name comes from the page: a conversation between two of this site, and no other.
+    const chat = chatIn(name);
+    if (!chat || !(await isConversation(chat))) return null;
+    // The one calling, and the one called.
+    if (!(await mayChat(user, chat)) || !(await mayChat(to, chat))) return null;
+    // The call takes the name of the chat, so it shows there.
+    return realtime.callToken(user, to, { type, name });
+}
 
-// The meeting room of each team: meeting:{id}, where {id} is the team's number, a group call on WordPlus Cloud's media
-// servers for the members of the team. Its lead hosts it: the call screen gives them mute and remove on everyone's
-// tile. A page asks to join at /api/realtime/calls too.
-realtime.groupCalls('meeting:{id}', async (user, { id }) => {
-    if (!(await isMember(id, user))) return false;
-    const team = await teamOf(id);
-    return team?.lead === String(user) ? { admin: true } : true;
-});
+/**
+ * The token of a team's meeting room, meeting:{id}, where {id} is the team's number: a group call on WordPlus Cloud's
+ * media servers for the members of the team. Its lead hosts it: the call screen gives them mute and remove on
+ * everyone's tile. Null to refuse. A page asks for it at /api/meeting-token.
+ */
+export async function meetingToken(user: string, team: string): Promise<string | null> {
+    if (!(await isMember(team, user))) return null;
+    const lead = (await teamOf(team))?.lead === user;
+    return realtime.groupCallToken(user, meetingOf(team), { admin: lead });
+}
 
 // The meetings on now: every page of a colleague joins it, to hear when someone comes into a meeting or leaves it, and
 // show its lists as they are now. Only the server says anything in it.
@@ -289,7 +294,7 @@ realtime.on('group.joined', async ({ call, user }) => {
     if (!team) return;
     await realtime.to('meetings').emit('changed');
     // The first one in starts it.
-    const { people } = await realtime.call(call).get();
+    const { people, started_at } = await realtime.call(call).get();
     if (people > 1) return;
     const others = (await peopleIn(team)).map((person) => person.id).filter((id) => id !== String(user));
     await realtime.toUser(others).emit('meeting', {
@@ -303,7 +308,39 @@ realtime.on('group.left', async ({ call }) => {
 });
 ```
 
-The rules run on your server, in two routes of your own, each time a page asks: to join a chat's room, or to call, come into a meeting or mute someone there. The page gets a pass signed with the app's secret, or why not.
+The pages ask for the tokens at two routes of the site. Each builds the name from what the page sends, the team's number for a meeting, and for a call the name of the chat, which comes from the page and is checked:
+
+```ts title="app/api/meeting-token/route.ts"
+// GET /api/meeting-token?id=3: the token of team 3's meeting room, which Start the meeting, Join the meeting and the
+// meeting room joined as the page opens ask, or 403. Who comes in, and who hosts, is meetingToken's, in lib/realtime.ts.
+import { currentUserId } from '@/lib/auth';
+import { meetingToken } from '@/lib/realtime';
+
+export async function GET(request: Request) {
+    const id = new URL(request.url).searchParams.get('id') ?? '';
+    const me = await currentUserId();
+    const token = me && (await meetingToken(me, id));
+    if (!token) return new Response(null, { status: 403 });
+    return Response.json({ token }, { headers: { 'Cache-Control': 'no-store' } });
+}
+```
+
+```ts title="app/api/chat-call-token/route.ts"
+// GET /api/chat-call-token?to=10&type=video&name=chat:7: the token of a call in a conversation between two, which the
+// chat's call buttons ask as they are pressed, or 403. Who may call whom is chatCallToken's, in lib/realtime.ts.
+import { currentUserId } from '@/lib/auth';
+import { chatCallToken } from '@/lib/realtime';
+
+export async function GET(request: Request) {
+    const ask = new URL(request.url).searchParams;
+    const me = await currentUserId();
+    const token = me && (await chatCallToken(me, ask.get('to') ?? '', ask.get('name') ?? '', ask.get('type')));
+    if (!token) return new Response(null, { status: 403 });
+    return Response.json({ token }, { headers: { 'Cache-Control': 'no-store' } });
+}
+```
+
+Rooms run their rule on your server, in a route of your own, each time a page asks to join a chat's room. Once a page has a token, what it asks of the call goes to the SDK's calls route, here a route of the site too: answering a call, which needs no token of its own, and a lead's mute or remove. It starts nothing by itself: with no token, nothing rings and no page joins.
 
 ```ts title="app/api/realtime/auth/route.ts"
 // POST /api/realtime/auth: a page asks to join rooms, as { rooms: ['chat:7'] }. This server runs each room's rule
@@ -325,11 +362,10 @@ export async function POST(request: Request) {
 ```
 
 ```ts title="app/api/realtime/calls/route.ts"
-// POST /api/realtime/calls: a page asks to call a colleague, as { call: 'chat:7', to: '10', role: 'caller', … }, to
-// answer a call, to come into its team's meeting, as { room: 'meeting:3', type: 'video' }, or for a lead's mute or
-// remove there (moderate). This server runs the rule of the call (realtime.calls and realtime.groupCalls in
-// lib/realtime.ts) for the colleague signed in, and answers a pass for it, signed with the app's secret, or why not. With
-// the pass, WordPlus Cloud rings the other one, or lets them in.
+// POST /api/realtime/calls: what a page asks of a call once it has its token from /api/chat-call-token or
+// /api/meeting-token: to answer a call ringing for it, which needs no token of its own, to renew its place, or for a
+// lead's mute or remove in a meeting. The package checks each ask against what only this server signs, for the
+// colleague signed in, and answers. It starts nothing by itself: with no token, nothing rings and no page joins.
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 
@@ -349,24 +385,22 @@ The SDK's other routes, the webhooks among them, and the browser files:
 
 ```ts title="app/api/realtime/[...path]/route.ts"
 // WordPlus Cloud's other routes: the keys of sealed rooms (POST /api/realtime/keys), the webhooks the cloud sends
-// (POST /api/realtime/webhook), and the browser's files (GET). Joining rooms and calling are the site's own routes,
-// auth/route.ts and calls/route.ts beside this one.
+// (POST /api/realtime/webhook), and the browser's files (GET). Joining rooms, and what a page asks of a call once it has
+// its token, are the site's own routes, auth/route.ts and calls/route.ts beside this one.
 import { realtime } from '@/lib/realtime';
 
-export const GET = realtime.route;
-export const POST = realtime.route;
+export const { GET, POST } = realtime.handlers;
 ```
 
 ### Every page connected
 
-Every page of a colleague connects through the layout of their pages: one connection for all of them, kept as they move between pages. The call screen is in it, so a call rings on any page and goes on in a window in the corner wherever a page has no place of its own for it. So are who is online in the header, the meetings on now kept current, and the notices:
+Every page of a colleague connects through the layout of their pages: one connection for all of them, kept as they move between pages. The call screen is in it, so a call rings on any page and goes on in a window in the corner wherever a page has no place of its own for it. So are who is online in the header, the meetings on now kept current, and the notices. `RealtimeProvider` of `@wordplus/realtime/next` signs the page's settings on the server for the colleague the layout found, so the page connects with no request first:
 
 ```tsx title="app/(app)/layout.tsx"
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
+import { RealtimeProvider } from '@wordplus/realtime/next';
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 import { nameOf } from '@/lib/team';
@@ -385,11 +419,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 async function Connected({ children }: { children: React.ReactNode }) {
-    await connection(); // made for each request: the settings are signed for this colleague, now
     const me = await currentUserId();
     if (!me) redirect('/signin');
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <Screens />
             <MeetingsLive />
             <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur">
@@ -419,15 +452,14 @@ The call screen, with the look of the chat and the calls:
 ```tsx title="app/(app)/screens.tsx"
 'use client';
 
-// The look of the ready-made chat and call screens, and the call screen itself: it takes no place on the page, shows the
+// The look of the ready-made conversation window and call screens, and the call screen itself: it takes no place on the page, shows the
 // ring over it, and a call in a window in the corner wherever the page has no place of its own for it.
 import '@wordplus/realtime-ui/calls.css';
 import '@wordplus/realtime-ui/chat.css';
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallScreen } from '@wordplus/realtime-ui/react';
 
 export function Screens() {
-    return <CallScreen rt={useRealtime()} />;
+    return <CallScreen />;
 }
 ```
 
@@ -475,7 +507,7 @@ async function Team({ params, searchParams }: PageProps<'/teams/[id]'>) {
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_15rem]">
                 <div className="flex min-w-0 flex-col gap-5">
                     {/* A room of its own for each team, so opening another team's page decides again whether to join. */}
-                    <MeetingRoom key={id} room={meetingOf(id)} team={team.name} host={team.lead === me}
+                    <MeetingRoom key={id} id={id} room={meetingOf(id)} team={team.name} host={team.lead === me}
                                  people={inIt.flatMap((person) => (named[person] ? [{ id: person, ...named[person] }] : []))} />
                     {channel && (
                         <div className="flex flex-col gap-2">
@@ -506,17 +538,16 @@ async function Team({ params, searchParams }: PageProps<'/teams/[id]'>) {
 }
 ```
 
-The meeting room is the group call in the page. `<CallSpot>` shows the call where it is, and inside it what shows while this colleague is not in the call: who is in it, and `<GroupCallButton>`, which asks your server for a pass (`/api/realtime/calls`) and joins. Opened while the meeting is on, the page joins it at once, with `join`, the colleague's camera and microphone off until they turn them on from the call's controls:
+The meeting room is the group call in the page. `<CallSpot>` shows the call where it is, and inside it what shows while this colleague is not in the call: who is in it, and `<GroupCallButton>`, which asks your server for a token (`/api/meeting-token`) and joins. Both take the same `tokenUrl`. Opened while the meeting is on, the page joins it at once, with `join`, the colleague's camera and microphone off until they turn them on from the call's controls:
 
 ```tsx title="app/(app)/teams/[id]/meeting.tsx"
 'use client';
 
 import { useState } from 'react';
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallSpot, GroupCallButton } from '@wordplus/realtime-ui/react';
 
 type Person = { id: string; name: string; avatar: string };
-type Props = { room: string; team: string; host: boolean; people: Person[] };
+type Props = { id: string; room: string; team: string; host: boolean; people: Person[] };
 
 /**
  * The team's meeting room. Its group call shows here, in the page, while this colleague is in it: everyone's camera and
@@ -524,14 +555,15 @@ type Props = { room: string; team: string; host: boolean; people: Person[] };
  * the meeting is on, the page joins it at once, the camera and microphone off. On another page the meeting goes on in
  * the corner, and comes back here when this page opens again.
  */
-export function MeetingRoom({ room, team, host, people }: Props) {
-    const rt = useRealtime();
+export function MeetingRoom({ id, room, team, host, people }: Props) {
+    // This server's route for the meeting's token, for the spot and the button alike.
+    const tokenUrl = `/api/meeting-token?id=${id}`;
     // On as the page opens: joined at once (CallSpot's join), the camera and microphone off until this colleague turns
     // them on. Decided once, so a meeting that starts while the page is open waits for the button, and someone who
     // leaves it or is taken out stays out.
     const [join] = useState(people.length > 0 ? ('video' as const) : undefined);
     return (
-        <CallSpot rt={rt} call={room} join={join} className="h-[32rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
+        <CallSpot call={room} tokenUrl={tokenUrl} join={join} className="h-[32rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
             <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center" id="meeting-room">
                 <p className="text-lg font-medium">The {team} meeting room</p>
                 {people.length > 0 ? (
@@ -547,8 +579,8 @@ export function MeetingRoom({ room, team, host, people }: Props) {
                 ) : (
                     <p className="text-stone-300">Nobody is in the meeting.</p>
                 )}
-                {/* Asks this server for the call's pass (/api/realtime/calls), whose rule is lib/realtime.ts's groupCalls. */}
-                <GroupCallButton rt={rt} room={room} type="video" title={`${team} meeting`}
+                {/* Asks this server for the call's token (/api/meeting-token), from meetingToken in lib/realtime.ts. */}
+                <GroupCallButton call={room} tokenUrl={tokenUrl} type="video" title={`${team} meeting`}
                                  className="rounded-full bg-indigo-500 px-6 py-3 font-medium text-white hover:bg-indigo-400">
                     {people.length > 0 ? 'Join the meeting' : 'Start the meeting'}
                 </GroupCallButton>
@@ -565,20 +597,20 @@ function names(people: Person[]): string {
 }
 ```
 
-- **`join`** joins the group call the spot names as the page opens, as the button would, your rule deciding as for a click ([straight into a meeting](calls.md#straight-into-a-meeting)).
+- **`join`** joins the group call the spot names as the page opens, as the button would, your route deciding as for a click ([straight into a meeting](calls.md#straight-into-a-meeting)).
 - **Only while the meeting is on:** the page gives `join` when someone is in it, so the first one in still starts it with the button, and the page of a team that isn't meeting joins nobody.
 - **Camera and microphone off:** joining by itself, the page asks the browser for neither, so opening a team's page never starts a camera by surprise. The button turns both on, as whoever presses it means to come in on camera.
 - **Sound** plays once the colleague has clicked or typed on the page, or on the page they came from: a team page opened from a link in a new tab shows **Turn sound on** over the meeting until then ([camera, microphone and sound](calls.md#camera-microphone-and-sound)).
 - **Decided once,** as the page opens, and kept in state: a meeting that starts while the page is open waits for the button, and someone who leaves, or whom the host takes out, stays out. `key={id}` gives each team a room of its own, so opening another team's page decides again.
 - **On another page** of the site the meeting goes on in the window in the corner, and comes back here when the team page opens again. Nothing starts over: the camera, the microphone, the time.
 - **Leaving the page** during the meeting, by a reload or a closed tab, asks first, in the browser's own words.
-- **Screens** are shared from the call's controls, by anyone the rule lets in.
+- **Screens** are shared from the call's controls, by anyone your route lets in.
 
 ### The lead hosts it
 
-Hosting a meeting needs no code of yours: the rule answers `{ admin: true }` for the team's lead, and the call screen does the rest.
+Hosting a meeting needs no code of yours: the token of the team's lead says `admin: true`, and the call screen does the rest.
 
-- **The lead** gets mute and take out on the tile of each of the others. Each is asked of your calls route, which takes it only from a host ([permissions](../permissions.md#group-calls)).
+- **The lead** gets mute and take out on the tile of each of the others. Each goes through your calls route, which takes it only from a host ([permissions](../permissions.md#group-calls)).
 - **Taken out,** a colleague is back before the meeting room without reloading, and is not joined again while the page is open.
 - **Everyone else** sees no such buttons.
 - **From your server,** a button of yours does the same, or ends the meeting for everyone: `realtime.call( room ).mute()`, `.remove()` and `.end()` ([from your server](../calls.md#from-your-server)).
@@ -590,7 +622,6 @@ Each team has its channels, `general` and one of its own, each a chat whose room
 ```tsx title="app/(app)/teams/[id]/channel.tsx"
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; name: string; people: Record<string, { name: string; avatar: string }> };
@@ -603,7 +634,6 @@ type Props = { room: string; name: string; people: Record<string, { name: string
 export function ChannelChat({ room, name, people }: Props) {
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             people={people}
             placeholder={`Message #${name}`}
@@ -663,7 +693,7 @@ export async function POST(request: Request) {
 ```
 
 - **Another channel** keeps the page where it is, the meeting room above it: the channel links pass `scroll={false}`, and `key={channel.id}` gives each channel a chat of its own.
-- **The room's rule** lets the chat send what it uses, `message`, `typing`, `reaction` and `read`, and names `message` and `reaction` in `webhook` for your server to keep ([the ready-made chat](events.md#ready-made-the-chat)).
+- **The room's rule** lets the chat send what it uses, `message`, `typing`, `reaction` and `read`, and names `message` and `reaction` in `webhook` for your server to keep ([the ready-made conversation window](events.md#ready-made-the-chat)).
 
 ### Who is online
 
@@ -768,7 +798,7 @@ function ago(at: number): string {
 
 ### A conversation with a colleague, and its call
 
-A colleague's page holds your conversation with them, its room a chat of the two of you, made the first time either of you opens the other's page (`chatBetween` in `lib/team.ts`). The same name is a call between the two, which your calls rule lets either of them place and answer (`lib/realtime.ts` above):
+A colleague's page holds your conversation with them, its room a chat of the two of you, made the first time either of you opens the other's page (`chatBetween` in `lib/team.ts`). The same name is a call between the two, which your token route lets either of them place, and the other answers with no token of their own (`lib/realtime.ts` above):
 
 ```tsx title="app/(app)/people/[id]/page.tsx"
 import Link from 'next/link';
@@ -818,14 +848,13 @@ async function Person({ params }: PageProps<'/people/[id]'>) {
 }
 ```
 
-`<Chat>` with `to` puts the colleague on its top bar, by the name and photo the page gives, with a video and an audio call button, and `call` shows their call in the chat itself, beside the messages. **Call** on People links to the conversation with `?call=video`, and `startCall` calls them once as the chat opens:
+`<Chat>` with `to` puts the colleague on its top bar, by the name and photo the page gives, with a video and an audio call button, which ask your route `tokenUrl` with the name of the chat, and their call shows in the chat itself, beside the messages. **Call** on People links to the conversation with `?call=video`, and `startCall` calls them once as the chat opens:
 
 ```tsx title="app/(app)/people/[id]/chat.tsx"
 'use client';
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; to: string; name: string; avatar: string };
@@ -846,15 +875,15 @@ export function PersonChat({ room, to, name, avatar }: Props) {
     }, [start, path]);
 
     // The conversation, kept by this server (messages), their name and photo on top from this page, and their calls in
-    // it (call). On localhost, where no webhook reaches this server, onSent tells it of each message.
+    // it, each with a token from this server (tokenUrl, /api/chat-call-token). On localhost, where no webhook reaches
+    // this server, onSent tells it of each message.
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             to={to}
             name={name}
             avatar={avatar}
-            call
+            tokenUrl="/api/chat-call-token"
             startCall={start}
             placeholder={`Message ${name}`}
             messages={`/api/messages?room=${room}`}
@@ -978,8 +1007,8 @@ Each team's card marks its meeting the same way, and the page keeps up by itself
 
 ## Make it yours
 
-- **Who may use what** is `mayChat` and `isMember` in `lib/team.ts`, which the rules of `lib/realtime.ts` and the pages ask.
-- **Who hosts** is the meeting rule's answer, `{ admin: true }` for the lead. `{ publish: false }` makes someone a listener, whom the host lets speak ([permissions](../permissions.md#group-calls)).
+- **Who may use what** is `mayChat` and `isMember` in `lib/team.ts`, which the rooms rule and the tokens of `lib/realtime.ts`, and the pages, ask.
+- **Who hosts** is what `meetingToken` puts in the token, `admin: true` for the lead. `publish: false` makes someone a listener, whom the host lets speak ([permissions](../permissions.md#group-calls)).
 - **Straight in, or not:** leave out `join`, and the button alone joins. `join="video"` with no condition takes everyone who opens the page into the meeting, and starts it when nobody is in it ([straight into a meeting](calls.md#straight-into-a-meeting)).
 - **On camera as they come in:** `joinWith="microphone camera"` on the spot turns both on as the page joins, or `"microphone"` the microphone alone ([camera, microphone and sound](calls.md#camera-microphone-and-sound)).
 - **Channels** are rows of `chat` with a team and a name: the team page lists each one its team has.

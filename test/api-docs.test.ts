@@ -22,7 +22,7 @@ describe('the HTTP API pages', () => {
     it('quote the Go example exactly', () => {
         const go = page('go.md');
         const main = example('go/main.go');
-        for (const name of ['auth', 'webhook']) {
+        for (const name of ['auth', 'callToken', 'webhook']) {
             const start = main.indexOf(`func ${name}(`);
             const body = main.slice(start, main.indexOf('\n}\n', start) + 2);
             expect(body.length, name).toBeGreaterThan(20);
@@ -34,22 +34,24 @@ describe('the HTTP API pages', () => {
         const spec = readFileSync(join(root, 'spec', 'openapi.yaml'), 'utf8');
         const routes = [
             '/wordplus/realtime/emit:', '/wordplus/realtime/emit/batch:', '/wordplus/realtime/rooms:', '/wordplus/realtime/rooms/{name}:', '/wordplus/realtime/rooms/{name}/history:',
-            '/wordplus/realtime/rooms/{name}/kick:', '/wordplus/realtime/online:', '/wordplus/realtime/users/{id}:', '/wordplus/realtime/users/{id}/disconnect:',
+            '/wordplus/realtime/rooms/{name}/kick:', '/wordplus/realtime/rooms/{name}/recheck:', '/wordplus/realtime/online:', '/wordplus/realtime/users/{id}:', '/wordplus/realtime/users/{id}/disconnect:',
             '/wordplus/realtime/users/{id}/ask:', '/wordplus/realtime/streams:', '/wordplus/realtime/streams/{name}:', '/wordplus/realtime/streams/{name}/people:',
             '/wordplus/realtime/streams/{name}/chat:', '/wordplus/realtime/streams/{name}/chat/{id}:', '/wordplus/realtime/streams/{name}/pin:',
             '/wordplus/realtime/streams/{name}/slow:', '/wordplus/realtime/streams/{name}/end:', '/wordplus/realtime/streams/{name}/reactions:',
             '/wordplus/realtime/streams/{name}/kick:', '/wordplus/realtime/streams/{name}/ban:', '/wordplus/realtime/streams/{name}/unban:',
             '/wordplus/realtime/streams/{name}/bans:', '/wordplus/realtime/streams/{name}/timeout:', '/wordplus/realtime/streams/{name}/untimeout:',
             '/wordplus/realtime/calls:', '/wordplus/realtime/calls/{name}:', '/wordplus/realtime/calls/{name}/mute:', '/wordplus/realtime/calls/{name}/remove:',
-            '/wordplus/realtime/calls/{name}/permit:', '/wordplus/realtime/calls/{name}/end:', '/wordplus/realtime/usage:', '/wordplus/realtime/webhooks:', '/wordplus/realtime/webhooks/{id}/resend:',
+            '/wordplus/realtime/calls/{name}/permit:', '/wordplus/realtime/calls/{name}/end:', '/wordplus/realtime/calls/{name}/unmute:', '/wordplus/realtime/calls/{name}/ban:',
+            '/wordplus/realtime/calls/{name}/unban:', '/wordplus/realtime/calls/{name}/bans:', '/wordplus/realtime/calls/{name}/rules:', '/wordplus/realtime/calls/{name}/hand:',
+            '/wordplus/realtime/calls/{name}/hands/lower:', '/wordplus/realtime/calls/{name}/ask:', '/wordplus/realtime/usage:', '/wordplus/realtime/webhooks:', '/wordplus/realtime/webhooks/{id}/resend:',
             '/wordplus/realtime/webhooks/test:',
         ];
         for (const route of routes) expect(spec, route).toContain('\n  ' + route + '\n');
         // Every request has an example in each of the five languages, and the webhook its check in the four with a server.
         const samples = codeSamples(spec);
-        expect(samples).toHaveLength(39);
-        for (const set of samples.slice(0, 38)) expect(set.map((s) => s.label).join(',')).toBe('curl,Node,Python,PHP,Go');
-        expect(samples[38].map((s) => s.label).join(',')).toBe('Node,Python,PHP,Go');
+        expect(samples).toHaveLength(48);
+        for (const set of samples.slice(0, 47)) expect(set.map((s) => s.label).join(',')).toBe('curl,Node,Python,PHP,Go');
+        expect(samples[47].map((s) => s.label).join(',')).toBe('Node,Python,PHP,Go');
     });
 
     it('check the webhook in the reference exactly as the webhooks page does', () => {

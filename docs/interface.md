@@ -2,7 +2,7 @@
 
 The elements, `<chat-room>`, `<online-list>`, `<call-button>`, `<live-stream>` and the others, are the ready-made option: put one on a page and it works, with the Better Messages and Easy Stream screens. You never need them. Everything they do is the SDK underneath, and your own code can do all of it, drawn with your own components and your own design system.
 
-This page shows, for each element, the API that does the same, in plain JavaScript. Your server rules stay exactly as they are: the API does only what they let the user do ([permissions](permissions.md)).
+This page shows, for each element, the API that does the same, in plain JavaScript. Your server stays exactly as it is, its rules and its routes: the API does only what they let the user do ([permissions](permissions.md)).
 
 | Ready-made | Your own, with |
 |---|---|
@@ -10,8 +10,8 @@ This page shows, for each element, the API that does the same, in plain JavaScri
 | `<online-count>` | `room.count`, and the `count` event |
 | `<typing-line>` | a volatile `typing` event |
 | `<chat-room>` | `emitWithAck( 'message' )`, the `message` event, and your route for older messages. Or `useChat()`, the chat without its look |
-| `<call-button>`, `<room-button>`, the call screen | `rt.calls()`: `start()`, the `incoming` event, `group()`, and the tracks of your camera and microphone |
-| `<live-stream>`, `<stream-studio>` | `calls.stream()`: `watch()`, `chat`, `react()`, `preview()`, `goLive()`, and `snapshot()` for everything |
+| `<call-button>`, `<group-call-button>`, the call screen | `rt.startCall()` and `rt.joinGroupCall()`, each with a token from your own route, `rt.onIncomingCall()`, and `setCamera()` and `setMicrophone()` on the call |
+| `<live-stream>`, `<stream-studio>` | `rt.joinStream()`, with a token from your own route: `watch()`, `chat`, `react()`, `preview()`, `goLive()`, and `snapshot()` for everything |
 
 ## Load nothing more
 
@@ -78,9 +78,9 @@ input.addEventListener( 'input', () => chat.volatile.emit( 'typing', { on: true 
 const older = await fetch( `/chat/34/42/messages?before=${ oldest.id }` ).then( ( r ) => r.json() );
 ```
 
-- **The same events** `<chat-room>` sends, so your interface and the ready-made chat talk with each other: `message` (`{ text }`, and `files`, `[ { id, url, name, type, size } ]`, where it has any), `typing` (`{ on }`), `read` (`{ id }`) and `reaction` (`{ id, key }`).
+- **The same events** `<chat-room>` sends, so your interface and the ready-made conversation window talk with each other: `message` (`{ text }`, and `files`, `[ { id, url, name, type, size } ]`, where it has any), `typing` (`{ on }`), `read` (`{ id }`) and `reaction` (`{ id, key }`).
 - **`emitWithAck()`** rejects with a code when the rule does not let the user send ([errors](errors.md#events-from-the-page)): show it in your composer.
-- **In React, the chat without its look:** `useChat()` from `@wordplus/realtime-ui/react` runs everything the ready-made chat does, its history, sending, typing, reactions and read ticks, and leaves the drawing to you:
+- **In React, the chat without its look:** `useChat()` from `@wordplus/realtime-ui/react` runs everything the ready-made conversation window (`<chat-room>`) does, its history, sending, typing, reactions and read ticks, and leaves the drawing to you:
 
 ```tsx
 import { useChat } from '@wordplus/realtime-ui/react';
@@ -103,60 +103,75 @@ function SupportChat( { rt } ) {
 
 ## Calls
 
-`rt.calls()` loads the call engine. From then on, the page holds the line of its user: their calls ring here.
+Your app decides who may call and join, in a route of its own that answers a token ([who may call](calls.md#who-may-call)). `rt.startCall()` and `rt.joinGroupCall()` take that token, and load the call engine the first time. `setCamera()` and `setMicrophone()` open the browser's devices at the size calls send, send them, and close them as the call ends, so your page has no device to look after ([your camera and microphone](calls.md#your-camera-and-microphone)).
 
-**Calling:**
+**Calling:** your route is `/api/call-token` here, and Ann is user 34.
 
 ```js
-const calls = await rt.calls();
-const call = await calls.start( 'support:34:42', { to: 34, type: 'video' } );
+// Asks your route for a token.
+async function callToken( to ) {
+    const answer = await fetch( '/api/call-token?to=' + to );
+    if ( ! answer.ok ) throw new Error( 'Your server said no' );
 
-const media = await navigator.mediaDevices.getUserMedia( { video: true, audio: true } );
-call.setTrack( 'camera', media.getVideoTracks()[ 0 ] );
-call.setTrack( 'microphone', media.getAudioTracks()[ 0 ] );
-myVideo.srcObject = media;
+    return ( await answer.json() ).token;
+}
+
+const call = await rt.startCall( await callToken( 34 ) );
+
+await call.setCamera( true );
+await call.setMicrophone( true );
+myVideo.srcObject = new MediaStream( [ call.camera ] );   // your own picture
 
 call.on( 'state', ( state ) => showState( state ) );   // ringing, connecting, connected, reconnecting, ended
 call.on( 'remote', ( remote ) => {
     remote.camera?.attach( theirVideo );                // a <video>
     remote.microphone?.attach( theirAudio );            // an <audio>: the sound of the other side
 } );
-call.on( 'autoplay_blocked', () => showButton( 'Turn on sound', () => theirAudio.play() ) );
+call.on( 'autoplay_blocked', () => showButton( 'Turn on sound', () => call.startAudio() ) );
 call.on( 'ended', () => closeCallWindow( call.endReason ) );
 
 hangUp.onclick = () => call.end();
 ```
 
-**Being called:**
+**Being called:** `rt.onIncomingCall()` holds the line of your user on this page, so their calls ring here. Answering takes no token.
 
 ```js
-calls.on( 'incoming', ( incoming ) => {
+rt.onIncomingCall( ( incoming ) => {
     showRing( incoming.info?.name, incoming.type );     // your own ring
     incoming.on( 'over', hideRing );                    // answered elsewhere, called off, or unanswered
 
     answerButton.onclick = async () => {
         const call = await incoming.accept();
-        // the same as above: setTrack() for this side, attach() for the other
+        // the same as above: setCamera() for this side, attach() for the other
     };
     declineButton.onclick = () => incoming.decline( 'declined' );
 } );
 ```
 
-**Turning the camera off,** sharing a screen: `call.setTrack( 'camera', null )`, `call.setTrack( 'screen_share', screenTrack )`.
+**Turning the camera off,** and sharing a screen: `call.setCamera( false )`, `call.setScreenShare( true )`.
 
-**Group calls:**
+**Group calls:** your route is `/api/meeting-token` here, and the meeting is `meeting:7`.
 
 ```js
-const group = await calls.group( 'meeting:daily', { type: 'video' } );
-await group.setTrack( 'camera', cameraTrack );
-await group.setTrack( 'microphone', micTrack );
+// Asks your route for a token.
+async function meetingToken( id ) {
+    const answer = await fetch( '/api/meeting-token?id=' + id );
+    if ( ! answer.ok ) throw new Error( 'Your server said no' );
 
-group.on( 'person', ( person ) => {                     // { user, info, camera, microphone, screen, speaking, publish }
+    return ( await answer.json() ).token;
+}
+
+const group = await rt.joinGroupCall( await meetingToken( 7 ) );
+await group.setCamera( true );
+await group.setMicrophone( true );
+
+group.on( 'person', ( person ) => {                     // { user, info, camera, microphone, screen, speaking, publish, quality }
     person.camera?.attach( tileFor( person.user ).video );
     person.microphone?.attach( tileFor( person.user ).audio );
 } );
 group.on( 'person_left', ( person ) => removeTile( person.user ) );
 group.on( 'speakers', ( people ) => highlight( people.map( ( p ) => p.user ) ) );
+group.on( 'autoplay_blocked', () => showButton( 'Turn on sound', () => group.startAudio() ) );
 
 leaveButton.onclick = () => group.leave();
 ```
@@ -165,37 +180,44 @@ Group calls need the room client your app serves (`rooms` in `connect()`, [calls
 
 ## A live stream
 
-A live stream is not encrypted end to end ([live streams](streams.md)).
+A live stream is not encrypted end to end ([live streams](streams.md)). Your app decides who is who, in a route of its own that answers a token ([who is who](streams.md#who-is-who)). A token lasts ten minutes, so `rt.joinStream()` takes a function that gets one, asked again as each runs out.
 
-**Watching:**
-
-```js
-const calls = await rt.calls();
-const show = await calls.stream( 'show:mugs' );
-
-show.watch( playerVideo );                          // the main picture and its sound, as it changes
-show.on( 'state', ( state ) => ( liveBadge.hidden = state !== 'live' ) );   // idle, live, ended
-show.on( 'viewers', ( n ) => ( watching.textContent = `${ n } watching` ) );
-show.on( 'message', ( m ) => addLine( m.from.name, m.text ) );
-
-await show.chat.send( 'Hello!' );                   // rejects with read_only, slow, links, not_live …
-show.react( '❤️' );                                 // any one emoji
-```
-
-**Hosting,** on the page of the user your rule makes its host:
+**Watching:** your route is `/api/stream-token` here, and the stream is `live:12`.
 
 ```js
-await show.preview( { camera: true, microphone: true } );   // shown in watch( video ) before going live
-await show.goLive();
-await show.setScreenShare( true );
-await show.end();
+// Asks your route for a token.
+async function streamToken() {
+    const answer = await fetch( '/api/stream-token?id=12' );
+    if ( ! answer.ok ) throw new Error( 'Your server said no' );
 
-const { url, key } = await show.ingest();                    // to stream from OBS instead
+    return ( await answer.json() ).token;
+}
+
+const stream = await rt.joinStream( streamToken );
+
+stream.watch( playerVideo );                        // the main picture and its sound, as it changes
+stream.on( 'state', ( state ) => ( liveBadge.hidden = state !== 'live' ) );   // idle, live, ended
+stream.on( 'viewers', ( n ) => ( watching.textContent = `${ n } watching` ) );
+stream.on( 'message', ( m ) => addLine( m.from.name, m.text ) );
+
+await stream.chat.send( 'Hello!' );                 // rejects with read_only, slow, links, not_live …
+stream.react( '❤️' );                               // any one emoji
 ```
 
-**Guests on stage:** a viewer `show.hand( true )`, the host hears `hands` and calls `show.invite( user )`, the viewer hears `invited` and calls `show.joinStage()` ([guests on stage](streams.md#guests-on-stage)).
+**Hosting,** on the page of the user your token makes its host:
 
-**Everything at once:** `show.snapshot()` is everything the ready-made player draws, the phase, the audience, the chat, the pinned message, the pictures and their layout, and the reactions rising. `show.subscribe( fn )` hears every change of it. In React, `useStream( name )` from `@wordplus/realtime/react` gives the stream and its snapshot, kept up to date ([live streams](streams.md#a-screen-of-your-own)).
+```js
+await stream.preview( { camera: true, microphone: true } );   // shown in watch( video ) before going live
+await stream.goLive();
+await stream.setScreenShare( true );
+await stream.end();
+
+const { url, key } = await stream.ingest();                    // to stream from OBS instead
+```
+
+**Guests on stage:** a viewer `stream.hand( true )`, the host hears `hands` and calls `stream.invite( user )`, the viewer hears `invited` and calls `stream.joinStage()` ([guests on stage](streams.md#guests-on-stage)).
+
+**Everything at once:** `stream.snapshot()` is everything the ready-made player draws, the phase, the audience, the chat, the pinned message, the pictures and their layout, and the reactions rising. `stream.subscribe( fn )` hears every change of it. `useStream( name, getToken )` from `@wordplus/realtime/react`, `/vue` or `/svelte` gives the stream and its snapshot, kept up to date, and `StreamVideo` shows its picture ([live streams](streams.md#a-screen-of-your-own), [Vue](vue.md#live-streams), [Svelte](svelte.md#live-streams)). In Angular they are `injectStream()` and `injectStreamVideo()` ([Angular](angular.md#live-streams)).
 
 ## In React
 
@@ -210,19 +232,69 @@ function Shop() {
     const people = usePresence( 'shop' );                        // [ { id, info } ]
     const { online } = useOnline( people.map( ( p ) => p.id ) );  // { [id]: true | false }
     const order = useRoom( 'order:42', { updated: ( data ) => setStatus( data.status ) } );
-    const { stream, state } = useStream( 'show:mugs' );
+    const { stream, state } = useStream( 'live:12', streamToken );   // streamToken(): a request to your route
     // draw them your way
+}
+```
+
+**A call on a screen of your own** is `useCall()`, with `useCalls()` for what rings and `VideoTrack` and `AudioTrack` for what comes in. `start()` takes a token from your route, and answering takes none. It holds one call, opens the devices the call's type asks for, and ends the call when the component goes:
+
+```tsx
+import { AudioTrack, useCall, useCalls, VideoTrack } from '@wordplus/realtime/react';
+
+function Phone( { to }: { to: number } ) {
+    const { incoming } = useCalls();
+    const { call, state, remote, camera, start, answer, end, setCamera, error } = useCall();
+
+    if ( ! call && incoming[ 0 ] ) return <button onClick={ () => answer( incoming[ 0 ] ) }>Answer</button>;
+    if ( ! call ) return <button onClick={ async () => start( await callToken( to ) ) }>Call</button>;   // callToken(): a request to your route
+
+    return (
+        <>
+            <p>{ state } { error }</p>
+            <VideoTrack track={ remote?.camera } />
+            <AudioTrack track={ remote?.microphone } />
+            <VideoTrack track={ camera } />
+            <button onClick={ () => setCamera( ! camera ) }>Camera</button>
+            <button onClick={ end }>Hang up</button>
+        </>
+    );
+}
+```
+
+**A group call** is the same, with `useGroupCall()` asking your route for its token, joining as the component comes onto the page and leaving as it goes:
+
+```tsx
+import { AudioTrack, useGroupCall, VideoTrack } from '@wordplus/realtime/react';
+
+function Meeting( { id }: { id: string } ) {
+    const { people, camera, microphone, setCamera, setMicrophone, error } = useGroupCall( `meeting:${ id }`, () => meetingToken( id ) );
+
+    return (
+        <>
+            <p>{ error }</p>
+            <VideoTrack track={ camera } />
+            { people.map( ( person ) => (
+                <div key={ person.identity }>
+                    <VideoTrack track={ person.camera } />
+                    <AudioTrack track={ person.microphone } />
+                </div>
+            ) ) }
+            <button onClick={ () => setCamera( ! camera ) }>Camera</button>
+            <button onClick={ () => setMicrophone( ! microphone ) }>Microphone</button>
+        </>
+    );
 }
 ```
 
 ## Mixing the two
 
-The elements and your own code share one connection, the same rooms and the same calls. Draw the chat yourself and keep the ready-made call screen, or the other way round: a message sent from your interface reaches a `<chat-room>`, and a call placed with `calls.start()` rings in the ready-made ring.
+The elements and your own code share one connection, the same rooms and the same calls. Draw the chat yourself and keep the ready-made call screen, or the other way round: a message sent from your interface reaches a `<chat-room>`, and a call placed with `rt.startCall()` rings in the ready-made ring.
 
 One rule: one call screen per page. If your page draws its own ring and call window, do not call `rt.callScreen()` on it as well.
 
 ## What stays the same
 
-- **Your rules.** Your own interface asks your server as the elements do, and WordPlus Cloud enforces the same answers.
+- **Your rules and your routes.** Your own interface asks your server as the elements do, and WordPlus Cloud enforces the same answers.
 - **Encryption.** What travels is sealed the same way, and reaches your code opened.
 - **The connection.** Reconnects, moving between servers and the history that fills in what a reconnect missed all happen under the API.

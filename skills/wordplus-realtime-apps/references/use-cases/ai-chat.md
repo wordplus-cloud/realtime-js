@@ -20,7 +20,7 @@ Your server decides who may join. A page that joins asks your server first, and 
 // What a conversation carries, explained below the code.
 const help = { presence: true, history: 100, emit: [ 'message', 'typing' ], webhook: [ 'message' ] };
 
-realtime.room( 'help:{id}', help, async ( user, { id } ) => {
+realtime.room( 'help:{id}', async ( user, { id } ) => {
     const conversation = await findConversation( id );
     if ( !conversation ) return false;
 
@@ -29,10 +29,10 @@ realtime.room( 'help:{id}', help, async ( user, { id } ) => {
 
     // 2. The agent who took it.
     return conversation.agentId === String( user );
-} );
+}, help );
 
 // 3. The agents, who see each other in it.
-realtime.room( 'agents', { presence: true, history: 50 }, ( user ) => isAgent( user ) );
+realtime.room( 'agents', ( user ) => isAgent( user ), { presence: true, history: 50 } );
 ```
 
 **PHP**
@@ -353,15 +353,17 @@ talkToPerson.onclick = () => fetch( '/help/9/person', { method: 'POST' } );
 **React**
 
 ```tsx
+type HelpEvents = { message: { text: string }; answer: { id: string; text: string; done: boolean }; handover: unknown };
+
 function Help( { conversation, me } ) {
-    const [ lines, setLines ] = useState( [] );
+    const [ lines, setLines ] = useState<Line[]>( [] );
     const [ note, setNote ] = useState( '' );
 
     // One line for each message, and one for each answer, which grows in place.
-    const put = ( line ) => setLines( ( all ) =>
+    const put = ( line: Line ) => setLines( ( all ) =>
         all.some( ( l ) => l.id === line.id ) ? all.map( ( l ) => ( l.id === line.id ? line : l ) ) : [ ...all, line ] );
 
-    const help = useRoom( `help:${ conversation }`, {
+    const help = useRoom<HelpEvents>( `help:${ conversation }`, {
         message: ( data, meta ) => put( { id: meta.id, from: meta.from, text: data.text } ),
         answer: ( { id, text, done } ) => put( { id, from: 'assistant', text, done } ),
         handover: () => setNote( 'A person from support will answer here' ),
@@ -523,7 +525,7 @@ async function take( conversation ) {
     const answer = await fetch( `/help/${ conversation }/take`, { method: 'POST' } );
     if ( !answer.ok ) return;                                                   // another agent was first
     show( await ( await fetch( `/help/${ conversation }/messages` ) ).json() );   // everything so far, the answers too
-    open( rt.join( 'help:' + conversation ) );                                  // the customer sees them join
+    follow( rt.join( 'help:' + conversation ) );                                // the customer sees them join
 }
 ```
 
@@ -531,7 +533,7 @@ async function take( conversation ) {
 
 ## From your server
 
-- **Whether a person can answer now:** `realtime.in( 'agents' ).count()` in Node, `$realtime->in( 'agents' )->count()` in PHP, `realtime.in_room("agents").count()` in Python and `wordplus_realtime()->in( 'agents' )->count()` in WordPress say how many agents are in the agents room. Offer Talk to a person while it is above 0, or say when your team is back.
+- **Whether a person can answer now:** `realtime.room( 'agents' ).count()` in Node, `$realtime->room( 'agents' )->count()` in PHP, `realtime.room("agents").count()` in Python and `wordplus_realtime()->in( 'agents' )->count()` in WordPress say how many agents are in the agents room. Offer Talk to a person while it is above 0, or say when your team is back.
 - **Closing a conversation:** `realtime.to( 'help:9' ).emit( 'closed', {} )` tells the page, and your rule says no to it from then on.
 - **A conversation that stays with the assistant** costs nothing more than its events: no agent page joins it.
 

@@ -1,14 +1,13 @@
 'use client';
 
-// The look of the ready-made chat and call screens, and the call screen itself: it takes no place on the page, and
+// The look of the ready-made conversation window and call screens, and the call screen itself: it takes no place on the page, and
 // shows the ring over it.
 import '@wordplus/realtime-ui/calls.css';
 import '@wordplus/realtime-ui/chat.css';
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallScreen, CallSpot } from '@wordplus/realtime-ui/react';
 
 export function Screens() {
-    return <CallScreen rt={useRealtime()} />;
+    return <CallScreen />;
 }
 
 /**
@@ -16,5 +15,5 @@ export function Screens() {
  * call in the chat instead (MemberChat), as a chat naming its call wins over this spot for every call.
  */
 export function CallOnEveryPage() {
-    return <CallSpot rt={useRealtime()} className="mb-6 h-[24rem] overflow-hidden rounded-2xl" />;
+    return <CallSpot className="mb-6 h-[24rem] overflow-hidden rounded-2xl" />;
 }

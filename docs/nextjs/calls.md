@@ -9,99 +9,155 @@ Calls between two people that ring in every tab and device the callee has open, 
 
 ![Ben has pressed a video call button: his browser shows the call window calling Ann, over his own camera, and the browser of Ann rings, with buttons to answer and decline](https://docs.wordplus.cloud/img/apps/calls-ringing.webp)
 
-## Who may call
+## Your first call
 
-Every call has a name your app gives it: `support:34:42` for a call between agent 34 and customer 42, `meeting:daily` for the daily meeting. A page that calls, answers or joins asks your server first, through the realtime route, and a rule answers: a function your server declares once for every call whose name fits a pattern, as it declares rooms. WordPlus Cloud then holds the page to the answer ([permissions](../permissions.md#calls-between-two-people)).
-
-These rules say:
-
-1. **A support call,** `support:34:42`, is for the two people in its name.
-2. **One of them is staff.**
-3. **A call of a pro member,** `pro:42:7`, is for the two people in its name too.
-4. **Whoever is called may answer,** and only a pro member calls.
-5. **The daily meeting,** `meeting:daily`, a group call, is hosted by staff: they mute the others, let them speak or make them listeners, and take them out.
-6. **Everyone else signed in** joins it. A page with nobody signed in is refused before any rule runs.
+On top of [getting started](getting-started.md), a call is two pieces: a route handler of yours that answers a token for the signed-in user, and a button that asks it. `<CallScreen />` in your layout rings and draws the call. Here anyone signed in may call anyone, which [who may call](#who-may-call) narrows down.
 
 ```ts
-// lib/realtime.ts
-// A support call, such as support:34:42.
-realtime.calls( 'support:{a}:{b}', async ( user, withUser, { a, b } ) => {
-    // 1. The two people in the name: user 42 is "42" there, user_2abc itself.
-    const pair = [ a, b ];
-    if ( ! pair.includes( String( user ) ) || ! pair.includes( String( withUser ) ) ) {
-        return false;
-    }
+// app/api/call-token/route.ts: GET /api/call-token?to=34&type=video, which the button asks as it is pressed.
+import { currentUserId } from '@/lib/auth';
+import { realtime } from '@/lib/realtime';
 
-    // 2. One of them is staff.
+export async function GET( request: Request ) {
+    const me = await currentUserId();
+    if ( me === null ) return new Response( null, { status: 401 } );
+
+    const ask = new URL( request.url ).searchParams;
+    return Response.json( { token: await realtime.callToken( me, ask.get( 'to' ) ?? '', { type: ask.get( 'type' ) } ) } );
+}
+```
+
+```tsx
+// app/call-ann.tsx
+'use client';
+
+import { CallButton } from '@wordplus/realtime-ui/react';
+
+export function CallAnn() {
+    return <CallButton to={ 34 } tokenUrl="/api/call-token" type="video" name="Ann">Call Ann</CallButton>;
+}
+```
+
+Sign in as user 42 in one browser and as Ann, user 34, in another, and press the button: it asks your route, Ann's browser rings, and once she answers, each sees the other. The rest of this page is the rest of it: who may call, [group calls](#group-calls), [a call interface of your own](#your-own-call-interface), and [the other way, by a rule](#by-a-rule).
+
+## Who may call
+
+Your app decides, in its own route: the button asks it for a token, your route checks whatever your app needs, and answers a token or refuses. The person called answers with no token of their own, as the token that rang them proves your server said yes. With no token from your server nothing starts, so nobody gets around your route ([permissions](../permissions.md#calls-between-two-people)).
+
+These routes say:
+
+1. **Someone signed in** calls: a visitor is refused.
+2. **One of the two is staff:** customers call staff, and staff call anyone.
+3. **The daily meeting,** `meeting:daily`, a group call, is hosted by staff: they mute the others, let them speak or make them listeners, and take them out.
+4. **Everyone else signed in** joins it.
+
+```ts
+// app/api/call-token/route.ts: isStaff() is yours, from your data.
+import { currentUserId } from '@/lib/auth';
+import { realtime } from '@/lib/realtime';
+
+export async function GET( request: Request ) {
+    const ask = new URL( request.url ).searchParams;
+    const me = await currentUserId();
+    const to = ask.get( 'to' ) ?? '';
+
+    // 1. Someone signed in.
+    if ( me === null ) return new Response( null, { status: 401 } );
+
+    // 2. One of the two is staff.
+    if ( ! ( await isStaff( me ) ) && ! ( await isStaff( to ) ) ) return new Response( null, { status: 403 } );
+
+    return Response.json( { token: await realtime.callToken( me, to, { type: ask.get( 'type' ) } ) } );
+}
+```
+
+```ts
+// app/api/meeting-token/route.ts: GET /api/meeting-token?id=daily, for the meeting meeting:daily.
+import { currentUserId } from '@/lib/auth';
+import { realtime } from '@/lib/realtime';
+
+export async function GET( request: Request ) {
+    const ask = new URL( request.url ).searchParams;
+    const me = await currentUserId();
+    const id = ask.get( 'id' );
+
+    // 4. Everyone signed in joins it.
+    if ( me === null ) return new Response( null, { status: 401 } );
+    if ( ! id ) return new Response( null, { status: 400 } );
+
+    // 3. Staff host it.
+    return Response.json( { token: await realtime.groupCallToken( me, 'meeting:' + id, {
+        type: ask.get( 'type' ),
+        admin: await isStaff( me ),
+    } ) } );
+}
+```
+
+- **What `callToken()` takes** beside the two people: `type`, `audio` or `video`, as the button asked; `name`, a name of your own for the call, which [`call.ended`](sending.md#webhooks) and the other webhooks give back and [a spot in the page](#the-call-in-the-page) takes, `call:` and a random id by default; `info`, what the person called sees of the caller, your `profile` by default; and `into`, to ring someone into a call that is up ([adding people](#adding-people)).
+- **What `groupCallToken()` takes** beside the user and the name: `type`, `publish` and `subscribe` (whether they send and receive), `admin`, `hidden` (listed to nobody), `encrypt` and `info` ([group calls in depth](../calls.md#group-calls)).
+- **A token rings once,** so the button asks for a new one each time. It is for its user: on anyone else's page it starts nothing (`forbidden`). It lasts 6 hours at most (`callTokenTtl`). Someone taken out of a group call needs a new one to come back, so your route is asked again.
+- **To refuse,** answer 401 or 403: the button rings nobody, opens no window, and tells the person they cannot make this call.
+- **`admin`** makes them its host, who mutes the others, lets them speak or makes them listeners, and takes them out, on a proof in the token that only your server makes ([permissions](../permissions.md#group-calls)).
+- **A host in the call screen** has the host buttons on the tile of each of the others: Manage Participant opens Mute Microphone, Stop Camera & Mic and Allow Camera & Mic (Demote to Viewer and Promote to Speaker in an audio call), Spotlight for Everyone or Remove Spotlight in a video call, up to four people, and Remove from Call, with Clear Spotlight in Host Controls.
+- **A host on a page of your own** does the same with `group.mute( user )`, `group.letSpeak( user )`, `group.makeListener( user )`, `group.remove( user )`, `group.spotlightOn( user )` and `group.spotlightOff( user )` ([your own call interface](#your-own-call-interface)).
+- **Your server** does it with no page open: `realtime.call( name ).mute()`, `.permit()`, `.remove()`, `.spotlight()` and `.end()` ([from your server](#from-your-server)).
+- **The media of a group call** your server names is encrypted end to end when its tokens say `encrypt: true`. The group calls that come from a call always are.
+- **User ids** are yours: a number, or text such as `user_2abc` or `auth0|5f7c`, up to 64 characters with no space.
+
+### By a rule
+
+The other way, for an app that would rather declare who may call whom once: a rule, a function your server declares in `lib/realtime.ts` for every call whose name fits a pattern, as it declares rooms. The button then names the call in place of a route, `<CallButton to={ 34 } call="support:{pair}">`, and the realtime route asks the rule as someone calls, answers or joins. Everything else stays the same: the call screen and its buttons, the ring, the paths a call connects on, its encryption, the host and what a host does, your server's `realtime.call( name )`, and credits. The two ways mix: a `calls()` rule that owns the name of a call is still asked as someone answers it.
+
+The same four as rules, where the name of a call carries its people, `support:34:42`:
+
+```ts
+// lib/realtime.ts: a support call, such as support:34:42, for the two people in its name. User 42 is "42" there, user_2abc itself.
+realtime.calls( 'support:{a}:{b}', async ( user, withUser, { a, b } ) => {
+    if ( ! [ a, b ].includes( String( user ) ) || ! [ a, b ].includes( String( withUser ) ) ) return false;
+
+    // 2. One of the two is staff.
     return ( await isStaff( user ) ) || ( await isStaff( withUser ) );
 } );
 
-// A call of a pro member, such as pro:42:7. `call` is its name, and `side` says which side asks.
-realtime.calls( 'pro:{a}:{b}', async ( user, withUser, { a, b }, call, side ) => {
-    // 3. The two people in the name.
-    const pair = [ a, b ];
-    if ( ! pair.includes( String( user ) ) || ! pair.includes( String( withUser ) ) ) {
-        return false;
-    }
-
-    // 4. Whoever is called may answer, and only a pro member calls.
-    if ( side.role === 'callee' ) {
-        return true;
-    }
-    return isPro( user );
-} );
-
-// The daily meeting, meeting:daily: a group call.
-realtime.groupCalls( 'meeting:{id}', async ( user ) => {
-    // 5. Staff host it.
-    if ( await isStaff( user ) ) {
-        return { admin: true };
-    }
-
-    // 6. Everyone else signed in joins it.
-    return true;
-} );
+// The daily meeting, meeting:daily: 3. staff host it, 4. everyone else signed in joins it.
+realtime.groupCalls( 'meeting:{id}', async ( user ) => ( await isStaff( user ) ) ? { admin: true } : true );
 ```
 
+- **A page with nobody signed in** is refused before any rule runs.
 - **`withUser`** is the other person: whom `user` calls, or who calls `user`. Your server is asked again when the callee answers, with the callee as `user`.
-- **`side.role`**, the fifth argument, is `caller` or `callee`. A rule that says yes to every callee and checks only callers lets people answer calls they may not place.
-- **The answer:** `false`, `true`, or `{ info, publish, subscribe, admin, hidden }`: what the others see of `user` (your `profile` by default), and in a group call whether they may send and receive, or stay unlisted.
-- **`admin`** makes them its host, who mutes the others, lets them speak or makes them listeners, and takes them out. Your calls route asks this rule again for each of those, and does it only for a host ([permissions](../permissions.md#group-calls)).
-- **A host in the call screen** has the host buttons on the tile of each of the others: Manage Participant opens Mute Microphone, Stop Camera & Mic and Allow Camera & Mic (Demote to Viewer and Promote to Speaker in an audio call), and Remove from Call.
-- **A host on a page of your own** does the same with `group.moderate( act, user )`: `mute`, `speak`, `listen` or `remove` ([your own call interface](#your-own-call-interface)).
-- **Your server** does it with no page open: `realtime.call( name ).mute()`, `.permit()`, `.remove()` and `.end()` ([from your server](#from-your-server)).
-- **The rooms of a group call** can be encrypted end to end too: `realtime.groupCalls( 'meeting:{id}', rule, { encrypt: true } )`. The rooms that come from a call always are.
-- **User ids** are yours: a number, or text such as `user_2abc` or `auth0|5f7c`, up to 64 characters with no space. A rule gets an id of digits as a number and any other as text, so compare them with the name as text. An id calls cannot take is refused with `no_user`.
+- **`call` and `side`**, the fourth and fifth arguments, are the name of the call and which side asks: `side.role` is `caller` or `callee`. A rule that says yes to every callee and checks only callers lets people answer calls they may not place.
+- **The answer:** `false`, `true`, or `{ info, publish, subscribe, admin, hidden }`: what the others see of `user` (your `profile` by default), and in a group call whether they may send and receive, host, or stay unlisted. For a host's acts, your calls route asks this rule again, and does them only for a host.
+- **Encrypted end to end:** `realtime.groupCalls( 'meeting:{id}', rule, { encrypt: true } )`.
+- **User ids in a rule:** an id of digits comes as a number and any other as text, so compare them with the name as text. An id calls cannot take is refused with `no_user`.
 
-The calls route is already in `app/api/realtime/[...path]/route.ts`.
+The realtime route in `app/api/realtime/[...path]/route.ts` asks the rules: nothing more to add.
 
 ## The call screen
 
 Optional, as every ready-made part: [your own call interface](#your-own-call-interface) below places, answers and draws calls with no element, and [your own interface](../interface.md#calls) has the whole of it.
 
-`<CallScreen rt={ useRealtime() } />` in the layout (`screens.tsx` of [getting started](getting-started.md#4-the-page)) rings on every page under it. Put buttons where people call from:
+`<CallScreen />` in the layout ([getting started](getting-started.md#4-the-page)) rings on every page under it. Put buttons where people call from:
 
 ```tsx
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallButton, GroupCallButton } from '@wordplus/realtime-ui/react';
 
 export function CallAnn() {
-    const rt = useRealtime();
     return (
         <>
-            <CallButton rt={ rt } to={ 34 } call="support:{pair}" type="video" name="Ann" avatar="/avatars/ann.svg">Call Ann</CallButton>
-            <GroupCallButton rt={ rt } room="meeting:daily" type="video" title="Daily meeting">Join the meeting</GroupCallButton>
+            <CallButton to={ 34 } tokenUrl="/api/call-token" type="video" name="Ann" avatar="/avatars/ann.svg">Call Ann</CallButton>
+            <GroupCallButton call="meeting:daily" tokenUrl="/api/meeting-token?id=daily" type="video" title="Daily meeting">Join the meeting</GroupCallButton>
         </>
     );
 }
 ```
 
-- **`{pair}`** in `call` is filled in with the page user and the one called, in order, so whichever of the two calls names the same call: `support:34:42`.
+- **`tokenUrl`** is your route ([who may call](#who-may-call)). A press asks it with a GET, with the page's cookies, and reads `{ token }`: `CallButton` sends `?to=34&type=video`, and `GroupCallButton` adds `call` and `type` to what you wrote, `?id=daily&call=meeting:daily&type=video`.
+- **By a rule,** `call="support:{pair}"` in place of `tokenUrl`, and `call` alone on `GroupCallButton` ([by a rule](#by-a-rule)). `{pair}` is filled in with the page user and the one called, in order, so whichever of the two calls names the same call: `support:34:42`.
 - **The buttons** have a look of their own, which your classes change, Tailwind's included: `className="rounded-full bg-rose-600 text-white"`.
-- **A list with call buttons:** `<OnlineList rt={ rt } room="shop" call="support:{pair}" />` puts one on the row of every member ([presence](presence.md#ready-made-who-is-online)).
-- **Its words** come in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew, by the page `<html lang>`. `<CallScreen rt={ rt } strings={ { … } } />` changes any of them.
+- **A list with call buttons:** `<OnlineList room="shop" tokenUrl="/api/call-token" />` puts one on the row of every member, asking your route as it is pressed ([presence](presence.md#ready-made-who-is-online)). By a rule, `call="support:{pair}"`.
+- **Its words** come in English, German, Spanish, French, Italian, Dutch, Polish, Croatian and Hebrew, by the page `<html lang>`. `<CallScreen strings={ { … } } />` changes any of them.
 - **Its look** is that of Better Messages, in your own tree: its colours are CSS custom properties your page sets, and your CSS reaches its classes (`bm-…`) to change more ([customizing](customizing.md)).
 - **Group calls** load the room client and its encryption worker from the realtime route, which `config()` names: nothing to add.
 - **Leaving during a call** asks first, in the browser's own words: a reload, a closed tab or a link to another site would end it. Your `<Link>`s ask nothing, and the call goes on.
@@ -115,19 +171,41 @@ A conversation between two can hold its own call. The other person is on the cha
 ```tsx
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 // The conversation with a member, and their calls in it.
 export function MemberChat( { room, member }: { room: string; member: { id: string; name: string; photo: string } } ) {
-    return <Chat rt={ useRealtime() } room={ room } to={ member.id } name={ member.name } avatar={ member.photo }
-                 call messages={ `/api/messages?room=${ room }` } />;
+    return <Chat room={ room } to={ member.id } name={ member.name } avatar={ member.photo }
+                 tokenUrl="/api/chat-call-token" messages={ `/api/messages?room=${ room }` } />;
+}
+```
+
+Its call buttons ask your route with the name of the chat as well, `?to=34&type=video&name=chat:34:42`. Your route puts that name on the token, so the call shows in the chat. The name comes from the page, so check it:
+
+```ts
+// app/api/chat-call-token/route.ts: isMemberOf() is yours, from your data.
+import { currentUserId } from '@/lib/auth';
+import { realtime } from '@/lib/realtime';
+
+export async function GET( request: Request ) {
+    const ask = new URL( request.url ).searchParams;
+    const me = await currentUserId();
+    const to = ask.get( 'to' ) ?? '';
+    const name = ask.get( 'name' ) ?? '';
+
+    // The person calling and the person called are both members of that chat.
+    if ( me === null || ! ( await isMemberOf( name, me ) ) || ! ( await isMemberOf( name, to ) ) ) {
+        return new Response( null, { status: 403 } );
+    }
+
+    // The call takes the name of the chat, so it shows there.
+    return Response.json( { token: await realtime.callToken( me, to, { type: ask.get( 'type' ), name } ) } );
 }
 ```
 
 - **`to`** is the other person, and the bar shows whether they are online.
 - **`name` and `avatar`** are theirs, as your page has them: on the bar, on their messages and in the window of their call. Give them: without them, the chat takes those of your [directory](../encryption.md#your-users), which has a person only for a day after they were last online, so someone away longer shows with no name or picture.
-- **`call`** is the call of the conversation: `true` for the call named as the room, which your `calls()` rule for `chat:{a}:{b}` decides, as the rule for `support:{a}:{b}` above, or a name of its own, `date:{pair}`, `{pair}` being the two ids in order.
+- **`call`** is the name of the chat's call, the room's by default. By a rule, `call` with no `tokenUrl`: `true` for the call named as the room, which your `calls()` rule for `chat:{a}:{b}` decides, as the rule for `support:{a}:{b}` above, or a name of its own, `date:{pair}`, `{pair}` being the two ids in order.
 - **Beside the messages** where the chat is 600px wide or more, the messages in a column of 350px (`--realtime-chat-beside-call` changes it). In a narrower chat the call takes all of it, and Show Chat puts the messages under the call.
 - **Show Chat and Hide Chat** are in the call controls: hidden, the call fills the chat.
 - **It moves, and goes on,** as in a spot below: into the chat as its page opens, from the corner or a spot of your layout, and back out as the person leaves the page. The chat names its call, so it wins over a spot for every call.
@@ -143,11 +221,11 @@ useEffect( () => {
     if ( start ) window.history.replaceState( null, '', path );
 }, [ start, path ] );
 
-return <Chat rt={ useRealtime() } room={ room } to={ to } call startCall={ start } />;
+return <Chat room={ room } to={ to } tokenUrl="/api/chat-call-token" startCall={ start } />;
 ```
 
 - **Your own top bar:** `components={ { ChatHeader: ( { person, online, call, calling } ) => … } }`, where `call( 'video' )` places the call.
-- **Without React,** the element does the same: `<chat-room room="chat:34:42" to="42" name="Ben" avatar="/photos/42.jpg" call style="height: 520px"></chat-room>` ([elements](../elements.md#chat-room)).
+- **Without React,** the element does the same: `<chat-room room="chat:34:42" to="42" name="Ben" avatar="/photos/42.jpg" token-url="/api/chat-call-token" style="height: 520px"></chat-room>` ([elements](../elements.md#chat-room)).
 - **Whole sites** that do it: [the chat and its video date](dating-site.md#the-chat-and-its-video-date) of the dating site, and [a conversation with a colleague, and its call](team-intranet.md#a-conversation-with-a-colleague-and-its-call) in the team intranet.
 
 ## The call in the page
@@ -157,16 +235,15 @@ The call screen opens a call in a window in the corner, over the page. To show i
 ```tsx
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallSpot } from '@wordplus/realtime-ui/react';
 
 // On the page of a lesson: its call shows here, above the notes.
 export function CallHere( { call }: { call: string } ) {
-    return <CallSpot rt={ useRealtime() } call={ call } className="h-[30rem] overflow-hidden rounded-2xl" />;
+    return <CallSpot call={ call } className="h-[30rem] overflow-hidden rounded-2xl" />;
 }
 ```
 
-- **Which calls:** `call` takes the name of a call (`support:34:42`), a pattern as your rules write them (`support:{a}:{b}`), or a group call (`meeting:daily`). Leave it out, and every call shows there.
+- **Which calls:** `call` takes the name of a call, as your token's `name` gives it or a rule's name is (`support:34:42`), a pattern of names (`support:{a}:{b}`), or a group call (`meeting:daily`). Leave it out, and every call shows there.
 - **Spots on every page:** a spot with no `call` in your layout shows every call in the page wherever the person is, and never in the corner. Where a page has a spot of its own for the call, that one wins: the spot that names a call most closely takes it, then a pattern, then a spot for every call.
 - **It moves, and goes on:** a call shows in the spot as it starts, or as soon as a page with the spot opens. On another page it goes on in the window in the corner, and comes back when the page with the spot opens again. Nothing starts over: the camera, the microphone as the person left it, the time.
 - **Its size** is the one your page gives it, 360px high when you give none, and the call fills it.
@@ -175,9 +252,30 @@ export function CallHere( { call }: { call: string } ) {
 - **The ring** still shows in the corner, on any page. `<CallScreen />` in the layout runs the call: the spot only says where it shows.
 - **Without React,** the element does the same: `<call-spot call="support:{a}:{b}" style="height: 480px"></call-spot>` ([elements](../elements.md#call-spot)).
 
+## Group calls
+
+A group call runs on our media servers, with no limit on people: a name your route answers a token for with `groupCallToken()`, as `meeting:daily` above, the token saying what this person may do in it ([who may call](#who-may-call)). It has no setup of its own: it starts as the first person joins. A page joins it with a button that asks your route, and `<CallScreen />` draws it:
+
+```tsx
+'use client';
+
+import { GroupCallButton } from '@wordplus/realtime-ui/react';
+
+export function DailyMeeting() {
+    return <GroupCallButton call="meeting:daily" tokenUrl="/api/meeting-token?id=daily" type="video" title="Daily meeting">Join the meeting</GroupCallButton>;
+}
+```
+
+- **By a rule,** a `groupCalls()` rule says who joins and who hosts, and the button names `call` alone ([by a rule](#by-a-rule)).
+- **Straight in** as the page opens, with no button: [straight into a meeting](#straight-into-a-meeting).
+- **From a call between two:** ringing someone in makes it one ([adding people](#adding-people)).
+- **Speakers and listeners,** for a class or an audio room: [speakers and listeners](#speakers-and-listeners).
+- **Its host** mutes, lets speak and takes out, from the call screen or a page of your own, and your server with `realtime.call( name )` ([from your server](#from-your-server)).
+- **A screen of your own:** `rt.joinGroupCall( token )` ([your own call interface](#your-own-call-interface)).
+
 ## Straight into a meeting
 
-A meeting room can take people in as they open its page, with no button to press. `join` on the spot joins the group call it names, as its `GroupCallButton` would, and your rule decides as for the button. They come in with their camera and microphone off: they see and hear the meeting at once, and turn on what they want from the call's controls.
+A meeting room can take people in as they open its page, with no button to press. `join` on the spot joins the group call it names, as its `GroupCallButton` would, asking your route as the button does, and your route decides as for the button. They come in with their camera and microphone off: they see and hear the meeting at once, and turn on what they want from the call's controls.
 
 Here the page joins only while the meeting is on. Your server asks WordPlus Cloud how many are in it, and the page passes that on:
 
@@ -187,7 +285,7 @@ const room = `meeting:${ id }`;
 // How many are in it now: 0 when nobody is.
 const { people } = await realtime.call( room ).get();
 
-return <MeetingRoom room={ room } on={ people > 0 } />;
+return <MeetingRoom id={ id } on={ people > 0 } />;
 ```
 
 The spot then joins as the page opens. With nobody in the meeting, the button starts it as before:
@@ -197,17 +295,17 @@ The spot then joins as the page opens. With nobody in the meeting, the button st
 'use client';
 
 import { useState } from 'react';
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallSpot, GroupCallButton } from '@wordplus/realtime-ui/react';
 
-export function MeetingRoom( { room, on }: { room: string; on: boolean } ) {
-    const rt = useRealtime();
+export function MeetingRoom( { id, on }: { id: string; on: boolean } ) {
+    const room = `meeting:${ id }`;
+    const tokenUrl = `/api/meeting-token?id=${ id }`;   // your route, as for the button
     // Decided as the page opens: a meeting that starts while it is open
     // waits for the button.
     const [ join ] = useState( on ? 'video' as const : undefined );
     return (
-        <CallSpot rt={ rt } call={ room } join={ join } className="h-96">
-            <GroupCallButton rt={ rt } room={ room } type="video">
+        <CallSpot call={ room } tokenUrl={ tokenUrl } join={ join } className="h-96">
+            <GroupCallButton call={ room } tokenUrl={ tokenUrl } type="video">
                 { on ? 'Join the meeting' : 'Start the meeting' }
             </GroupCallButton>
         </CallSpot>
@@ -217,30 +315,34 @@ export function MeetingRoom( { room, on }: { room: string; on: boolean } ) {
 
 ![Ava has opened the page of the Design team while Mia leads its meeting: the meeting is already on in the page, Mia and Ava on camera above the call controls, the members of the team beside it. The cameras are illustrations](https://docs.wordplus.cloud/img/apps/meeting-straight-in.webp)
 
-- **`join`** is `video` or `audio`, as the button's `type`. Someone your rule turns away sees why, as after a click.
+- **`join`** is `video` or `audio`, as the button's `type`. With `join`, `tokenUrl` gets `?call=meeting:7&type=video` added to what you wrote, as the button's does. Someone your route turns away sees why, as after a click.
+- **By a rule,** a spot with no `tokenUrl` joins as your `groupCalls()` rule says ([by a rule](#by-a-rule)).
 - **Once.** Someone who leaves the meeting, or whom its host takes out, is not brought back while the page stays open. Opening the page again joins again, as pressing the button would.
 - **Kept in state,** as above: a refresh while the page is open, such as `router.refresh()` when someone comes or goes, changes nothing. A spot whose `join` turns on later joins then.
-- **Always, if you like:** `join="video"` on its own takes everyone who opens the page into the meeting, and starts it when nobody is in it. That suits a page that is the meeting itself, such as a consultation room at its hour, rather than one people open to read.
+- **Always, if you like:** `join="video"` on its own, with no state, takes everyone who opens the page into the meeting, and starts it when nobody is in it. That suits a page that is the meeting itself, such as a consultation room at its hour, rather than one people open to read.
 - **One call at a time.** Someone already in another call stays in it, and the spot joins nothing. Someone already in this meeting, from another page, finds it moved into the spot, as always.
 - **A name, not a pattern:** a spot for `meeting:{id}`, or for every call, names no one call and joins nothing.
-- **Without React,** the element does the same: `<call-spot call="meeting:7" join="video"></call-spot>` ([elements](../elements.md#call-spot)).
+- **Without React,** the element does the same: `<call-spot call="meeting:7" token-url="/api/meeting-token?id=7" join="video"></call-spot>` ([elements](../elements.md#call-spot)).
 - **A whole site** that does it: [Build a team intranet](team-intranet.md#the-meeting-room), each team with its meeting room.
 
 ### Camera, microphone and sound
 
 Joining by itself, the page turns nothing on: the browser asks for no camera or microphone until the person turns one on from the call's controls, so opening a page never starts a camera by surprise. Where people are expected to speak as soon as they come in, `joinWith` names what is on as they join:
 
-```tsx
-<CallSpot rt={ rt } call={ room } join={ join } joinWith="microphone" className="h-96">
+```tsx fragment
+<CallSpot call={ room } tokenUrl={ tokenUrl } join={ join } joinWith="microphone" className="h-96">
 ```
 
 - **`joinWith`** is `microphone`, `camera`, or `microphone camera`. The browser asks for them as the page opens, and for the camera only on a `video` call.
-- **The button** turns on both, as before: whoever presses it means to come in on camera.
+- **`<GroupCallButton>`** joins with both off too, and the call screen offers to turn them on, so nothing starts before the person chooses. `<CallScreen devicesOnJoin={ false } />` of `@wordplus/realtime-ui/react` turns on both at the press instead.
 - **Sound.** A browser plays sound only once the person has clicked or typed on the page, or on the page of your site they came from. A page opened straight into a meeting, from a link in a new tab say, shows the others and **Turn sound on** over the call: their voices start at that click, or at any other on the page.
 
 ## Adding people
 
-Once a call is up, either side may ring someone else in, and it goes on as a group call. Say whom the call screen offers:
+Once a call is up, either side may ring someone else in, and it goes on as a group call, taking credits as one.
+
+- **On a page of your own,** the page sends your call route `call.ref`, which proves this user is in the call, and your route answers `realtime.callToken( me, to, { into } )` with its own check of whom they may add. `call.add( token )` then rings them in ([adding people](../calls.md#adding-people)).
+- **The call screen's Add Person button** lists whom a `calls()` rule for the call's name offers in `people`, the [rule way's](#by-a-rule) part:
 
 ```ts
 realtime.calls( 'support:{a}:{b}', maySupport, {
@@ -249,40 +351,49 @@ realtime.calls( 'support:{a}:{b}', maySupport, {
 } );
 ```
 
-The screen then shows an Add Person button, listing them with the names and pictures from your `profile`. The person added is asked of your rule as any call: `user` calling them about the call name, then them taking a call from `user`. The call goes on as a group call, and takes credits as one.
+The screen then shows an Add Person button, listing them with the names and pictures from your `profile`. The person added is asked of your rule as any call: `user` calling them about the call name, then them taking a call from `user`.
 
 ## Speakers and listeners
 
-A class, a town hall or an audio room: a few speak and everyone else listens. Your rule makes the listeners (`publish: false`), and your server lets someone speak while the call runs ([classes, webinars and audio rooms](../use-cases/classes.md)). For one person live to a large audience, with guests on stage, see [live streams](streams.md) and [interviews and questions on stage](../use-cases/interviews.md).
+A class, a town hall or an audio room: a few speak and everyone else listens. Your token makes the listeners (`publish: false`), and your server lets someone speak while the call runs ([classes, webinars and audio rooms](../use-cases/classes.md)). For one person live to a large audience, with guests on stage, see [live streams](streams.md) and [interviews and questions on stage](../use-cases/interviews.md).
 
-The rule of a class, `class:7`, says:
+The route of a class, `class:7`, says:
 
 1. **The teacher** speaks, and hosts the class.
 2. **Anyone who is not a student** is turned away.
 3. **A student** listens until the teacher lets them speak.
 
 ```ts
-// lib/realtime.ts
-realtime.groupCalls( 'class:{id}', async ( user, { id } ) => {
+// app/api/class-token/route.ts: GET /api/class-token?id=7, which <GroupCallButton call="class:7" tokenUrl="/api/class-token?id=7"> asks.
+import { currentUserId } from '@/lib/auth';
+import { realtime } from '@/lib/realtime';
+
+export async function GET( request: Request ) {
+    const id = new URL( request.url ).searchParams.get( 'id' ) ?? '';
+    const me = await currentUserId();
+    if ( me === null ) return new Response( null, { status: 401 } );
+
     // 1. The teacher speaks, and hosts the class.
-    if ( await isTeacherOf( id, user ) ) {
-        return { admin: true };
+    if ( await isTeacherOf( id, me ) ) {
+        return Response.json( { token: await realtime.groupCallToken( me, `class:${ id }`, { type: 'audio', admin: true } ) } );
     }
 
     // 2. Anyone who is not a student.
-    if ( ! ( await isStudentOf( id, user ) ) ) {
-        return false;
+    if ( ! ( await isStudentOf( id, me ) ) ) {
+        return new Response( null, { status: 403 } );
     }
 
     // 3. A student listens until let speak.
-    return { publish: await maySpeak( id, user ) };
-} );
+    return Response.json( { token: await realtime.groupCallToken( me, `class:${ id }`, { type: 'audio', publish: await maySpeak( id, me ) } ) } );
+}
 ```
+
+By a rule, the same three in `realtime.groupCalls( 'class:{id}', … )`, which answers `{ admin: true }`, `false` or `{ publish }`.
 
 A Let speak button of your own, in a list of raised hands beside the call, calls a route handler, which:
 
 4. **Takes it from the teacher** alone.
-5. **Keeps the choice** where the rule reads it, for every join after.
+5. **Keeps the choice** where your token route reads it, for every join after.
 6. **Changes it in the call** at once.
 
 ```ts
@@ -299,7 +410,7 @@ export async function POST( req: Request, { params }: { params: Promise<{ id: st
         return new Response( null, { status: 403 } );
     }
 
-    // 5. Kept where the rule reads it, for every join after.
+    // 5. Kept where the token route reads it, for every join after.
     await setMaySpeak( id, user, speak );
 
     // 6. At once in the call: their page hears `permissions`.
@@ -308,9 +419,9 @@ export async function POST( req: Request, { params }: { params: Promise<{ id: st
 }
 ```
 
-- **On the call screen,** the teacher, as host, has Manage Participant on the tile of each student: Promote to Speaker and Demote to Viewer in an audio call, Allow Camera & Mic and Stop Camera & Mic in a video call. They change the call as `permit()` does, through your calls route. Your route above also keeps the choice for the joins after.
+- **On the call screen,** the teacher, as host, has Manage Participant on the tile of each student: Promote to Speaker and Demote to Viewer in an audio call, Allow Camera & Mic and Stop Camera & Mic in a video call. They change the call as `permit()` does, through your calls route. Your Let speak route above also keeps the choice for the joins after.
 - **A student let speak** finds the microphone and camera in the call controls. Made a listener again, they go, and what the student sent stops.
-- **A token signed for them before** follows the change, so an older one cannot undo it. A token signed after follows your rule, so keep who may speak where the rule reads it, as `setMaySpeak()` does.
+- **A token signed for them before** follows the change, so an older one cannot undo it. A token signed after says what your token route, or your rule, says then, so keep who may speak where it reads it, as `setMaySpeak()` does.
 - **Raised hands** are a room of the same name, which carries a `hand` event, and the page of your own call reads `group.can` and `person.publish` ([speakers and listeners](../calls.md#speakers-and-listeners)).
 
 ## Your own call interface
@@ -323,7 +434,7 @@ The call screen is built on this, and nothing else:
 import { useCalls } from '@wordplus/realtime/react';
 
 export function Ringing() {
-    const { calls, incoming } = useCalls();   // the calls of the page once loaded, and those ringing now
+    const { incoming } = useCalls();   // those ringing now
 
     return incoming.map( ( call ) => (
         <p key={ call.id }>
@@ -334,16 +445,26 @@ export function Ringing() {
 ```
 
 ```ts
-const call = await calls!.start( 'support:34:42', { to: 34, type: 'video' } );
+// A token from your route, as the buttons ask it: /api/call-token?to=34&type=video, /api/meeting-token?id=daily.
+async function tokenFrom( url: string ) {
+    const answer = await fetch( url );
+    if ( ! answer.ok ) throw new Error( 'Your server said no' );
+    return ( await answer.json() ).token as string;
+}
+
+const call = await rt.startCall( await tokenFrom( '/api/call-token?to=34&type=video' ) );
 call.on( 'state', ( state ) => show( state ) );       // ringing, connecting, connected, reconnecting, ended
 call.on( 'path', ( path ) => show( path ) );          // direct, relay or room: the path it connects on now
 call.on( 'remote', () => call.remote.camera?.attach( video ) );
 call.on( 'autoplay_blocked', () => showSoundButton() );   // the browser holds the sound back until a click
 
-const meeting = await calls!.group( 'meeting:daily', { type: 'video' } );
+const meeting = await rt.joinGroupCall( await tokenFrom( '/api/meeting-token?id=daily&type=video' ) );
 meeting.on( 'person', ( person ) => person.camera?.attach( tileFor( person ) ) );
-if ( meeting.can.admin ) await meeting.moderate( 'mute', 43 );   // a host: mute, speak, listen or remove
+if ( meeting.can.admin ) await meeting.mute( 43 );   // a host: mute, letSpeak, makeListener, remove, spotlightOn, spotlightOff
 ```
+
+- **In a component,** `useCall()` gives `start( token )`, and `useGroupCall( 'meeting:daily', () => tokenFrom( … ) )` joins while the component is on the page ([React](../react.md)).
+- **By a rule,** `rt.call( 'support:{pair}', { to: 34, type: 'video' } )` and `rt.groupCall( 'meeting:daily', { type: 'video' } )` in place of the tokens ([by a rule](#by-a-rule)).
 
 ![Ann, Ben and Cara in one group call from three browsers, with the call screen grid: each sees the other two and their own camera, then the call controls. The cameras are illustrations](https://docs.wordplus.cloud/img/apps/rooms-meeting.webp)
 
@@ -363,7 +484,7 @@ await call.remove( 43 );                        // out now, their tokens from be
 await call.end();                               // out, everyone
 ```
 
-- **A host's buttons** are on the call screen already, for whom the rule answers `admin`. Buttons of your own call a route handler that checks who asks, then these, as the Let speak route above.
+- **A host's buttons** are on the call screen already, for whom your token, or your rule, makes `admin`. Buttons of your own call a route handler that checks who asks, then these, as the Let speak route above.
 - **`get()`** with nobody in the call answers `people` 0, `started_at` null and an empty list, as [straight into a meeting](#straight-into-a-meeting) reads it. `started_at` is when this call began: one named again after everyone left begins again.
 - **A call between two people** runs between the two, so it is not in `listCalls()`. Once someone is added it is a group call, named `call:` and its id.
 - **A meeting starting,** told to its team as it happens, comes from your webhook: [a meeting starting, and who hears it](team-intranet.md#a-meeting-starting-and-who-hears-it).

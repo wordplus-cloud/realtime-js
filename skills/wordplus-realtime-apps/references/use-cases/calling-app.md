@@ -8,42 +8,49 @@ These are calls between the users of your app, by their user ids, over the inter
 
 Ben, user `42`, calls Ann, user `34`, whose phone is locked in her pocket, with your app closed:
 
-1. **Ben presses Call** in the app or on your website. The call is named `phone:42:34`, the caller first.
-2. **His app asks your server,** and your rule says yes: they are contacts, and neither blocked the other ([how a page asks your server](how-it-works.md#how-a-page-asks-your-server)).
+1. **Ben presses Call** in the app or on your website.
+2. **His app asks your route for a token,** and your route says yes: they are contacts, and neither blocked the other. It names the call `phone:42:34`, the caller first ([how a page asks your server](how-it-works.md#how-a-page-asks-your-server)).
 3. **WordPlus Cloud rings Ann** on every page and app she has open, and on her phone, where your app is closed: with a VoIP push on iOS and a high-priority message on Android, sent with the push key of your app.
 4. **Her phone rings** with the call screen of the system, showing Ben by the name your server gave him. The push carries his name sealed, and the phone opens it with a key it already keeps: Apple and Google see the name of the call, the user id of Ben and the type of call, never his name.
-5. **Ann answers on the lock screen.** The phone wakes your app, which connects as Ann, and the call connects.
+5. **Ann answers on the lock screen,** with no token of her own: the one that rang her proves your server said yes. The phone wakes your app, which connects as Ann, and the call connects.
 6. **They talk,** with the app in the background, the speaker, headphones and the car as on any phone call. Either one hangs up, and it ends for both.
 
 The call connects on any network: directly between the two devices, through our relays on the ports of the web, 443 and 80, when a firewall blocks that, or through our media servers when even the relays cannot reach ([how it connects](how-it-works.md#how-it-connects)). It is encrypted end to end on every path, and takes no credits on any of them.
 
-## The rule
+## Your route
 
-Your server decides who may call whom. A rule answers each call, for the one who calls and again for the one who answers: a function your server registers once for every call whose name fits `phone:{a}:{b}`. WordPlus Cloud then holds both to the answer ([permissions](../permissions.md)). This rule says yes when:
+Your app decides who may call whom, in a route of its own. The app or the page asks it for a token as the person presses Call, and your route makes your own check, then answers a token for this call alone, or 403. WordPlus Cloud then rings only what your server signed. This route says yes when:
 
-1. **Both people are the two in the name,** in either order.
+1. **Two different people** are asking and asked for.
 2. **They are contacts** of each other.
 3. **Neither blocked the other.**
+
+And it names the call `phone:` and their two ids, the caller first, for the call log below. `areContacts()` and `isBlockedBetween()` are yours:
 
 **Node**
 
 ```ts
 // The name each one shows as: on the screen of the call, and on a locked phone.
 const realtime = createRealtime( {
-    site: process.env.WORDPLUS_SITE, secret: process.env.WORDPLUS_SECRET, localKey: process.env.WORDPLUS_LOCAL_KEY,
     profile: async ( user ) => ( { name: await nameOf( user ), avatar: await avatarOf( user ) } ),
 } );
 
-realtime.calls( 'phone:{a}:{b}', async ( user, withUser, { a, b } ) => {
-    // 1. Both people are the two in the name.
-    const named = [ a, b ];
-    if ( !named.includes( String( user ) ) || !named.includes( String( withUser ) ) ) return false;
+// Your route, GET /api/call-token?to=34&type=audio. Express here, the same in any framework.
+app.get( '/api/call-token', async ( req, res ) => {
+    const me = userOf( req );
+    const { to, type } = req.query;
+
+    // 1. Two different people.
+    if ( ! me || String( me ) === String( to ) ) return res.sendStatus( 403 );
 
     // 2. Contacts of each other.
-    if ( !( await areContacts( user, withUser ) ) ) return false;
+    if ( ! ( await areContacts( me, to ) ) ) return res.sendStatus( 403 );
 
     // 3. Neither blocked the other.
-    return !( await isBlockedBetween( user, withUser ) );
+    if ( await isBlockedBetween( me, to ) ) return res.sendStatus( 403 );
+
+    // The token, for a call named after the two, the caller first.
+    res.json( { token: await realtime.callToken( me, to, { type, name: `phone:${ me }:${ to }` } ) } );
 } );
 ```
 
@@ -55,21 +62,31 @@ $realtime = Realtime::fromEnvironment( [
     'profile' => fn ( $user ) => [ 'name' => name_of( $user ), 'avatar' => avatar_of( $user ) ],
 ] );
 
-$realtime->calls( 'phone:{a}:{b}', function ( $user, $with, array $p ) {
-    // 1. Both people are the two in the name.
-    $named = [ $p['a'], $p['b'] ];
-    if ( ! in_array( (string) $user, $named, true ) || ! in_array( (string) $with, $named, true ) ) {
-        return false;
-    }
+// Your route, GET /api/call-token?to=34&type=audio. Laravel: the same in a route, with Realtime::callToken().
+$me = current_user_id();
+$to = $_GET['to'] ?? '';
 
-    // 2. Contacts of each other.
-    if ( ! are_contacts( $user, $with ) ) {
-        return false;
-    }
+// 1. Two different people.
+if ( ! $me || (string) $me === (string) $to ) {
+    http_response_code( 403 );
+    exit;
+}
 
-    // 3. Neither blocked the other.
-    return ! is_blocked_between( $user, $with );
-} );
+// 2. Contacts of each other.
+if ( ! are_contacts( $me, $to ) ) {
+    http_response_code( 403 );
+    exit;
+}
+
+// 3. Neither blocked the other.
+if ( is_blocked_between( $me, $to ) ) {
+    http_response_code( 403 );
+    exit;
+}
+
+// The token, for a call named after the two, the caller first.
+header( 'Content-Type: application/json' );
+echo json_encode( [ 'token' => $realtime->callToken( $me, $to, [ 'type' => $_GET['type'] ?? null, 'name' => "phone:{$me}:{$to}" ] ) ] );
 ```
 
 **Python**
@@ -78,45 +95,32 @@ $realtime->calls( 'phone:{a}:{b}', function ( $user, $with, array $p ) {
 # The name each one shows as: on the screen of the call, and on a locked phone.
 realtime = Realtime.from_environment(profile=lambda user: {"name": name_of(user), "avatar": avatar_of(user)})
 
-def may_call(user, with_user, p):
-    # 1. Both people are the two in the name.
-    named = (p["a"], p["b"])
-    if str(user) not in named or str(with_user) not in named:
-        return False
+# Your route, GET /api/call-token?to=34&type=audio. Flask here, the same in any framework.
+@app.get("/api/call-token")
+def call_token():
+    me = session.get("user_id")
+    to = request.args["to"]
+
+    # 1. Two different people.
+    if not me or str(me) == str(to):
+        abort(403)
 
     # 2. Contacts of each other.
-    if not are_contacts(user, with_user):
-        return False
+    if not are_contacts(me, to):
+        abort(403)
 
     # 3. Neither blocked the other.
-    return not is_blocked_between(user, with_user)
+    if is_blocked_between(me, to):
+        abort(403)
 
-realtime.calls("phone:{a}:{b}", may_call)
+    # The token, for a call named after the two, the caller first.
+    return {"token": realtime.call_token(me, to, type=request.args.get("type"), name=f"phone:{me}:{to}")}
 ```
 
-**WordPress**
-
-```php
-// The name each one shows as is their display name and picture on the site: nothing to set.
-wordplus_realtime()->calls( 'phone:{a}:{b}', function ( $user_id, $with, array $p ) {
-	// 1. Both people are the two in the name.
-	$named = array( (int) $p['a'], (int) $p['b'] );
-	if ( ! in_array( $user_id, $named, true ) || ! in_array( $with, $named, true ) ) {
-		return false;
-	}
-
-	// 2. Contacts of each other.
-	if ( ! my_phone_are_contacts( $user_id, $with ) ) {
-		return false;
-	}
-
-	// 3. Neither blocked the other.
-	return ! my_phone_is_blocked_between( $user_id, $with );
-} );
-```
-
-- **The same rule** answers a call from the iOS app, the Android app and a browser: they all ask your calls route.
+- **The same route** answers a call from the iOS app, the Android app and a browser. An app sends its own sign-in, such as a bearer token, as it does to your other routes.
+- **The person called** answers with no token of their own, on a locked phone too.
 - **`profile`** gives the name the other one sees, in the call and on the ring of a locked phone ([calls](../calls.md)).
+- **On WordPress,** its package decides by a rule of its own ([WordPress calls](https://docs.wordplus.cloud/wordpress/calls/)).
 
 ## The call log
 
@@ -207,7 +211,7 @@ A locked phone rings because WordPlus Cloud sends it a push, with a key of your 
 
 You add each on the Apps page of your WordPlus Cloud account, under Phone calls. WordPlus Cloud keeps them encrypted and never shows them again, and the realtime servers get only short-lived tokens made from them. Your server has nothing to do for the ring.
 
-**On WordPress,** the rule and the call log above work as they are, but the Phone calls keys belong to an app on the Apps page, and a WordPress site has no place for the keys of iOS and Android apps of its own. Its calls ring the pages and apps open now, and not a locked phone.
+**On WordPress,** the call log above works as it is, but the Phone calls keys belong to an app on the Apps page, and a WordPress site has no place for the keys of iOS and Android apps of its own. Its calls ring the pages and apps open now, and not a locked phone.
 
 ## The iOS app
 
@@ -229,13 +233,15 @@ SystemCalls.onCallBack { back in
 }
 ```
 
-Once the user is signed in, the call screen rings and shows every call, and a contact is called by their id:
+Once the user is signed in, the call screen rings and shows every call, and a contact is called by their id, with a token from your route:
 
 ```swift
 CallScreen.shared.attach(rt.calls)     // rings for every call coming in, and shows it once answered
 
 func call(_ user: String, type: CallType = .audio) async throws {
-    let call = try await rt.calls.start("phone:\(me):\(user)", to: user, type: type)
+    // Your route, GET /api/call-token?to=…&type=…, asked with the sign-in of your app: its { token }.
+    let token = try await api.callToken(to: user, type: type)
+    let call = try await rt.calls.startCall(token)
     CallScreen.shared.show(call, name: contacts[user]?.name, avatar: contacts[user]?.avatar)
 }
 
@@ -278,14 +284,16 @@ class Messaging : FirebaseMessagingService() {
 }
 ```
 
-Once the user is signed in:
+Once the user is signed in, a contact is called with a token from your route:
 
 ```kotlin
 val calls = rt.calls(context)
 CallScreen.attach(context, calls)      // rings for every call coming in, and shows it once answered
 
 fun call(user: String, type: CallType = CallType.AUDIO) = scope.launch {
-    val call = calls.start("phone:$me:$user", user, type)
+    // Your route, GET /api/call-token?to=…&type=…, asked with the sign-in of your app: its { token }.
+    val token = api.callToken(to = user, type = type)
+    val call = calls.startCall(token)
     CallScreen.show(context, call, name = contacts[user]?.name)
 }
 
@@ -310,8 +318,8 @@ A browser calls the same people, and rings while a page of your site is open:
 ```html
 <ul id="contacts">
     <li data-id="34">Ann <span class="dot"></span>
-        <call-button to="34" call="phone:{me}:{id}" type="audio" name="Ann">Call</call-button>
-        <call-button to="34" call="phone:{me}:{id}" type="video" name="Ann">Video</call-button></li>
+        <call-button to="34" token-url="/api/call-token" type="audio" name="Ann">Call</call-button>
+        <call-button to="34" token-url="/api/call-token" type="video" name="Ann">Video</call-button></li>
 </ul>
 
 <script type="module">
@@ -332,19 +340,18 @@ A browser calls the same people, and rings while a page of your site is open:
 import { CallButton, CallScreen } from '@wordplus/realtime-ui/react';
 
 function Contacts( { contacts } ) {
-    const rt = useRealtime();
     const { online } = useOnline( contacts.map( ( c ) => c.id ) );
     useUserEvent( 'missed_call', ( m ) => toast( `Missed call from ${ m.name }` ) );
 
     return (
         <>
-            <CallScreen rt={ rt } />
+            <CallScreen />
             <ul>
                 { contacts.map( ( c ) => (
                     <li key={ c.id } className={ online[ c.id ] ? 'online' : '' }>
                         { c.name }
-                        <CallButton rt={ rt } to={ c.id } call="phone:{me}:{id}" type="audio" name={ c.name }>Call</CallButton>
-                        <CallButton rt={ rt } to={ c.id } call="phone:{me}:{id}" type="video" name={ c.name }>Video</CallButton>
+                        <CallButton to={ c.id } tokenUrl="/api/call-token" type="audio" name={ c.name }>Call</CallButton>
+                        <CallButton to={ c.id } tokenUrl="/api/call-token" type="video" name={ c.name }>Video</CallButton>
                     </li>
                 ) ) }
             </ul>
@@ -353,14 +360,15 @@ function Contacts( { contacts } ) {
 }
 ```
 
-- **`{me}` and `{id}`** in `call` are the page user and `to`, so the name is the caller first, as the apps name it.
+- **`token-url`** is your route above. A press asks it with `?to=34&type=audio` and the cookies of the page, and the call it starts is named by your route, the caller first, as from the apps.
 - **A browser rings while a page with the call screen is open.** A locked phone rings through the apps alone.
 
 ## Variations
 
-- **Adding someone:** once a call is up, either one rings a third person into it, and it goes on as a group call ([adding people](../calls.md#adding-people), [iOS](https://docs.wordplus.cloud/ios/calls/#adding-people)).
-- **A family or a team on one call:** a group call by name, with a rule of its own ([team meetings](meetings.md)).
+- **Adding someone:** once a call is up, either one rings a third person into it, with a token your route makes with `into`, and it goes on as a group call ([adding people](../calls.md#adding-people), [iOS](https://docs.wordplus.cloud/ios/calls/#adding-people)).
+- **A family or a team on one call:** a group call by name, with a token route of its own ([team meetings](meetings.md)).
 - **Chat beside calls:** the same contacts write to each other in rooms ([chat](chat.md)), and a call shows in their chat ([calls](../calls.md#a-call-in-a-chat)).
-- **React Native:** calls come in a later version, and `rt.calls()` rejects with `no_webrtc` meanwhile. Call from the native apps above or the website, or open the page with the call in a web view ([React Native and Capacitor](../mobile/calls.md)).
+- **React Native:** `@wordplus/realtime-react-native` has the calls and rings a closed phone with CallKit, on iOS for now, each call starting with a token from a route of yours ([calls in React Native](https://docs.wordplus.cloud/react-native/calls/)). On Android today, open the page with the call in a web view ([React Native and Capacitor](../mobile/calls.md)).
+- **Flutter:** `wordplus_realtime` has the calls on iOS and Android, with a token from a route of yours as well, and rings a closed or locked phone with CallKit or Telecom once the app starts `SystemCalls` ([calls in Flutter](https://docs.wordplus.cloud/flutter/calls/#ringing-a-closed-or-locked-phone)).
 - **The call screens** of iOS and Android in your colours and words ([iOS](https://docs.wordplus.cloud/ios/customizing/), [Android](https://docs.wordplus.cloud/android/customizing/)).
-- **On another stack,** the guide of each sets up the calls route your apps and pages ask: [Next.js](../nextjs/calls.md), [Express](../express/calls.md), [Laravel](https://docs.wordplus.cloud/laravel/calls/), [Django](https://docs.wordplus.cloud/django/calls/), [FastAPI](https://docs.wordplus.cloud/fastapi/calls/), [WordPress](https://docs.wordplus.cloud/wordpress/calls/), and the apps themselves in [iOS](https://docs.wordplus.cloud/ios/getting-started/) and [Android](https://docs.wordplus.cloud/android/getting-started/).
+- **On another stack,** the guide of each sets up the token route and the package routes your apps and pages ask: [Next.js](../nextjs/calls.md), [Express](../express/calls.md), [Laravel](https://docs.wordplus.cloud/laravel/calls/), [Django](https://docs.wordplus.cloud/django/calls/), [FastAPI](https://docs.wordplus.cloud/fastapi/calls/), [WordPress](https://docs.wordplus.cloud/wordpress/calls/), and the apps themselves in [iOS](https://docs.wordplus.cloud/ios/getting-started/) and [Android](https://docs.wordplus.cloud/android/getting-started/).

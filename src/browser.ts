@@ -7,43 +7,85 @@
  *
  *     import { connect } from '@wordplus/realtime';
  *
- *     const rt = await connect( { app: 's1500000007' } );        // the routes at /api/realtime by default
- *     const chat = rt.join( 'chat:34:42' );
- *     chat.on( 'message', ( msg, meta ) => draw( msg, meta.from ) );
+ *     const rt = await connect();        // your routes at /api/realtime say which app
+ *     const chat = rt.join<{ message: { text: string } }>( 'chat:34:42' );
+ *     chat.on( 'message', ( msg, meta ) => draw( msg.text, meta.from ) );
  *     await chat.emitWithAck( 'message', { text: 'Hi' } );
  */
 import {
     rooms as openRooms,
     RealtimeError,
+    type ConnectionEvents,
     type EventMeta,
+    type HistoryEvent,
     type Identity,
     type Member,
     type Online,
     type PublicGrant,
+    type RealtimeErrorCode,
+    type RealtimeErrorEvent,
     type Room,
     type RoomEmitter,
+    type RoomEvents,
+    type RoomOwnEvents,
     type Rooms,
     type RoomsOptions,
     type RoomState,
     type UserProfile,
 } from '../vendor/realtime-client/index.js';
-import type { Call, Calls, CallsOptions, GroupCall, Incoming, LayerQuality, PictureLayer, PlaybackStats, Stream, StreamEvent, StreamSnapshot, StreamState, StreamTile, StreamTrack } from '../vendor/realtime-client/sdk-calls/index.js';
+import type {
+    Call, CallEvents, CallPath, CallQuality, Calls, CallsEvents, CallsOptions, CallState, CallType, CallUser, DeviceChoice, DeviceLists, DeviceOptions, GroupCall, GroupCallEvents, GroupCallState, Incoming, Invite, InviteState,
+    LayerQuality, ModerationAct, Person, PictureLayer, PlaybackStats, RemoteMedia, RemoteTrack, RoomPermissions, Stream, StreamEvent, StreamEvents, StreamSnapshot, StreamState, StreamTile, StreamTrack,
+    AskAnswer, AskDevice, CallAct, CallAsk, CallAskAnswer, ModerationOptions, RoomRules, Stalled,
+} from '../vendor/realtime-client/sdk-calls/index.js';
+import { roomName } from './room-name.js';
+
+/** What join() takes beside a room's name. */
+export interface JoinOptions {
+    /** The other person of `{pair}` in the name: `rt.join( 'chat:{pair}', { with: 34 } )`. */
+    with?: number | string;
+}
 
 /**
  * The call screen's settings: the page's language (two letters, the screens' own translations: de es fr it nl pl hr
  * he), the app's own translations by the English text, whether to offer Add Person (`add`: the app lists whom a
  * user may add, calls()'s `people`), and a prefix of the app's for the elements' names (`prefix`: `shop` makes
- * `<shop-call-button>` and `<shop-chat-room>`), one a page, for the first script loaded with it.
+ * `<shop-call-button>` and `<shop-chat-room>`), one a page, for the first script loaded with it. Where the app serves the
+ * call effects (`effects`, the folder dist/effects of @wordplus/realtime-ui) and AI Noise Removal (`noise`, dist/noise): the
+ * device settings then offer them, and `noiseDefault: 'auto'` turns the noise removal on for people who never chose. Pictures for the background: `backgrounds` of the app's own, `builtInBackgrounds` of the
+ * catalog it serves, and `ownBackgrounds` to let people add one of their own, kept by their browser.
  */
 export interface ScreenSettings {
     lang?: string;
     strings?: Record<string, string>;
     add?: boolean;
     prefix?: string;
+    effects?: string;
+    noise?: string;
+    /**
+     * AI Noise Removal before a person chooses: `off` (the default) or `auto`, which turns it on where the device can run
+     * it, with a notice that says so and offers Turn Off. It needs `noise`, the folder the removal is served from.
+     */
+    noiseDefault?: 'off' | 'auto';
+    backgrounds?: ScreenBackground[];
+    builtInBackgrounds?: ScreenBackground[];
+    ownBackgrounds?: boolean;
 }
 
-export type { Rooms, Room, RoomState, RoomEmitter, Member, EventMeta, Online, UserProfile, Identity, PublicGrant, Calls, Call, Incoming, GroupCall };
-export type { LayerQuality, PictureLayer, PlaybackStats, Stream, StreamEvent, StreamSnapshot, StreamState, StreamTile, StreamTrack };
+/** A picture for the background in the device settings: about 1280x720, served with CORS from another origin. */
+export interface ScreenBackground {
+    id: string | number;
+    url: string;
+    thumb?: string;
+    name: string;
+}
+
+export type { Rooms, Room, RoomState, RoomEmitter, RoomEvents, RoomOwnEvents, ConnectionEvents, HistoryEvent, Member, EventMeta, Online, UserProfile, Identity, PublicGrant };
+export type { Calls, CallsEvents, Call, CallEvents, CallPath, CallQuality, CallState, CallType, CallUser, Incoming, RemoteMedia, RemoteTrack };
+export type { GroupCall, GroupCallEvents, GroupCallState, Invite, InviteState, ModerationAct, Person, RoomPermissions, DeviceChoice, DeviceLists, DeviceOptions };
+export type { AskAnswer, AskDevice, CallAct, CallAsk, CallAskAnswer, ModerationOptions, RoomRules, Stalled };
+export type { LayerQuality, PictureLayer, PlaybackStats, Stream, StreamEvent, StreamEvents, StreamSnapshot, StreamState, StreamTile, StreamTrack };
+export type { RealtimeErrorCode, RealtimeErrorEvent };
 export { RealtimeError };
 export { Keyring, keyring, labelOf } from '../vendor/realtime-client/keys.js';
 
@@ -52,8 +94,9 @@ export const API_SERVER = 'https://rest.wordplus.cloud';
 export const PATH = '/websocket';
 
 export interface ConnectOptions {
-    /** The app's key, from the WordPlus Cloud account (Apps). Public: every page carries it. (`site` names it too.) */
+    /** The app's key, from the WordPlus Cloud account (Apps). Public: every page carries it. Your keys route names it when left out. */
     app?: string;
+    /** @deprecated The same as `app`. */
     site?: string;
     /** Where the app's server answers: `{endpoint}/auth`, `/calls` and `/keys`. '/api/realtime' by default. */
     endpoint?: string;
@@ -119,28 +162,63 @@ export type RealtimeSettings = RoomsOptions & CallsOptions & { screen?: ScreenSe
 
 /**
  * Connects the page: the app's rooms, its calls when asked for, and its keys. Given the server's config() with a
- * user's keys, it needs no request first; given only `app` (and `endpoint`), it asks the app's keys route for the
- * user's keys and identity, then connects.
+ * user's keys, it needs no request first; otherwise it asks the app's keys route for the user's keys and identity, and
+ * for the app's key where `app` doesn't name it, then connects. A keys route that fails leaves the page connected without
+ * them, as a page with no user is, and says why: `rt.on( 'error' )` hears `keys_failed`, even added after this returned.
  */
-export async function connect(options: ConnectOptions | BrowserConfig): Promise<Realtime> {
-    const settings = settingsOf(options);
+export async function connect(options: ConnectOptions | BrowserConfig = {}): Promise<Realtime> {
+    const settings = settingsOf(options, false);
+    let failure: RealtimeErrorEvent | null = null;
 
     if (!settings.keys?.entries?.length && !settings.keys?.identity && settings.keys?.endpoint) {
-        const answer = await fetch(settings.keys.endpoint, {
+        const endpoint = settings.keys.endpoint;
+        const answer = await fetch(endpoint, {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json', ...settings.keys.headers },
             body: JSON.stringify({ labels: [] }),
-        })
-            .then((res) => (res.ok ? res.json() : null))
-            .catch(() => null);
+        }).then(
+            (res) => {
+                if (!res.ok) {
+                    failure = { code: 'keys_failed', status: res.status };
+                    return null;
+                }
+                return res.json().catch(() => {
+                    failure = { code: 'keys_failed', status: res.status };
+                    return null;
+                });
+            },
+            () => {
+                failure = { code: 'keys_failed' };
+                return null;
+            },
+        );
 
         if (answer && Array.isArray(answer.keys)) {
             settings.keys = { ...settings.keys, entries: answer.keys, ...(answer.identity?.token ? { identity: answer.identity } : {}) };
         }
+        if (!settings.site && typeof answer?.app === 'string') settings.site = answer.app;
+        tellKeysFailed(failure, endpoint);
     }
 
-    return new Realtime(settings);
+    if (!settings.site) {
+        if (failure) throw new RealtimeError('keys_failed');
+        throw new Error('wordplus-realtime: connect() needs the app\'s key: pass `app`, or update the server package, whose keys route names it');
+    }
+
+    const realtime = new Realtime(settings);
+    if (failure) realtime.heard(failure);
+    return realtime;
+}
+
+/**
+ * A keys route that did not answer, said in the console with what to check. A route the app guards with its own sign-in
+ * may well turn away a visitor: `error` says so, and the console stays quiet.
+ */
+function tellKeysFailed(failure: RealtimeErrorEvent | null, endpoint: string): void {
+    if (!failure || failure.status === 401 || failure.status === 403) return;
+    const answered = failure.status ? `answered ${failure.status}` : 'did not answer';
+    console.warn(`wordplus-realtime: your keys route (${endpoint}) ${answered}, so this page connects without its user's keys. Your server's realtime routes answer POST at {endpoint}/keys: \`endpoint\` in connect() says where.`);
 }
 
 /** Connects at once, with the settings as they are: the server's config() for a signed-in user, or a page with no user. */
@@ -148,9 +226,14 @@ export function connectNow(options: ConnectOptions | BrowserConfig): Realtime {
     return new Realtime(settingsOf(options));
 }
 
-/** The client's settings, from connect()'s options or the server's config(). */
-export function settingsOf(options: ConnectOptions | BrowserConfig): RealtimeSettings {
-    if ('auth' in options && options.auth) {
+/**
+ * The client's settings, from connect()'s options or the server's config(). `app` is needed unless `named` is false, for
+ * a caller that can learn it another way.
+ */
+export function settingsOf(options: ConnectOptions | BrowserConfig, named = true): RealtimeSettings {
+    // A server's config() names its auth route. An `auth` without one is someone else's, such as Laravel Echo's own
+    // `auth: { headers }`, which connect()'s options pass along.
+    if (typeof (options as Partial<BrowserConfig>).auth?.endpoint === 'string') {
         const config = options as BrowserConfig;
         const base = config.auth.endpoint.replace(/\/auth\/?$/, '');
         const headers = config.auth.headers ?? {};
@@ -175,8 +258,8 @@ export function settingsOf(options: ConnectOptions | BrowserConfig): RealtimeSet
     }
 
     const plain = options as ConnectOptions;
-    const app = plain.app ?? plain.site;
-    if (!app) throw new Error('wordplus-realtime: connect() needs the app\'s key (`app`)');
+    const app = plain.app ?? plain.site ?? '';
+    if (!app && named) throw new Error('wordplus-realtime: connectNow() needs the app\'s key (`app`)');
 
     const base = (plain.endpoint ?? '/api/realtime').replace(/\/+$/, '');
     const headers = plain.headers ?? {};
@@ -233,9 +316,28 @@ function tellRefusal(error: { code?: string } | undefined): void {
     console.warn(`wordplus-realtime: WordPlus Cloud refused this page (${code}): ${REFUSALS[code]()}.`);
 }
 
+/**
+ * A join that can only be a mistake in the code, said once a room in the console: a user a rule turned away is the rule's
+ * business and says nothing, and `no_rule` looks like one until someone reads `room.error`.
+ */
+const JOIN_MISTAKES: Record<string, string> = {
+    no_rule: "no rule on your server matches its name. Declare one: realtime.room( 'pattern:{id}', rule )",
+    bad_room: 'a room\'s name is 1 to 200 of letters, digits and _ - = @ , . ; :',
+};
+
+function tellJoinMistake(room: string, error: { code?: string } | undefined): void {
+    const code = error?.code;
+    if (!code || !JOIN_MISTAKES[code] || told.has(code + ':' + room)) return;
+    told.add(code + ':' + room);
+    console.warn(`wordplus-realtime: room ${room} could not be joined (${code}): ${JOIN_MISTAKES[code]}.`);
+}
+
 export class Realtime {
     readonly rooms: Rooms;
     private callsOfPage: Promise<Calls> | null = null;
+    /** What failed before anything could listen: `connect()`'s keys request, handed to the first `error` listener. */
+    private early: RealtimeErrorEvent[] = [];
+    private readonly listened = new WeakSet<object>();
 
     constructor(readonly settings: RealtimeSettings) {
         // A connection for each user of the browser, shared by their tabs, unless the app said otherwise.
@@ -262,17 +364,28 @@ export class Realtime {
         return this.rooms.online;
     }
 
-    /** A room: its events, `emit`, `emitWithAck`, `volatile`, `members`, `count`, `history()`, and its own `joined`, `join`, `leave`, `count`, `error`. */
-    join(name: string): Room {
-        return this.rooms.join(name);
+    /**
+     * A room: its events, `emit`, `emitWithAck`, `volatile`, `members`, `count`, `history()`, and its own `joined`, `join`,
+     * `leave`, `count`, `error`. `Events` says what its events carry and `Info` what its members bring, for your own
+     * checking and nothing else: `rt.join<{ message: { text: string } }>( 'chat:34:42' )`. `{pair}` in the name is this
+     * user and `with`, in order, so both of them name the same room: `rt.join( 'chat:{pair}', { with: 34 } )`.
+     */
+    join<Events extends RoomEvents = RoomEvents, Info = unknown>(name: string, options: JoinOptions = {}): Room<Events, Info> {
+        const named = roomName(name, this.user, options.with);
+        const room = this.rooms.join<Events, Info>(named);
+        if (!this.listened.has(room)) {
+            this.listened.add(room);
+            (room as unknown as Room).on('error', (error: { code?: string }) => tellJoinMistake(named, error));
+        }
+        return room;
     }
 
-    room(name: string): Room | undefined {
-        return this.rooms.room(name);
+    room<Events extends RoomEvents = RoomEvents, Info = unknown>(name: string, options: JoinOptions = {}): Room<Events, Info> | undefined {
+        return this.rooms.room<Events, Info>(roomName(name, this.user, options.with));
     }
 
-    leave(name: string): void {
-        this.rooms.leave(name);
+    leave(name: string, options: JoinOptions = {}): void {
+        this.rooms.leave(roomName(name, this.user, options.with));
     }
 
     /** Users from the app's directory, opened: their names and pictures, for ids a room or a call named. */
@@ -282,12 +395,25 @@ export class Realtime {
 
     /**
      * What the app's server sends this user (`toUser( id ).emit( event, data )`), and the connection's own:
-     * `connected`, `disconnected`, `moved`, `error` ({ code }: the handshake refused, such as `over_capacity`), and
-     * `signed_out`: your server disconnected the user, and the page asks your routes again.
+     * `connected`, `disconnected`, `moved`, `error` ({ code }: the handshake refused, such as `over_capacity`, or the keys
+     * route failed, `keys_failed`), and `signed_out`: your server disconnected the user, and the page asks your routes
+     * again.
      */
+    on<K extends keyof ConnectionEvents>(event: K, fn: (...args: ConnectionEvents[K]) => void): this;
+    on<T = any>(event: string, fn: (data: T, meta: { at?: number }) => void): this;
     on(event: string, fn: (...args: any[]) => void): this {
         this.rooms.on(event, fn);
+        if (event === 'error' && this.early.length > 0) {
+            const early = this.early;
+            this.early = [];
+            queueMicrotask(() => early.forEach((error) => fn(error)));
+        }
         return this;
+    }
+
+    /** @internal What failed before anything could listen. */
+    heard(error: RealtimeErrorEvent): void {
+        this.early.push(error);
     }
 
     off(event?: string, fn?: (...args: any[]) => void): this {
@@ -305,8 +431,8 @@ export class Realtime {
     }
 
     /**
-     * The page's calls: start() a call, group() a group call, and `incoming` for one ringing here. Loaded the first time
-     * it's asked for, so a page that places no call doesn't carry the call engine.
+     * The page's calls, with `incoming` for one ringing here and `devices()`. Loaded the first time it's asked for, so a
+     * page that places no call doesn't carry the call engine. Asking for them holds the page's line: its user's calls ring here.
      */
     calls(): Promise<Calls> {
         this.callsOfPage ??= import('../vendor/realtime-client/sdk-calls/index.js').then(({ calls }) => {
@@ -318,8 +444,66 @@ export class Realtime {
     }
 
     /**
-     * The call screen, Better Messages' call screens (@wordplus/realtime-ui): `<call-button to="34" call="support:34:42"
-     * name="Ann">`, `<room-button room="…">`, the call window and the ring, in the page's language, with Add Person
+     * Calls `to`, a user id, about `name`, which your `calls()` rule owns: rings their every open tab. `{pair}` in the name
+     * is the two ids in order, so either side names the same call: `rt.call( 'support:{pair}', { to: 34 } )`. Rejects with
+     * its `code`.
+     */
+    async call(name: string, options: { to: CallUser; type?: CallType }): Promise<Call> {
+        return (await this.calls()).start(name, options);
+    }
+
+    /**
+     * Starts a call with a token from your own server (`realtime.callToken( user, to )` there), and rings the person it
+     * names in every tab and app they have open. A token rings once, so get a new one for each call. Rejects with its
+     * `code`.
+     */
+    async startCall(token: string): Promise<Call> {
+        return (await this.calls()).startCall(token);
+    }
+
+    /**
+     * Hears each call ringing for this user, and from now on their calls ring on this page. Each one has `accept()` and
+     * `decline()`, and needs no token: the caller's proves your server said yes. Resolves to a function that stops listening.
+     */
+    async onIncomingCall(listener: (incoming: Incoming) => void): Promise<() => void> {
+        const calls = await this.calls();
+        calls.on('incoming', listener);
+        return () => calls.off('incoming', listener);
+    }
+
+    /**
+     * Joins a group call with a token from your own server (`realtime.groupCallToken( user, name, options )` there), which
+     * says what this user may do in it. Someone taken out of the call needs a new token to come back. Rejects with its `code`.
+     */
+    async joinGroupCall(token: string): Promise<GroupCall> {
+        return (await this.calls()).joinGroupCall(token);
+    }
+
+    /**
+     * Joins a live stream as your own server says (`realtime.streamToken( user, name, options )` there). A token lasts ten
+     * minutes, so give a function that gets one from your route: it is asked again as each runs out, and your route may then
+     * say no. `video: false` for a page that shows only the chat or the details. Rejects with its `code`.
+     */
+    async joinStream(token: string | (() => string | Promise<string>), options: { video?: boolean } = {}): Promise<Stream> {
+        return (await this.calls()).joinStream(token, options);
+    }
+
+    /** Joins the group call `name`, which your `groupCalls()` rule owns. Rejects with its `code`. */
+    async groupCall(name: string, options: { type?: CallType } = {}): Promise<GroupCall> {
+        return (await this.calls()).group(name, options);
+    }
+
+    /**
+     * Joins the live stream `name`, as your `streams()` rule makes this user its host, a guest or a viewer. `video: false`
+     * for a page that shows only the chat or the details: the picture comes once something wants it. Rejects with its `code`.
+     */
+    async stream(name: string, options: { video?: boolean } = {}): Promise<Stream> {
+        return (await this.calls()).stream(name, options);
+    }
+
+    /**
+     * The call screen, Better Messages' call screens (@wordplus/realtime-ui): `<call-button to="34" call="support:{pair}"
+     * name="Ann">`, `<group-call-button call="…">`, the call window and the ring, in the page's language, with Add Person
      * when the app lists people (`add`, from the server's config() by default). Its script (realtime-ui.min.js, from
      * `npx wordplus-realtime copy`) loads the first time a page asks, from beside the worker unless `ui` names it.
      * False where there are no calls.

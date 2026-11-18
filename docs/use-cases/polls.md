@@ -19,14 +19,14 @@ Your server decides who may join. A page that joins asks your server first, and 
 ```ts
 // 1. The session, such as session:5: those who attend it, counted.
 // 2. It lists no `emit`: no page sends into it, your server alone does.
-realtime.room( 'session:{id}', { count: true, history: 50 }, ( user, { id } ) => attends( id, user ) );
+realtime.room( 'session:{id}', ( user, { id } ) => attends( id, user ), { count: true, history: 50 } );
 
 // 3. The room of one, such as session:5:from:42: that person alone, to your server.
 const box = { emit: [ 'vote', 'ask', 'upvote' ], webhook: [ 'vote', 'ask', 'upvote' ] };
-realtime.room( 'session:{id}:from:{user}', box, async ( user, p ) => {
+realtime.room( 'session:{id}:from:{user}', async ( user, p ) => {
     if ( String( user ) !== p.user ) return false;
     return attends( p.id, user );
-} );
+}, box );
 ```
 
 **PHP**
@@ -439,9 +439,9 @@ rt.on( 'score', ( { score, rank } ) => showScore( score, rank ) );   // a quiz: 
 
 ```tsx
 function Session( { id, me } ) {
-    const [ poll, setPoll ] = useState( null );
-    const [ counts, setCounts ] = useState( [] );
-    const [ questions, setQuestions ] = useState( [] );
+    const [ poll, setPoll ] = useState<Poll | null>( null );
+    const [ counts, setCounts ] = useState<number[]>( [] );
+    const [ questions, setQuestions ] = useState<Question[]>( [] );
 
     const session = useRoom( `session:${ id }`, {
         poll: ( p ) => {

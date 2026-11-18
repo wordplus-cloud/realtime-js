@@ -5,12 +5,14 @@ Live updates, chat, who is online, calls and live streams in a mobile app built 
 | | React Native | Capacitor and Ionic |
 |---|---|---|
 | What it is | native screens, your JavaScript | your web pages, in the platform web view |
-| The package | `@wordplus/realtime/native` | `@wordplus/realtime`, as in a browser |
-| Rooms, presence, events, who is online, the directory | yes | yes |
-| The ready-made chat and list of who is online | not in native screens | yes, as in a browser |
-| Calls, group calls and the call screen | not yet: they need a WebRTC module, in a later version, and `rt.calls()` rejects with `no_webrtc` meanwhile | yes, as in a browser |
-| Live streams, watching and going live | not yet, with calls | yes, as in a browser |
+| The package | `@wordplus/realtime/native` for rooms, `@wordplus/realtime-react-native` for calls and streams | `@wordplus/realtime`, as in a browser |
+| Rooms, presence, events, who is online, the directory | yes, on iOS and Android | yes |
+| The ready-made conversation window (`<chat-room>`) and list of who is online | not in native screens | yes, as in a browser |
+| Calls, group calls and the call screen | [`@wordplus/realtime-react-native`](https://docs.wordplus.cloud/react-native/calls/), native, on iOS for now, with Android next | yes, as in a browser |
+| Live streams, watching and going live | [`@wordplus/realtime-react-native`](https://docs.wordplus.cloud/react-native/streams/), on iOS for now, with Android next | yes, as in a browser |
 | Its address in WordPlus Cloud | none: it has none to list | `capacitor://localhost` (iOS), `https://localhost` (Android) |
+
+**React Native** has guides for its calls package: [calls](https://docs.wordplus.cloud/react-native/calls/), [live streams](https://docs.wordplus.cloud/react-native/streams/) and [rooms beside them](https://docs.wordplus.cloud/react-native/rooms/). **Flutter** has an SDK of its own, `wordplus_realtime`, on iOS and Android: [calls](https://docs.wordplus.cloud/flutter/calls/), [live streams](https://docs.wordplus.cloud/flutter/streams/) and [rooms](https://docs.wordplus.cloud/flutter/rooms/).
 
 An app written in Swift or Kotlin has guides of its own: [iOS](https://docs.wordplus.cloud/ios/getting-started/) and [Android](https://docs.wordplus.cloud/android/getting-started/).
 
@@ -22,7 +24,7 @@ All of them are in the same rooms as your web pages: a customer in the app and a
 
 ## 1. Your app in WordPlus Cloud
 
-**Apps are in early access.** Ask for it on our [contact form](https://www.wordplus.cloud/contact), and we turn **Apps** on in your WordPlus Cloud account. Until then your account has no Apps page.
+**Apps come with a subscription.** [Choose your connections](https://www.wordplus.cloud/pricing#apps), starting from 1,000, and your WordPlus Cloud account gets its **Apps** page.
 
 Use the app you made for your website (**Apps** in your WordPlus Cloud account), so the app and the site share rooms and users. For Capacitor, add `capacitor://localhost` and `https://localhost` to its addresses. A React Native app needs none.
 
@@ -75,6 +77,8 @@ rt.join( 'order:1042' ).on( 'updated', ( data ) => setStatus( data.status ) );
 
 The app connects by itself, with no worker. Its WebSocket names the address of the realtime server itself as its Origin, which WordPlus Cloud takes as that of an app.
 
+Calls and live streams are in another package, [`@wordplus/realtime-react-native`](https://docs.wordplus.cloud/react-native/calls/), on iOS for now. It needs a native build, so it does not run in Expo Go.
+
 ## 4. Capacitor and Ionic
 
 The app is your page: use `@wordplus/realtime` as in a browser, with your server routes in full and the token. A page runs a worker only from its own address, so the worker, the room client and the ready-made parts are files of the app (`npx wordplus-realtime copy www/`, in every build):
@@ -82,6 +86,7 @@ The app is your page: use `@wordplus/realtime` as in a browser, with your server
 ```js
 import { connect } from '@wordplus/realtime';
 
+const { token, realtime } = await fetch( 'https://shop.example.com/api/token', { method: 'POST', /* … */ } ).then( ( r ) => r.json() );
 const auth = { Authorization: `Bearer ${ token }` };
 const inFull = ( route ) => ( { ...route, endpoint: 'https://shop.example.com' + route.endpoint, headers: { ...route.headers, ...auth } } );
 
@@ -113,7 +118,7 @@ The app request that made the change names its connection, so it does not get it
 ## Next
 
 - [Rooms](rooms.md), [presence and who is online](presence.md), [sending from your server](sending.md) and [events from the app](events.md)
-- [Calls](calls.md) and [live streams](streams.md), in Capacitor, and what React Native does meanwhile
+- [Calls](calls.md) and [live streams](streams.md), in Capacitor and in React Native
 - [Encryption and your users](encryption.md)
 - [Customizing the screens](customizing.md): their look, a piece of your own, or their whole code
 - [Deploying](deploying.md), and [the example apps](example.md)

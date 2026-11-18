@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
+import { RealtimeProvider } from '@wordplus/realtime/next';
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 import { signOut } from '../account';
@@ -21,11 +20,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 async function Connected({ children }: { children: React.ReactNode }) {
-    await connection(); // made for each request: the settings are signed for this member, now
     const me = await currentUserId();
     if (!me) redirect('/signin');
+    // The settings signed for this member, for this request alone, and the page connected with them.
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <Screens />
             <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur">
                 <nav className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3">

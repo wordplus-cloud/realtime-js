@@ -46,9 +46,9 @@ const realtime = createRealtime( {
     },
 } );
 
-await realtime.in( 'chat:34:42' ).kick( 43 );   // out of the room now, and its key moves on
-await realtime.rotateRoom( 'order:1042' );      // an order moved to another customer
-await realtime.rotateUser( userId );            // their own key moves on
+await realtime.room( 'chat:34:42' ).remove( 43 );   // out of the room now, and its key moves on
+await realtime.rotateRoom( 'order:1042' );          // an order moved to another customer
+await realtime.rotateUser( userId );                // their own key moves on
 ```
 
 Those still let in get the new key from your server with the next event, and keep the old ones for the history before it.

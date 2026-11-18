@@ -2,28 +2,27 @@
 
 Customers write to support, and a team of agents answers them: each new conversation goes to an agent on duty, the others see it and may read along, an agent and the customer see each other type, the agent calls the customer from the conversation when writing is not enough, and agents leave notes on it that the customer never sees.
 
-Every part is a room or a call with a rule of your server. Your server keeps the conversations from the webhook, decides who answers each one, and tells the pages.
+Every room has a rule of your server, and the call of a ticket starts from a token your own route makes. Your server keeps the conversations from the webhook, decides who answers each one, and tells the pages.
 
 ## The rooms
 
 A ticket is a conversation, named after it: `ticket:9`. Beside it, `ticket:9:notes`, the notes of the agents on that ticket. And `desk`, a room for the agents alone, where they see who is on duty and hear of each ticket as it opens and as someone takes it.
 
-Your server decides who may be where. A page that joins asks your server first, and a rule answers: a function your server registers once for every room or call whose name fits a pattern, such as `ticket:{id}`. WordPlus Cloud then holds the page to the answer ([permissions](../permissions.md)). These rules say:
+Your server decides who may be where. A page that joins asks your server first, and a rule answers: a function your server registers once for every room whose name fits a pattern, such as `ticket:{id}`. WordPlus Cloud then holds the page to the answer ([permissions](../permissions.md)). These rules say:
 
 1. **A ticket** lets in its customer, who writes in it.
 2. **The agent of the ticket** writes in it too.
 3. **Every other agent** reads along, and writes nothing.
 4. **The notes of a ticket** let in agents alone.
 5. **The desk** lets in agents alone, who see each other on duty.
-6. **A call from the ticket** may run between its customer and its agent, either one calling.
 
 **Node**
 
 ```ts
-// What a ticket carries: what the ready-made chat sends, explained below the code.
+// What a ticket carries: what the ready-made conversation window (`<chat-room>`) sends, explained below the code.
 const conversation = { history: 50, emit: [ 'message', 'typing', 'read', 'reaction' ], webhook: [ 'message', 'reaction' ] };
 
-realtime.room( 'ticket:{id}', conversation, async ( user, { id } ) => {
+realtime.room( 'ticket:{id}', async ( user, { id } ) => {
     const ticket = await findTicket( id );
     if ( !ticket ) return false;
 
@@ -37,28 +36,19 @@ realtime.room( 'ticket:{id}', conversation, async ( user, { id } ) => {
     if ( await isAgent( user ) ) return { readOnly: true };
 
     return false;
-} );
+}, conversation );
 
 // 4. The notes of a ticket, such as ticket:9:notes: agents alone.
-realtime.room( 'ticket:{id}:notes', { history: 50, emit: [ 'note' ], webhook: [ 'note' ] }, ( user ) => isAgent( user ) );
+realtime.room( 'ticket:{id}:notes', ( user ) => isAgent( user ), { history: 50, emit: [ 'note' ], webhook: [ 'note' ] } );
 
 // 5. The desk: agents alone, who see each other on duty.
-realtime.room( 'desk', { presence: true, history: 50 }, ( user ) => isAgent( user ) );
-
-// 6. A call named as the ticket: its customer and its agent, either one calling.
-realtime.calls( 'ticket:{id}', async ( user, withUser, { id } ) => {
-    const ticket = await findTicket( id );
-    if ( !ticket || !ticket.agentId ) return false;
-
-    const two = [ ticket.customerId, ticket.agentId ];
-    return two.includes( String( user ) ) && two.includes( String( withUser ) );
-} );
+realtime.room( 'desk', ( user ) => isAgent( user ), { presence: true, history: 50 } );
 ```
 
 **PHP**
 
 ```php
-// What a ticket carries: what the ready-made chat sends, explained below the code.
+// What a ticket carries: what the ready-made conversation window (`<chat-room>`) sends, explained below the code.
 $conversation = [ 'history' => 50, 'emit' => [ 'message', 'typing', 'read', 'reaction' ], 'webhook' => [ 'message', 'reaction' ] ];
 
 $realtime->room( 'ticket:{id}', function ( $user, array $p ) {
@@ -94,24 +84,12 @@ $realtime->room( 'ticket:{id}:notes', function ( $user ) {
 $realtime->room( 'desk', function ( $user ) {
     return is_agent( $user );
 }, [ 'presence' => true, 'history' => 50 ] );
-
-// 6. A call named as the ticket: its customer and its agent, either one calling.
-$realtime->calls( 'ticket:{id}', function ( $user, $with, array $p ) {
-    $ticket = find_ticket( $p['id'] );
-    if ( null === $ticket || null === $ticket->agent_id ) {
-        return false;
-    }
-
-    $two = [ $ticket->customer_id, $ticket->agent_id ];
-
-    return in_array( (string) $user, $two, true ) && in_array( (string) $with, $two, true );
-} );
 ```
 
 **Python**
 
 ```python
-# What a ticket carries: what the ready-made chat sends, explained below the code.
+# What a ticket carries: what the ready-made conversation window (`<chat-room>`) sends, explained below the code.
 conversation = {"history": 50, "emit": ["message", "typing", "read", "reaction"], "webhook": ["message", "reaction"]}
 
 def may_join_ticket(user, p):
@@ -141,25 +119,15 @@ def may_read_notes(user, p):
 def may_join_desk(user, p):
     return is_agent(user)
 
-# 6. A call named as the ticket: its customer and its agent, either one calling.
-def may_call_on_ticket(user, with_user, p):
-    ticket = find_ticket(p["id"])
-    if ticket is None or ticket.agent_id is None:
-        return False
-
-    two = (ticket.customer_id, ticket.agent_id)
-    return str(user) in two and str(with_user) in two
-
 realtime.room("ticket:{id}", may_join_ticket, **conversation)
 realtime.room("ticket:{id}:notes", may_read_notes, history=50, emit=["note"], webhook=["note"])
 realtime.room("desk", may_join_desk, presence=True, history=50)
-realtime.calls("ticket:{id}", may_call_on_ticket)
 ```
 
 **WordPress**
 
 ```php
-// What a ticket carries: what the ready-made chat sends, explained below the code.
+// What a ticket carries: what the ready-made conversation window (`<chat-room>`) sends, explained below the code.
 $conversation = array( 'history' => 50, 'emit' => array( 'message', 'typing', 'read', 'reaction' ), 'webhook' => array( 'message', 'reaction' ) );
 
 wordplus_realtime()->room( 'ticket:{id}', function ( $user_id, array $p ) {
@@ -195,25 +163,13 @@ wordplus_realtime()->room( 'ticket:{id}:notes', function ( $user_id ) {
 wordplus_realtime()->room( 'desk', function ( $user_id ) {
 	return user_can( $user_id, 'my_support' );
 }, array( 'presence' => true, 'history' => 50 ) );
-
-// 6. A call named as the ticket: its customer and its agent, either one calling.
-wordplus_realtime()->calls( 'ticket:{id}', function ( $user_id, $with, array $p ) {
-	$ticket = my_desk_ticket( (int) $p['id'] );
-	if ( null === $ticket || 0 === $ticket->agent_id ) {
-		return false;
-	}
-
-	$two = array( $ticket->customer_id, $ticket->agent_id );
-
-	return in_array( $user_id, $two, true ) && in_array( $with, $two, true );
-} );
 ```
 
-- **`emit`** of a ticket lists what the ready-made chat sends: messages, typing, read ticks and reactions. A reader the rule answered `readOnly` sends none of them.
+- **`emit`** of a ticket lists what the ready-made conversation window (`<chat-room>`) sends: messages, typing, read ticks and reactions. A reader the rule answered `readOnly` sends none of them.
 - **`webhook`** sends messages, reactions and notes to your server, to keep them.
 - **The notes stay among agents:** the customer is refused the notes room, and its notes are sealed with a key of that room, which no customer gets ([encryption](../encryption.md)).
 - **`ticket:{id}` never matches `ticket:9:notes`,** since a part of a pattern stops at `:`, so each room keeps its own rule.
-- **A call and a room may share a name:** `ticket:9` is the conversation as a room and its call as a call, each with its own rule.
+- **A call and a room may share a name:** `ticket:9` is the conversation as a room, and its call as a call, the name your call route puts on its token ([a call from the conversation](#a-call-from-the-conversation)).
 
 ## Opening and assigning
 
@@ -231,7 +187,7 @@ app.post( '/tickets', async ( req, res ) => {
     await realtime.to( 'desk' ).emit( 'opened', { ticket: ticket.id, subject: ticket.subject } );
 
     // 2. To the agent on duty with the fewest open tickets, if anyone is on duty.
-    const { list } = await realtime.in( 'desk' ).members();
+    const { list } = await realtime.room( 'desk' ).members();
     const agent = await leastBusy( list.map( ( member ) => member.id ) );
     if ( agent ) await assign( ticket.id, agent );
     res.status( 201 ).json( { id: ticket.id } );
@@ -263,7 +219,7 @@ function open_ticket( Realtime $realtime, $user, string $subject ): string
     $realtime->to( 'desk' )->emit( 'opened', [ 'ticket' => $ticket->id, 'subject' => $ticket->subject ] );
 
     // 2. To the agent on duty with the fewest open tickets, if anyone is on duty.
-    $members = $realtime->in( 'desk' )->members();
+    $members = $realtime->room( 'desk' )->members();
     $agent = least_busy( array_column( $members['list'], 'id' ) );
     if ( null !== $agent ) {
         assign( $realtime, $ticket->id, $agent );
@@ -303,7 +259,7 @@ def open_ticket(user, subject):
     realtime.to("desk").emit("opened", {"ticket": ticket.id, "subject": ticket.subject})
 
     # 2. To the agent on duty with the fewest open tickets, if anyone is on duty.
-    members = realtime.in_room("desk").members()
+    members = realtime.room("desk").members()
     agent = least_busy([member["id"] for member in members["list"]])
     if agent is not None:
         assign(ticket.id, agent)
@@ -463,12 +419,12 @@ Your app also answers the conversation of a ticket from a route, as `{ messages:
 
 ## The page of the customer
 
-The ready-made chat, with the call of the ticket shown in it while it is on:
+The ready-made conversation window (`<chat-room>`), with the call of the ticket shown in it while it is on:
 
 **Browser**
 
 ```html
-<chat-room room="ticket:9" call messages="/tickets/9/messages" style="height: 560px"></chat-room>
+<chat-room room="ticket:9" token-url="/api/ticket-call-token" messages="/tickets/9/messages" style="height: 560px"></chat-room>
 <p id="agent"></p>
 
 <script type="module">
@@ -487,21 +443,20 @@ The ready-made chat, with the call of the ticket shown in it while it is on:
 import { CallScreen, Chat } from '@wordplus/realtime-ui/react';
 
 function Ticket( { id } ) {
-    const rt = useRealtime();
-    const [ agent, setAgent ] = useState( null );
+    const [ agent, setAgent ] = useState<{ name: string } | null>( null );
     useRoom( `ticket:${ id }`, { assigned: ( data ) => setAgent( data.agent ) } );
 
     return (
         <>
-            <CallScreen rt={ rt } />
+            <CallScreen />
             { agent && <p>{ agent.name } answers you</p> }
-            <Chat rt={ rt } room={ `ticket:${ id }` } call messages={ `/tickets/${ id }/messages` } />
+            <Chat room={ `ticket:${ id }` } tokenUrl="/api/ticket-call-token" messages={ `/tickets/${ id }/messages` } />
         </>
     );
 }
 ```
 
-- **`call`** alone shows the call named as the room, `ticket:9`, in the chat, beside the messages, once it starts ([the chat](../elements.md#chat-room)).
+- **`token-url`** is your call route, below. With no `to`, the chat of the customer has no call buttons, and the call the agent starts on `ticket:9` shows in it, beside the messages ([the chat](../elements.md#chat-room)).
 - **Who is typing** comes with the chat, both ways.
 - **On WordPress,** a REST route knows the user only with the REST nonce, which `messages` does not send: give the chat `load` in its place, with `wp.apiFetch` ([WordPress events](https://docs.wordplus.cloud/wordpress/events/#ready-made-the-chat)).
 
@@ -512,7 +467,7 @@ The list of tickets from the desk, the conversation with the customer on its top
 **Browser**
 
 ```html
-<chat-room room="ticket:9" to="42" name="Ben" call messages="/tickets/9/messages" style="height: 560px"></chat-room>
+<chat-room room="ticket:9" to="42" name="Ben" token-url="/api/ticket-call-token" messages="/tickets/9/messages" style="height: 560px"></chat-room>
 <online-list room="desk" title="On duty"></online-list>
 <form id="note"><input name="text" placeholder="A note for the team"></form>
 
@@ -543,8 +498,7 @@ The list of tickets from the desk, the conversation with the customer on its top
 import { CallScreen, Chat, OnlineList } from '@wordplus/realtime-ui/react';
 
 function Desk( { ticket, customer, me } ) {
-    const rt = useRealtime();
-    const [ notes, setNotes ] = useState( [] );
+    const [ notes, setNotes ] = useState<Array<{ id?: string; from?: string; text: string }>>( [] );
     useRoom( 'desk', {
         opened: ( data ) => tickets.add( data.ticket, data.subject ),
         assigned: ( data ) => tickets.assign( data.ticket, data.agent ),
@@ -559,24 +513,102 @@ function Desk( { ticket, customer, me } ) {
 
     return (
         <>
-            <CallScreen rt={ rt } />
-            <Chat rt={ rt } room={ `ticket:${ ticket }` } to={ customer.id } name={ customer.name } call messages={ `/tickets/${ ticket }/messages` } />
-            <OnlineList rt={ rt } room="desk" title="On duty" />
+            <CallScreen />
+            <Chat room={ `ticket:${ ticket }` } to={ customer.id } name={ customer.name } tokenUrl="/api/ticket-call-token" messages={ `/tickets/${ ticket }/messages` } />
+            <OnlineList room="desk" title="On duty" />
             <Notes notes={ notes } onAdd={ addNote } />
         </>
     );
 }
 ```
 
-- **`to`** puts the customer on the top bar of the chat, online or not, with a video and an audio call button.
+- **`to`** puts the customer on the top bar of the chat, online or not, with a video and an audio call button, which ask your call route below.
 - **The desk** lists the agents on duty, with the names your `profile` gives.
 - **An agent reading along,** whom the rule answered `readOnly`, sees the conversation and cannot write in it: their chat refuses to send.
 - **Taking a ticket they were reading:** the page joins the room again once the route says it is theirs, `rt.leave( 'ticket:9' )` then `rt.join( 'ticket:9' )` (or draws the chat anew). The rule answered read only when they joined, and answers again as they join.
 
 ## A call from the conversation
 
-The agent presses the video button on the top bar of the chat, and it rings the customer in every tab they have open, and shows in the chat on both sides. Your call rule runs for the agent as they call, and again for the customer as they answer ([how a page asks your server](how-it-works.md#how-a-page-asks-your-server)).
+The agent presses the video button on the top bar of the chat, and it rings the customer in every tab they have open, and shows in the chat on both sides. The button asks your route for a token with `?to=42&type=video&name=ticket:9`, and the customer answers with no token of their own: the ring proves your server said yes ([how a page asks your server](how-it-works.md#how-a-page-asks-your-server)). The name comes from the page, so your route checks it. This route lets a call through when:
 
+1. **The name is an open ticket** that has an agent.
+2. **The two are its customer and its agent,** either one calling.
+
+**Node**
+
+```ts
+// Your route, GET /api/ticket-call-token?to=42&type=video&name=ticket:9. Express here, the same in any framework.
+app.get( '/api/ticket-call-token', async ( req, res ) => {
+    const me = userOf( req );
+    const { to, type, name } = req.query;
+    const id = /^ticket:(\d+)$/.exec( name )?.[ 1 ];
+
+    // 1. An open ticket that has an agent.
+    const ticket = me && id ? await findTicket( id ) : null;
+    if ( ! ticket || ticket.closed || ! ticket.agentId ) return res.sendStatus( 403 );
+
+    // 2. The two are its customer and its agent.
+    const two = [ ticket.customerId, ticket.agentId ];
+    if ( String( me ) === String( to ) || ! two.includes( String( me ) ) || ! two.includes( String( to ) ) ) return res.sendStatus( 403 );
+
+    // The call takes the name of the ticket, so it shows in its chat.
+    res.json( { token: await realtime.callToken( me, to, { type, name } ) } );
+} );
+```
+
+**PHP**
+
+```php
+// Your route, GET /api/ticket-call-token?to=42&type=video&name=ticket:9. Laravel: the same in a route, with Realtime::callToken().
+$me = current_user_id();
+$to = (string) ( $_GET['to'] ?? '' );
+$name = $_GET['name'] ?? '';
+$ticket = $me && preg_match( '/^ticket:(\d+)$/', $name, $found ) ? find_ticket( $found[1] ) : null;
+
+// 1. An open ticket that has an agent.
+if ( null === $ticket || $ticket->closed || null === $ticket->agent_id ) {
+    http_response_code( 403 );
+    exit;
+}
+
+// 2. The two are its customer and its agent.
+$two = [ $ticket->customer_id, $ticket->agent_id ];
+if ( (string) $me === $to || ! in_array( (string) $me, $two, true ) || ! in_array( $to, $two, true ) ) {
+    http_response_code( 403 );
+    exit;
+}
+
+// The call takes the name of the ticket, so it shows in its chat.
+header( 'Content-Type: application/json' );
+echo json_encode( [ 'token' => $realtime->callToken( $me, $to, [ 'type' => $_GET['type'] ?? null, 'name' => $name ] ) ] );
+```
+
+**Python**
+
+```python
+# Your route, GET /api/ticket-call-token?to=42&type=video&name=ticket:9. Flask here, the same in any framework.
+@app.get("/api/ticket-call-token")
+def ticket_call_token():
+    me = session.get("user_id")
+    to = request.args.get("to", "")
+    name = request.args.get("name", "")
+    found = re.fullmatch(r"ticket:(\d+)", name)
+
+    # 1. An open ticket that has an agent.
+    ticket = find_ticket(found[1]) if me and found else None
+    if ticket is None or ticket.closed or ticket.agent_id is None:
+        abort(403)
+
+    # 2. The two are its customer and its agent.
+    two = (ticket.customer_id, ticket.agent_id)
+    if str(me) == to or str(me) not in two or to not in two:
+        abort(403)
+
+    # The call takes the name of the ticket, so it shows in its chat.
+    return {"token": realtime.call_token(me, to, type=request.args.get("type"), name=name)}
+```
+
+- **On WordPress,** its package decides by a rule of its own, `wordplus_realtime()->calls( 'ticket:{id}', … )` with the same check, and its chats take `call` in place of `token-url` ([WordPress calls](https://docs.wordplus.cloud/wordpress/calls/)).
 - **It connects on any network:** directly between the two devices, through our relays on the ports of the web, 443 and 80, when a firewall blocks that, or through our media servers when even the relays cannot reach ([how it connects](how-it-works.md#how-it-connects)).
 - **Encrypted end to end on every path,** and no credits on any of them.
 - **Showing a screen:** the customer shares their screen in the call from a browser on a computer ([remote help](remote-help.md)).
@@ -587,25 +619,25 @@ The agent presses the video button on the top bar of the chat, and it rings the 
 **Node**
 
 ```ts
-const { list } = await realtime.in( 'desk' ).members();      // the agents on duty now, with their info
+const { list } = await realtime.room( 'desk' ).members();    // the agents on duty now, with their info
 await realtime.to( 'ticket:9' ).emit( 'closed', {} );        // the customer page says it is closed
-await realtime.in( 'ticket:9' ).kick( 56 );                  // an agent taken off a ticket, out at once
+await realtime.room( 'ticket:9' ).remove( 56 );              // an agent taken off a ticket, out at once
 ```
 
 **PHP**
 
 ```php
-$on_duty = $realtime->in( 'desk' )->members()['list'];
+$on_duty = $realtime->room( 'desk' )->members()['list'];
 $realtime->to( 'ticket:9' )->emit( 'closed', [] );
-$realtime->in( 'ticket:9' )->kick( 56 );
+$realtime->room( 'ticket:9' )->remove( 56 );
 ```
 
 **Python**
 
 ```python
-on_duty = realtime.in_room("desk").members()["list"]
+on_duty = realtime.room("desk").members()["list"]
 realtime.to("ticket:9").emit("closed", {})
-realtime.in_room("ticket:9").kick(56)
+realtime.room("ticket:9").remove(56)
 ```
 
 **WordPress**
@@ -616,8 +648,8 @@ wordplus_realtime()->to( 'ticket:9' )->emit( 'closed', array() );
 wordplus_realtime()->in( 'ticket:9' )->kick( 56 );
 ```
 
-- **Closing a ticket:** tell the page with `closed`, and keep the ticket closed in your data, so the rule of the call says no from then on.
-- **An agent taken off a ticket** goes at once with `kick()`, and their token is refused from then on ([taking access away](how-it-works.md#taking-access-away)).
+- **Closing a ticket:** tell the page with `closed`, and keep the ticket closed in your data, so your call route says no from then on.
+- **An agent taken off a ticket** goes at once with `remove()` (`kick()` on WordPress), and their token is refused from then on ([taking access away](how-it-works.md#taking-access-away)).
 - **An agent who leaves their desk** shows in `desk` no more: the `member.left` webhook tells your server, to give their open tickets to others.
 
 ## Variations

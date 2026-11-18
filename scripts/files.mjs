@@ -13,7 +13,7 @@
 // The other files come from the client and the ready-made parts (scripts/client.mjs, scripts/ui.mjs). Both folders
 // are written here only, and neither is kept in git.
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -24,7 +24,7 @@ const out = join(root, 'src', 'server', 'files');
 const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 
 // The served files, in the order a page asks for them.
-export const SERVED = ['realtime.js', 'realtime-worker.js', 'realtime-rooms.min.js', 'realtime-rooms-e2ee.worker.js', 'realtime-ui.min.js', 'realtime-ui-streams.min.js'];
+export const SERVED = ['realtime.js', 'realtime-worker.js', 'realtime-rooms.min.js', 'realtime-rooms-e2ee.worker.js', 'realtime-ui.min.js', 'realtime-ui-streams.min.js', 'realtime-ui-recording.min.js', 'hls.light.min.js'];
 
 await build({
     entryPoints: [join(root, 'src', 'browser.ts')],
@@ -47,16 +47,14 @@ const texts = SERVED.map((name) => {
 });
 export const filesVersion = hash.digest('hex').slice(0, 12);
 
-rmSync(out, { recursive: true, force: true });
-mkdirSync(out, { recursive: true });
-
 const moduleOf = (name) => name.replace(/\.js$/, '');
-SERVED.forEach((name, i) => {
+const files = new Map(SERVED.map((name, i) => [
+    moduleOf(name) + '.ts',
     // Typed as a string, so the declaration is one line, not the file again as a literal type.
-    writeFileSync(join(out, moduleOf(name) + '.ts'), `// ${name}, as the app serves it. Written by scripts/files.mjs.\nconst text: string = ${JSON.stringify(texts[i])};\nexport default text;\n`);
-});
+    `// ${name}, as the app serves it. Written by scripts/files.mjs.\nconst text: string = ${JSON.stringify(texts[i])};\nexport default text;\n`,
+]));
 
-writeFileSync(join(out, 'index.ts'), [
+files.set('index.ts', [
     '// The browser files the routes serve, written by scripts/files.mjs from assets/.',
     '',
     '/** A hash of every file, the folder they are served from: a new one with any change. */',
@@ -68,5 +66,16 @@ writeFileSync(join(out, 'index.ts'), [
     '};',
     '',
 ].join('\n'));
+
+// Only what differs, and nothing taken away first: `npm test` builds while another test compiles against these, which then
+// found them half written and failed.
+mkdirSync(out, { recursive: true });
+for (const file of readdirSync(out)) {
+    if (!files.has(file)) rmSync(join(out, file), { force: true });
+}
+for (const [file, text] of files) {
+    const path = join(out, file);
+    if (!existsSync(path) || readFileSync(path, 'utf8') !== text) writeFileSync(path, text);
+}
 
 console.log(`src/server/files: ${SERVED.length} files, version ${filesVersion}`);

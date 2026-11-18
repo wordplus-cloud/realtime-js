@@ -15,15 +15,15 @@ A chat of two is named after its two people, `chat:34:42`, the smaller id first.
 **Node**
 
 ```ts
-realtime.room( 'chat:{a}:{b}', {
+realtime.room( 'chat:{a}:{b}', ( user, { a, b } ) => {
+    // 3. The two people in the name, and nobody else.
+    return [ a, b ].includes( String( user ) );
+}, {
     // 1. What the pages may send to it.
     emit: [ 'message', 'typing', 'reaction', 'read' ],
     // 2. What your server gets too, and the last 50 kept for a page that reconnects.
     webhook: [ 'message', 'reaction' ],
     history: 50,
-}, ( user, { a, b } ) => {
-    // 3. The two people in the name, and nobody else.
-    return [ a, b ].includes( String( user ) );
 } );
 ```
 
@@ -83,10 +83,28 @@ chat.on( 'message', ( data, meta ) => draw( data.text, meta.from ) );    // meta
 
 - **Everyone in the room** gets it, the other tabs and devices of the sender too. The tab that sent it does not.
 - **`emitWithAck`** resolves with `{ id, at }` once WordPlus Cloud has checked the event, kept it (when the room keeps history) and sent it on. It rejects with a code: `not_allowed` (the rule does not list it), `forbidden` (not in the room), `rate_limited`, `too_large`, `bad_event`.
+- **A plain `emit`** waits for nothing, and an event its rule turns away is still said: once for each event in a room, in the console, saying what to change, and as the `error` event of the room, `{ code, event }`.
 - **An emit before the room is joined** waits for it.
 - **`meta.from`** is the sender user id, as your server vouched for them: a page cannot send as someone else.
 - **Binary:** an `ArrayBuffer`, `Uint8Array` or `Blob` may be anywhere in the data. It is sealed as binary, and counted in the event size.
 - **Limits:** 1 MB an event (kept in history up to 64 KB), 50 a second a connection, in bursts of up to 100.
+
+### What an event carries
+
+In TypeScript, say what the events of a room carry and what its members bring, and your editor knows them, and refuses an event you did not name. It changes nothing at run time: your rule still decides what is sent. Named nothing, a room takes any event and any data.
+
+```ts
+type Chat = { message: { text: string }; typing: { on: boolean } };
+type Member = { name: string; avatar?: string };
+
+const chat = rt.join<Chat, Member>( 'chat:34:42' );
+
+chat.on( 'message', ( message, meta ) => draw( message.text, meta.from ) );   // message is { text: string }
+chat.emit( 'typing', { on: true } );
+chat.on( 'join', ( { id, info } ) => add( id, info.name ) );                  // info is Member
+```
+
+`useRoom<Chat, Member>( 'chat:34:42', { message: ( message ) => add( message.text ) } )` takes the same in React. The handlers never decide what a room's events carry: named nothing, every handler's data is `any`, a handler that types its own, `( message: { text: string } ) => …`, types that one alone, and `emit()` takes any event. Name them on the hook to have every handler and `emit()` checked.
 
 ## Keeping the conversation
 
@@ -133,8 +151,9 @@ realtime.on("message", keep_message)
 ```
 
 - **Check there anything that matters:** the events do not go through your server before they are sent on.
-- **On localhost** no webhook reaches your server, as a webhook needs an address on the internet. While you build there, the ready-made chat tells your server of each message it sent with its `sent` event, for a route of yours to keep by the same id ([without a webhook](use-cases/chat.md#without-a-webhook-as-on-localhost)). Or a tunnel gives your computer an address ([while you develop](sending.md#while-you-develop)).
+- **On localhost** no webhook reaches your server, as a webhook needs an address on the internet. While you build there, the ready-made conversation window (`<chat-room>`) tells your server of each message it sent with its `sent` event, for a route of yours to keep by the same id ([without a webhook](use-cases/chat.md#without-a-webhook-as-on-localhost)). Or a tunnel gives your computer an address ([while you develop](sending.md#while-you-develop)).
 - **A route of yours** gives a page the conversation back: the newest 50 messages, or with `?before=<id>` the 50 before that one, oldest first, as `{ messages: [ { id, from, text, at, reactions } ], more }`. `at` is in milliseconds, and `reactions` maps each reaction to who chose it. Only the two people in the chat may read it.
+- **The tables, the unread counts and the pushes** are your server's too: a last-read marker for each member, which the page tells your route, as read marks go volatile and never reach the webhook ([what your server keeps](use-cases/chat-server.md)).
 - **A reaction** comes as `{ id, key }`: the one reaction of the user to message `id`, an empty `key` taking it back.
 - **A gap:** a page back after the 5 minutes a room keeps its events, or after more came than it keeps, gets what the room still had, then `error` on the room with `{ code: 'gap' }`, still joined. Some events are lost to it, so ask your route for the newest page again: `chat.on( 'error', ( e ) => e.code === 'gap' && reload() )`.
 
@@ -142,7 +161,7 @@ realtime.on("message", keep_message)
 
 Optional, as every ready-made part: the events above are all a chat needs, and [your own interface](interface.md#a-chat) draws one your way, or runs it in React with `useChat()`. This is the ready-made one.
 
-The Better Messages conversation on a room, with what a chat needs: your server conversation paged back as the reader scrolls up, the room filling in what came since, the day separators and unread line, the messages of a sender stacked, typing, reactions, the read ticks and the composer.
+The Better Messages conversation on a room, with what a chat needs: your server conversation paged back as the reader scrolls up, the room filling in what came since, the day separators, the messages of a sender stacked, typing, reactions, the read ticks and the composer.
 
 ```html
 <chat-room room="chat:34:42" messages="/chat/34/42/messages" placeholder="Write a message" reactions="1f44d 2764 1f602" max-length="2000"></chat-room>
@@ -163,11 +182,12 @@ It sends what an app of your own would, so the two read each other:
 | `read` | `{ id }`, the newest message seen | volatile, for the sender ticks |
 | `reaction` | `{ id, key }`, `key` empty to take it back | with an ack. Your server keeps it |
 
-`await rt.callScreen()` loads it with the call screen, `rt.ui()` without. In React, `<Chat rt={ rt } room="…" messages="…" />` of `@wordplus/realtime-ui/react`, or `load={ … }` ([React](react.md#ready-made-screens)). Names and pictures come from your [directory](encryption.md#your-users).
+`await rt.callScreen()` loads it with the call screen, `rt.ui()` without. In React, `<Chat room="…" messages="…" />` of `@wordplus/realtime-ui/react`, or `load={ … }` ([React](react.md#ready-made-screens)). Names and pictures come from your [directory](encryption.md#your-users).
 
 ## Use cases
 
 Each with the rules of your server and the code of the page:
 
 - [Chat](use-cases/chat.md): conversations of two and of a group, kept by your server
+- [What your server keeps for a chat](use-cases/chat-server.md): the tables, unread counts from a last-read marker, and a push to a member with nothing open
 - [Editing together](use-cases/collaboration.md): cursors as volatile events, and changes kept for a page that reconnects

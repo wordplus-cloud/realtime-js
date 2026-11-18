@@ -9,7 +9,7 @@ The API demo as two apps, in the package `examples/react-native` (Expo) and `exa
 | The order of Ben, as Ann moves it on | `join()` on the `order:{id}` room | the shop page, `shop/shop.js` |
 | Who is in the shop | the `shop` presence room | `<online-list>`, with a call button for each |
 | The chat | messages emitted with an ack and kept, typing as volatile events | `<chat-room>`, with reactions and read ticks |
-| Calls and the daily meeting | later (they need a WebRTC module) | the call screen, as in a browser |
+| Calls and the daily meeting | not in this one, which runs in Expo Go: they need the native build of [`@wordplus/realtime-react-native`](https://docs.wordplus.cloud/react-native/calls/) | the call screen, as in a browser |
 | The order timeline, the mugs and who is looking, the webhooks | | the shop page, as in a browser |
 
 **Try it online** at [mobile.docs.wordplus.cloud](https://mobile.docs.wordplus.cloud/): the Capacitor app in a phone, signed in as Ben, beside the page of Ann in the same shop, a shop of your own for a day, whose calls end after 10 minutes and meetings after 15. Swift and Kotlin apps have guides of their own: [iOS](https://docs.wordplus.cloud/ios/getting-started/) and [Android](https://docs.wordplus.cloud/android/getting-started/). Under each card, **See the code** shows the parts of this example that make it, on the server and on the page: the lines between `#region demo: <card>` and `#endregion` in its files.

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "@wordplus/realtime": "^1.0.0",
+    "@wordplus/realtime": "^1.2.0",
     "expo": "~57.0.27",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",

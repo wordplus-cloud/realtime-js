@@ -101,7 +101,7 @@ The request goes to the expert alone, on whatever page they are, with `toUser`:
 The expert's page shows it, and answers it:
 
 ```tsx title="app/(app)/live.tsx"
-    useUserEvent('request', (data: Request) => {
+    useUserEvent('request', (data: TalkRequest) => {
         setRequests((list) => [...list, data]);
         setTimeout(() => drop(data.request), data.waits);
     });
@@ -131,7 +131,7 @@ Each appointment has a waiting room, a presence room: a client who is ready is i
 One rule says who may be in it: the appointment's expert and its client.
 
 ```ts title="lib/realtime.ts"
-realtime.room('waiting:{id}', { presence: true }, async (user, { id }) => mayChat(user, id));
+realtime.room('waiting:{id}', async (user, { id }) => mayChat(user, id), { presence: true });
 ```
 
 The expert's list of appointments asks WordPlus Cloud who is in each open one's waiting room, and says so:
@@ -143,12 +143,13 @@ The expert's list of appointments asks WordPlus Cloud who is in each open one's 
 
 ## visit: The visit, encrypted end to end
 
-The visit is a group call of two on WordPlus Cloud's media servers, encrypted end to end: each browser encrypts what it sends with a key this server makes, which only those the rule lets in get. The media servers forward what they can't see or hear.
+The visit is a group call of two on WordPlus Cloud's media servers, encrypted end to end: each browser encrypts what it sends with a key this server makes, which only those with a token get. The media servers forward what they can't see or hear.
 
-One rule says who may come in, and when: the expert from ten minutes before it starts until it ends, the client once let in. For __me_name__ now: __answer__.
+This server's own route says who may come in, and when, and answers a token, encrypted as every token for the visit is: the expert from ten minutes before it starts until it ends, the client once let in. For __me_name__ now: __answer__.
 
-```ts title="lib/realtime.ts"
-realtime.groupCalls('visit:{id}', async (user, { id }) => mayJoinVisit(user, id), { encrypt: true });
+```ts title="app/api/visit-token/route.ts"
+    if (!me || !(await mayJoinVisit(me, id))) return new Response(null, { status: 403 });
+    const token = await realtime.groupCallToken(me, `visit:${id}`, { encrypt: true });
 ```
 
 ```ts title="lib/clinic.ts"
@@ -159,15 +160,15 @@ export async function mayJoinVisit(user: string | number | null, id: string): Pr
 }
 ```
 
-The visit shows in the page, where the page puts it, with `CallSpot`. Its `join` comes in, with the camera and microphone on, once a click on this page says so.
+The visit shows in the page, where the page puts it, with `CallSpot`. Its `join` asks the route for a token and comes in, with the camera and microphone on, once a click on this page says so.
 
 ```tsx title="app/(app)/appointments/[id]/visit.tsx"
 const [join, setJoin] = useState<'video' | undefined>(() => (params.get('join') === '1' ? 'video' : undefined));
 // …
-<CallSpot rt={rt} call={`visit:${id}`} join={join} joinWith="microphone camera">   // '__visit__'
+<CallSpot call={`visit:${id}`} tokenUrl={`/api/visit-token?id=${id}`} join={join} joinWith="microphone camera">   // '__visit__'
 ```
 
-It ends at its time, or when the expert ends it: the server ends the call for both, and refuses the passes they had.
+It ends at its time, or when the expert ends it: the server ends the call for both, and the tokens they had open it no more.
 
 ```ts title="lib/realtime.ts"
 export async function endVisit(appointment: Appointment) {
@@ -195,7 +196,7 @@ function InWaitingRoom({ room }: { room: string }) {
 }
 ```
 
-Let in, the server keeps it, so the visit's rule says yes to the client from now on, and tells the client:
+Let in, the server keeps it, so the visit's token route says yes to the client from now on, and tells the client:
 
 ```ts title="app/(app)/actions.ts"
     const appointment = me ? await admit(id, me) : null;
@@ -221,20 +222,19 @@ One rule says who may write: the appointment's expert and its client.
 ```ts title="lib/realtime.ts"
 realtime.room(
     'chat:{id}',
+    async (user, { id }) => mayChat(user, id),
     {
         history: 50,
         emit: ['message', 'typing', 'reaction', 'read'],
         webhook: ['message', 'reaction'],
     },
-    async (user, { id }) => mayChat(user, id),
 );
 ```
 
-The ready-made chat, with `upload`, this server's route for files:
+The ready-made conversation window (`<Chat>`), with `upload`, this server's route for files:
 
 ```tsx title="app/(app)/appointments/[id]/messages.tsx"
         <Chat
-            rt={useRealtime()}
             room={room}
             people={people}
             messages={`/api/messages?room=${room}`}

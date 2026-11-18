@@ -115,8 +115,8 @@ One rule says who may read and write: the seller of the item, and this buyer.
 ```ts title="lib/realtime.ts"
 realtime.room(
     'deal:{id}',
-    { history: 50, emit: ['message', 'typing', 'reaction', 'read'], webhook: ['message', 'reaction'] },
     async (user, { id }) => mayTalk(user, id),
+    { history: 50, emit: ['message', 'typing', 'reaction', 'read'], webhook: ['message', 'reaction'] },
 );
 ```
 
@@ -126,11 +126,10 @@ export async function mayTalk(user: string | number | null, deal: string): Promi
 }
 ```
 
-The ready-made chat, with `upload`, this server's route for photos: picked, pasted or dropped on it.
+The ready-made conversation window (`<Chat>`), with `upload`, this server's route for photos: picked, pasted or dropped on it.
 
 ```tsx title="app/(app)/messages/[id]/chat.tsx"
         <Chat
-            rt={useRealtime()}
             room={room}
             // …
             messages={`/api/messages?room=${room}`}
@@ -187,26 +186,22 @@ Both pages of the conversation ask for themselves again when the server says so 
 
 To see the item before coming over: a video call from the conversation, which shows in it, beside the messages. Here, with __other_name__.
 
-One rule: both of the conversation may call each other in it.
-
-```ts title="lib/realtime.ts"
-realtime.calls('deal:{id}', async (user, other, { id }) => (await mayTalk(user, id)) && (await mayTalk(other, id)));
-```
-
-The chat knows the other one (`to`) and has their call (`call`): its buttons on its top bar.
+Who may call is this site's own logic. The chat knows the other one (`to`), and its buttons on its top bar ask this server for a token (`tokenUrl`), with the name of the conversation.
 
 ```tsx title="app/(app)/messages/[id]/chat.tsx"
             to={to}
             name={name}
             avatar={avatar}
-            call
+            tokenUrl="/api/deal-call-token"
 ```
 
-A page asks this server for the call, which runs the rule and answers a pass, signed with the app's secret. With it, WordPlus Cloud rings the other one.
+The route checks that both of them are of the conversation, its seller and its buyer, and answers a token for this call alone, signed with the app's secret. With it, WordPlus Cloud rings the other one, who answers with no token of their own.
 
-```ts title="app/api/realtime/calls/route.ts"
-    const user = await currentUserId();
-    const pass = await realtime.authorizeCall(ask, user);
+```ts title="app/api/deal-call-token/route.ts"
+    const deal = idIn(name, 'deal');
+    if (!me || !deal || !(await mayTalk(me, deal))) return new Response(null, { status: 403 });
+    if (to === me || !(await mayTalk(to, deal))) return new Response(null, { status: 403 });
+    return Response.json({ token: await realtime.callToken(me, to, { type: ask.get('type'), name }) });
 ```
 
 ## sell: Putting an item up

@@ -1,10 +1,10 @@
 # Customizing the screens in a mobile app
 
-The call screen, the chat, the list of who is online and the live stream player can be made part of the design of your app, or changed down to their code, with your AI coding agent or by hand. How far depends on what draws the app: a Capacitor or Ionic app draws them as a page does, in four steps, each going further than the last ([making the screens your own](../customizing.md)), and a React Native app draws its own.
+The call screen, the chat, the list of who is online and the live stream player can be made part of the design of your app, or changed down to their code, with your AI coding agent or by hand. How far depends on what draws the app: a Capacitor or Ionic app draws them as a page does, in four steps, each going further than the last ([making the screens your own](../customizing.md)), and a React Native app has the native call screen and player of its calls package, and draws its own chat and lists.
 
 ## In a Capacitor or Ionic app
 
-The app is a page, so the ready-made parts are the [elements](../elements.md) of any page: `<chat-room>`, `<typing-line>`, `<online-list>`, `<online-count>`, `<call-button>`, `<room-button>`, `<call-spot>` and `<call-screen>`, and `<live-stream>` and `<stream-studio>` for live streams.
+The app is a page, so the ready-made parts are the [elements](../elements.md) of any page: `<chat-room>`, `<typing-line>`, `<online-list>`, `<online-count>`, `<call-button>`, `<group-call-button>`, `<call-spot>` and `<call-screen>`, and `<live-stream>` and `<stream-studio>` for live streams.
 
 ```js
 await rt.callScreen();     // the elements, the ring and the call window
@@ -66,7 +66,7 @@ const rt = await connect( { ...settings, screen: { prefix: 'shop', lang: navigat
 
 ```html
 <shop-chat-room room="chat:34:42"></shop-chat-room>
-<shop-call-button to="34" call="support:{pair}">Call Ann</shop-call-button>
+<shop-call-button to="34" token-url="https://shop.example.com/api/call-token">Call Ann</shop-call-button>
 ```
 
 Your selectors and templates take those names too: `shop-chat-room::part(message)`. One prefix an app, of lowercase letters and digits, starting with a letter ([your own names](../elements.md#your-own-names)).
@@ -96,20 +96,20 @@ The elements are the ready-made option, never a must. Draw who is online, the ch
 
 ## Live streams
 
-`<live-stream>` and `<stream-studio>` are the player, chat and studio of Easy Stream, with a look of their own: custom properties on `.estream-theme`, such as `--estream-accent`, `--estream-radius` and `--estream-font`, and their words in the same nine languages, by `rt.streamScreen( { lang, strings } )` ([live streams](../customizing.md#live-streams)).
+`<live-stream>` and `<stream-studio>` are the player, chat and studio of Easy Stream, with a look of their own: custom properties on `.wplus-live-stream-theme`, such as `--wplus-live-stream-accent`, `--wplus-live-stream-radius` and `--wplus-live-stream-font`, and their words in the same nine languages, by `rt.streamScreen( { lang, strings } )` ([live streams](../customizing.md#live-streams)).
 
 ```css
-body .estream-theme { --estream-accent: #16a34a; --estream-radius: 12px; }
+body .wplus-live-stream-theme { --wplus-live-stream-accent: #16a34a; --wplus-live-stream-radius: 12px; }
 ```
 
 ## In a React Native app
 
-The ready-made screens are drawn for the web, so a React Native app shows none of them: no chat, list of who is online, call screen or player. It draws its own, with its own components, on the same SDK:
+The web screens are drawn for the web, so a React Native app shows none of them: no chat or list of who is online. It draws those itself, with its own components, on the same SDK:
 
 - **Rooms and their events, presence, counts, who is online, what your server sends the user and the directory** are all there, with `rt.join()`, `rt.online` and `rt.users()`, or the hooks `useRoom`, `usePresence`, `useOnline` and `useUserEvent` under a `RealtimeProvider` ([React Native](../react.md#react-native)).
 - **What each ready-made part is built on** is in [your own interface](../interface.md), part by part: a screen of your own builds on the same.
 - **The look, the words and right to left** are those of your app, as on its other screens.
-- **Calls and live streams** come in a later version: `rt.calls()` rejects with `no_webrtc` meanwhile ([calls](calls.md)).
+- **The call screen and the player** are native, from `@wordplus/realtime-react-native`, on iOS for now. `<CallScreen />` takes its words and colours as `strings`, `tokens`, `tokensDark` and `darkMode`, and `<CallVideo>`, `<GroupVideo>` and `<StreamVideo>` put the pictures in a screen of your own ([calls](https://docs.wordplus.cloud/react-native/calls/), [live streams](https://docs.wordplus.cloud/react-native/streams/)).
 
 ## Swift and Kotlin
 

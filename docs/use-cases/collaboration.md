@@ -17,11 +17,11 @@ Your server decides who may join. A page that joins asks your server first, and 
 **Node**
 
 ```ts
-realtime.room( 'doc:{id}', {
+realtime.room( 'doc:{id}', async ( user, { id } ) => mayEdit( id, user ), {
     presence: true,                 // 1. who is in it
     history: 100,                   // 2. the last 100 changes, for a page that reconnects
     emit: [ 'cursor', 'update' ],   // 3. what the pages may send each other
-}, async ( user, { id } ) => mayEdit( id, user ) );   // those who may edit the document
+} );   // those who may edit the document
 ```
 
 **PHP**
@@ -128,7 +128,7 @@ Name the changes in the webhook of the room, and your server applies them to the
 
 ```ts
 // The rule above, with the changes sent to your server too.
-realtime.room( 'doc:{id}', { presence: true, history: 100, emit: [ 'cursor', 'update' ], webhook: [ 'update' ] }, mayEditRule );
+realtime.room( 'doc:{id}', mayEditRule, { presence: true, history: 100, emit: [ 'cursor', 'update' ], webhook: [ 'update' ] } );
 
 // Each change, applied once by its event_id to the copy your server keeps.
 realtime.on( 'update', async ( { room, data, event_id } ) => saveChange( room.slice( 'doc:'.length ), event_id, data.bytes ) );

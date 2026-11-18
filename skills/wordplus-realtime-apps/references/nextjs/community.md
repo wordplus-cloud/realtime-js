@@ -12,16 +12,16 @@ The whole site is in the package, `examples/community`: sign-up, a club of eleve
 
 | On the site | What makes it |
 |---|---|
-| **Channels** for the whole club, kept, with photos, typing, reactions and read ticks | `<Chat>` on the room `channel:{id}`, with `upload`, your route for photos, which keeps them on your server ([the ready-made chat](events.md#ready-made-the-chat), [files](../use-cases/chat.md#files)) |
+| **Channels** for the whole club, kept, with photos, typing, reactions and read ticks | `<Chat>` on the room `channel:{id}`, with `upload`, your route for photos, which keeps them on your server ([the ready-made conversation window](events.md#ready-made-the-chat), [files](../use-cases/chat.md#files)) |
 | **Photos** opened only by those who may read where they were shared | your route asks the room's own rule, `realtime.mayJoin()`, and the page of each photo asks it again |
-| **Lounges**, group calls that members drop into by voice or with their cameras, in the page | `<CallSpot>` and `<GroupCallButton>` on the group call `lounge:{id}`, which `realtime.groupCalls()` opens to every member ([the call in the page](calls.md#the-call-in-the-page)) |
-| **The hosts look after the lounges**: mute anyone, or take them out, from their tile | the rule's `{ admin: true }` for a host: the call screen does the rest ([permissions](../permissions.md#group-calls)) |
-| **An event**: its host goes live from a studio page of their own, and the club watches with a chat and reactions | `<LiveStream view="studio-page">` for the host, `<LiveStream>` for everyone else, on the stream `event:{id}` ([live streams](streams.md), [the studio as a page of its own](../elements.md#the-studio-as-a-page-of-its-own)) |
-| **On stage**: a member raises a hand from the player, and the host brings them on with their camera | the stream's `stage: true`: the ready-made player and studio do the rest ([guests on stage](streams.md#guests-on-stage)) |
+| **Lounges**, group calls that members drop into by voice or with their cameras, in the page | `<CallSpot>` and `<GroupCallButton>` on the group call `lounge:{id}`, each with `tokenUrl`, your route that answers `realtime.groupCallToken()` for every member ([the call in the page](calls.md#the-call-in-the-page)) |
+| **The hosts look after the lounges**: mute anyone, or take them out, from their tile | the token's `admin: true` for a host: the call screen does the rest ([permissions](../permissions.md#group-calls)) |
+| **An event**: its host goes live from a studio page of their own, and the club watches with a chat and reactions | `<LiveStream view="studio-page">` for the host, `<LiveStream>` for everyone else, on the stream `event:{id}`, with `tokenUrl`, your route that answers `realtime.streamToken()` ([live streams](streams.md), [the studio as a page of its own](../elements.md#the-studio-as-a-page-of-its-own)) |
+| **On stage**: a member raises a hand from the player, and the host brings them on with their camera | the stream's `stage: true`, in its token's settings: the ready-made player and studio do the rest ([guests on stage](streams.md#guests-on-stage)) |
 | **What's on now**, beside every page: an event live with how many watch, and who is in each lounge | `realtime.listStreams()`, `realtime.listCalls()` and `realtime.call( name ).get()`: WordPlus Cloud knows, with no table of yours. The webhooks of the lounges and the events, told to a room every page joins ([rooms](rooms.md)) |
 | **A notice** when an event goes live, or a member writes, on whatever page they are | the `stream.live` and `message` webhooks, and `realtime.toUser( ids ).emit()` ([webhooks](sending.md#webhooks)) |
 | **Who is online**, beside every page and on Members, those online first | `useOnline()`: WordPlus Cloud tells the page as members come and go ([who is online](presence.md#who-is-online-across-your-app)) |
-| **A conversation with a member**, with photos, and its call beside the messages | `<Chat to name avatar call upload>`, and a calls rule of the same name, `chat:{id}` ([the call in its chat](calls.md#the-call-in-its-chat)) |
+| **A conversation with a member**, with photos, and its call beside the messages | `<Chat to name avatar tokenUrl upload>`, and your route that answers `realtime.callToken()` with the conversation's name ([the call in its chat](calls.md#the-call-in-its-chat)) |
 
 ## Run it
 
@@ -29,7 +29,7 @@ You need:
 
 - **Node.js 22** or newer.
 - **Postgres 15** or newer, with a database of its own for the site.
-- **An app in WordPlus Cloud.** Apps are in early access, so first [ask for it](https://www.wordplus.cloud/contact). Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
+- **An app in WordPlus Cloud.** If you have no subscription yet, [choose your connections](https://www.wordplus.cloud/pricing#apps) first. Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
 
 ```bash
 cd examples/community
@@ -164,7 +164,7 @@ create table if not exists file (
 );
 ```
 
-The rules, and what they read. Every room and call is named after what it is, with its number: channel 3 is `channel:3`, conversation 7 `chat:7`, lounge 2 `lounge:2` and event 5 `event:5`.
+The rules and the token routes, and what they read. Every room and call is named after what it is, with its number: channel 3 is `channel:3`, conversation 7 `chat:7`, lounge 2 `lounge:2` and event 5 `event:5`.
 
 ```ts title="lib/club.ts"
 /** Whether someone is a member: anyone signed in. A visitor who isn't (null) never is. */
@@ -202,12 +202,11 @@ export async function mayWrite(user: string | number | null, room: string): Prom
 
 ### Your server and WordPlus Cloud
 
-The realtime side of your server is one file. It says who is asking and what members see of each other, then gives each kind of room and call its rule:
+The realtime side of your server is one file, and three routes of your own for the calls and the events. A room has a rule, a function your server runs as a page asks to join. A call, a lounge and an event start from a token instead: the page asks a route of yours, your route makes its own check, and answers a token that says what this member may do in it. WordPlus Cloud then holds the page to it.
+
+The file says who is asking and what members see of each other, then gives each kind of room its rule:
 
 - **A channel or a conversation** lets in whoever may write there, `mayWrite` above, and its messages and reactions come to your server to be kept.
-- **The call of a conversation** is for its two.
-- **A lounge** answers `{ admin: true }` for a host, which makes them its host, `true` for any other member, and `false` for anyone else.
-- **An event** answers `{ role: 'host' }` for its own host, `'viewer'` for any other member, and `false` for anyone else. Its settings, `stage: true` and `reactions: true`, let viewers raise a hand and react.
 - **The room `club`**, which every page of a member joins and only the server speaks in, tells every page when what is on changed.
 
 The webhooks keep the messages, tell the other one of a conversation of a new message, tell every page when someone drops into a lounge or leaves it, or an event goes live or ends, and tell every member when an event goes live.
@@ -215,12 +214,11 @@ The webhooks keep the messages, tell the other one of a conversation of a new me
 ```ts title="lib/realtime.ts"
 import { createRealtime } from '@wordplus/realtime/server';
 import { currentUserId } from './auth';
-import { eventOf, filesFor, idIn, isHost, isMember, keepMessage, mayWrite, members, membersOf, nameOf, personOf, photoOf, react, type Message } from './club';
+import { eventOf, filesFor, idIn, isMember, keepMessage, mayWrite, members, membersOf, nameOf, personOf, photoOf, react, type Message } from './club';
+import { DEMO_LIVE_MINUTES, WORLDS, endCallOnDemo, webhooksInEveryWorld } from './worlds';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
+    // The app's key, secret and local key come from the environment: WORDPLUS_SITE, WORDPLUS_SECRET, WORDPLUS_LOCAL_KEY.
     // Who is asking: the signed-in member, or null.
     user: () => currentUserId(),
     // What members see of each other: in the channels, the lounges, on stage and in who is online.
@@ -229,35 +227,18 @@ export const realtime = createRealtime({
         return person ? { name: person.name, avatar: photoOf(person.id) } : null;
     },
 });
+// The public demo: the webhooks read and keep the club of every visitor's world (lib/worlds.ts).
+if (WORLDS) webhooksInEveryWorld(realtime);
 
 // The channels, channel:{id}, the whole club's, and the conversations between two, chat:{id}, their two's (mayWrite in
 // lib/club.ts). Messages with their photos, typing, reactions and read ticks go from page to page sealed, and the
 // messages and reactions come here too (below), to be kept. A page asks to join at /api/realtime/auth.
 const MESSAGES = { history: 50, emit: ['message', 'typing', 'reaction', 'read'], webhook: ['message', 'reaction'] };
-realtime.room('channel:{id}', MESSAGES, async (user, _params, room) => mayWrite(user, room));
-realtime.room('chat:{id}', MESSAGES, async (user, _params, room) => mayWrite(user, room));
+realtime.room('channel:{id}', async (user, _params, room) => mayWrite(user, room), MESSAGES);
+realtime.room('chat:{id}', async (user, _params, room) => mayWrite(user, room), MESSAGES);
 
-// The call of a conversation between two, by the name of its room: both of them may use it.
-realtime.calls('chat:{id}', async (user, other, _params, room) => (await mayWrite(user, room)) && (await mayWrite(other, room)));
-
-// The lounges, lounge:{id}: group calls any member drops into, by voice or with their camera, for as long as they like.
-// The hosts look after them: the call screen gives them mute and remove on everyone's tile.
-realtime.groupCalls('lounge:{id}', async (user) => {
-    if (!(await isMember(user))) return false;
-    return (await isHost(user)) ? { admin: true } : true;
-});
-
-// The events, event:{id}: a live stream its host goes live in, from the studio, and every member watches. A member may
-// raise a hand from the player, and the host brings them on stage with their camera and microphone.
-realtime.streams(
-    'event:{id}',
-    async (user, { id }) => {
-        const event = await eventOf(id);
-        if (!event || !(await isMember(user))) return false;
-        return String(user) === event.host ? { role: 'host', quality: '1080p' } : 'viewer';
-    },
-    { stage: true, reactions: true },
-);
+// The calls of a conversation, the group calls of the lounges and the live streams of the events start from a token,
+// which the site's own routes answer after their own check: app/api/chat-call-token, lounge-token and event-token.
 
 // What is on in the club: every page of a member joins it, to hear when someone drops into a lounge or leaves it, or an
 // event goes live or ends, and show it as it is now. Only the server says anything in it.
@@ -315,6 +296,11 @@ realtime.on('reaction', async ({ from, data }) => {
 realtime.on('group.joined', async ({ call }) => {
     if (!idIn(call, 'lounge')) return;
     await realtime.to('club').emit('changed');
+    // The public demo: a lounge's call ends by itself a few minutes after the first one dropped in (lib/worlds.ts).
+    if (WORLDS) {
+        const { people, started_at } = await realtime.call(call).get();
+        if (people === 1) endCallOnDemo(realtime.call(call), started_at);
+    }
 });
 realtime.on('group.left', async ({ call }) => {
     if (idIn(call, 'lounge')) await realtime.to('club').emit('changed');
@@ -328,13 +314,15 @@ realtime.on('stream.live', async ({ stream }) => {
     await realtime.to('club').emit('changed');
     const everyone = (await members()).map((person) => person.id).filter((person) => person !== event.host);
     await realtime.toUser(everyone).emit('live', { event: event.id, title: event.title, host: event.hostName });
+    // The public demo: an event ends by itself after a few minutes (lib/worlds.ts).
+    if (WORLDS) setTimeout(() => realtime.stream(stream).end().catch(() => {}), DEMO_LIVE_MINUTES * 60_000).unref();
 });
 realtime.on('stream.ended', async ({ stream }) => {
     if (idIn(stream, 'event')) await realtime.to('club').emit('changed');
 });
 ```
 
-The rules run on your server, in two routes of your own, each time a page asks: to join a channel or a conversation, to drop into a lounge, to call, to watch an event or go live in it, or for a host's mute or remove. The page gets a pass signed with the app's secret, or why not.
+The rules of the rooms run on your server, in a route of your own, each time a page asks to join a channel or a conversation. The page gets a pass signed with the app's secret, or why not. A second route serves what a page does with a call once its token started it: answering a call that rings for this member, renewing what it holds as the call goes on, and a host's mute or remove, each on a proof only your server makes.
 
 ```ts title="app/api/realtime/auth/route.ts"
 // POST /api/realtime/auth: a page asks to join rooms, as { rooms: ['channel:2', 'club'] }. This server runs each room's
@@ -356,11 +344,10 @@ export async function POST(request: Request) {
 ```
 
 ```ts title="app/api/realtime/calls/route.ts"
-// POST /api/realtime/calls: a page asks to drop into a lounge, as { room: 'lounge:2', type: 'audio' }, to call a member
-// or answer them, as { call: 'chat:7', to: '10', role: 'caller', … }, to watch an event or go live in it, or for a
-// host's mute or remove (moderate). This server runs the rule of the call or the stream (realtime.groupCalls,
-// realtime.calls and realtime.streams in lib/realtime.ts) for the member signed in, and answers a pass for it, signed
-// with the app's secret, or why not.
+// POST /api/realtime/calls: what a page does with a call once a token started it, for the member signed in: answer a
+// call that rings for them, renew what it holds as the call goes on, and a host's mute or remove (moderate). Each carries
+// a proof only this server makes, which the package checks. Who may call, drop into a lounge or watch an event is the
+// site's own token routes: app/api/chat-call-token, lounge-token and event-token.
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 
@@ -380,24 +367,107 @@ The SDK's other routes, the webhooks among them, and the browser files:
 
 ```ts title="app/api/realtime/[...path]/route.ts"
 // WordPlus Cloud's other routes: the keys of sealed rooms (POST /api/realtime/keys), the webhooks the cloud sends
-// (POST /api/realtime/webhook), and the browser's files (GET). Joining rooms and calling are the site's own routes,
-// auth/route.ts and calls/route.ts beside this one.
+// (POST /api/realtime/webhook), and the browser's files (GET). Joining rooms and answering calls are the site's own
+// routes, auth/route.ts and calls/route.ts beside this one.
 import { realtime } from '@/lib/realtime';
 
-export const GET = realtime.route;
-export const POST = realtime.route;
+export const { GET, POST } = realtime.handlers;
+```
+
+Then the three token routes. Each is a GET, which the ready-made parts send with the page's cookies, and each builds the name of what it opens from a number, so a page cannot ask for one of another kind:
+
+- **A lounge**, `/api/lounge-token?id=2`: any member drops in, by voice or with cameras as the lounge is, and a host as its host, `admin: true`, with mute and remove on everyone's tile.
+- **An event**, `/api/event-token?id=5`: its own host goes live, `role: 'host'`, in Full HD, and any other member watches, writes in the chat and may raise a hand. Its settings, `stage: true` and `reactions: true`, are the same in every token for it.
+- **A call in a conversation**, `/api/chat-call-token`: the chat sends the name of its room, `?to=10&type=video&name=chat:7`, which comes from the page, so the route checks it, the one calling and the one called both writing there. The call takes that name, so it shows in the conversation. The one called answers with no token of their own.
+
+Anyone else gets a 403, and the page is told they cannot join or call.
+
+```ts title="app/api/lounge-token/route.ts"
+// GET /api/lounge-token?id=2: a lounge's button and its spot ask it before they drop in (app/(app)/lounges/[id]/lounge.tsx).
+// Any member drops into a lounge, by voice or with their camera, for as long as they like. The hosts look after them:
+// the call screen gives them mute and remove on everyone's tile.
+import { currentUserId } from '@/lib/auth';
+import { isHost, isMember, loungeOf } from '@/lib/club';
+import { realtime } from '@/lib/realtime';
+
+export async function GET(request: Request) {
+    const id = new URL(request.url).searchParams.get('id') ?? '';
+    const me = await currentUserId();
+
+    // A lounge of the club, and a member.
+    const lounge = await loungeOf(id);
+    if (!lounge || !(await isMember(me))) return new Response(null, { status: 403 });
+
+    // The name is built here, from the lounge's number: lounge:2.
+    const token = await realtime.groupCallToken(me!, `lounge:${lounge.id}`, {
+        type: lounge.kind,
+        admin: await isHost(me),
+    });
+    return Response.json({ token });
+}
+```
+
+```ts title="app/api/event-token/route.ts"
+// GET /api/event-token?id=4: an event's player and its studio ask it, and again as each token runs out
+// (<LiveStream tokenUrl> in app/(app)/events/[id]/page.tsx and app/(app)/studio/[id]/page.tsx). Its host goes live, in
+// Full HD, and every other member watches, writes in the chat and may raise a hand to come on stage.
+import { currentUserId } from '@/lib/auth';
+import { eventOf, isMember } from '@/lib/club';
+import { realtime } from '@/lib/realtime';
+
+export async function GET(request: Request) {
+    const id = new URL(request.url).searchParams.get('id') ?? '';
+    const me = await currentUserId();
+
+    // An event of the club, and a member.
+    const event = await eventOf(id);
+    if (!event || !(await isMember(me))) return new Response(null, { status: 403 });
+
+    // The name is built here, from the event's number: event:4. Its host goes live, everyone else watches.
+    const hosts = me === event.host;
+    const token = await realtime.streamToken(me, `event:${event.id}`, {
+        role: hosts ? 'host' : 'viewer',
+        quality: hosts ? '1080p' : undefined,
+        // The same in every token for it: members on stage, and reactions.
+        settings: { stage: true, reactions: true },
+    });
+    return Response.json({ token });
+}
+```
+
+```ts title="app/api/chat-call-token/route.ts"
+// GET /api/chat-call-token?to=10&type=video&name=chat:7: a conversation's call buttons ask it before they call the other
+// one (<Chat tokenUrl> in app/(app)/members/[id]/chat.tsx). The name comes from the page, so it is checked: the one
+// calling and the one called both write in that conversation (mayWrite in lib/club.ts). Then a token for this call
+// alone, named as the conversation, so the call shows in it. The one called answers with no token of their own.
+import { currentUserId } from '@/lib/auth';
+import { idIn, mayWrite } from '@/lib/club';
+import { realtime } from '@/lib/realtime';
+
+export async function GET(request: Request) {
+    const ask = new URL(request.url).searchParams;
+    const me = await currentUserId();
+    const to = ask.get('to') ?? '';
+    const name = ask.get('name') ?? '';
+
+    // A conversation between two, and both of them in it.
+    if (!me || !idIn(name, 'chat') || !(await mayWrite(me, name)) || !(await mayWrite(to, name))) {
+        return new Response(null, { status: 403 });
+    }
+
+    return Response.json({ token: await realtime.callToken(me, to, { type: ask.get('type'), name }) });
+}
 ```
 
 ### Every page connected
 
-Every page of a member connects through the layout of their pages: one connection for all of them, kept as they move between pages. The call screen is in it, so a call rings on any page, and a lounge or a call goes on in a window in the corner wherever a page has no place of its own for it. So are the sidebar with what is on now, who is online beside it, what is on kept current, and the notices:
+Every page of a member connects through the layout of their pages: one connection for all of them, kept as they move between pages. `<RealtimeProvider>` of `@wordplus/realtime/next` signs the page's settings for the member on your server, and the page connects with no request first. The call screen is in it, so a call rings on any page, and a lounge or a call goes on in a window in the corner wherever a page has no place of its own for it. So are the sidebar with what is on now, who is online beside it, what is on kept current, and the notices:
 
 ```tsx title="app/(app)/layout.tsx"
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
+import { RealtimeProvider } from '@wordplus/realtime/next';
 import { currentUserId } from '@/lib/auth';
 import { members, personOf, photoOf } from '@/lib/club';
 import { realtime } from '@/lib/realtime';
@@ -411,18 +481,19 @@ import { Sidebar } from './sidebar';
 export default function AppLayout({ children }: { children: React.ReactNode }) {
     return (
         <Suspense fallback={<p className="p-6 text-stone-500">Loading…</p>}>
-            <Connected>{children}</Connected>
+            <SignedIn>{children}</SignedIn>
         </Suspense>
     );
 }
 
-async function Connected({ children }: { children: React.ReactNode }) {
-    await connection(); // made for each request: the settings are signed for this member, now
+// Signed in, or sent to sign in. The provider signs the page's settings for them, and connects the page with no
+// request first.
+async function SignedIn({ children }: { children: React.ReactNode }) {
     const me = await currentUserId();
     if (!me) redirect('/signin');
     const [person, everyone] = await Promise.all([personOf(me), members()]);
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <Screens />
             <ClubLive />
             <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur">
@@ -464,15 +535,14 @@ The call screen, with the look of the chat and the calls:
 ```tsx title="app/(app)/screens.tsx"
 'use client';
 
-// The look of the ready-made chat and call screens, and the call screen itself: it takes no place on the page, shows the
+// The look of the ready-made conversation window and call screens, and the call screen itself: it takes no place on the page, shows the
 // ring over it, and a call in a window in the corner wherever the page has no place of its own for it.
 import '@wordplus/realtime-ui/calls.css';
 import '@wordplus/realtime-ui/chat.css';
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallScreen } from '@wordplus/realtime-ui/react';
 
 export function Screens() {
-    return <CallScreen rt={useRealtime()} />;
+    return <CallScreen />;
 }
 ```
 
@@ -583,7 +653,6 @@ async function Channel({ params }: PageProps<'/channels/[id]'>) {
 ```tsx title="app/(app)/channels/[id]/channel.tsx"
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; name: string; people: Record<string, { name: string; avatar: string }> };
@@ -596,7 +665,6 @@ type Props = { room: string; name: string; people: Record<string, { name: string
 export function ChannelChat({ room, name, people }: Props) {
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             people={people}
             placeholder={`Message #${name}`}
@@ -712,13 +780,13 @@ export async function POST(request: Request) {
 }
 ```
 
-- **The room's rule** lets the chat send what it uses, `message`, `typing`, `reaction` and `read`, and names `message` and `reaction` in `webhook` for your server to keep ([the ready-made chat](events.md#ready-made-the-chat)).
+- **The room's rule** lets the chat send what it uses, `message`, `typing`, `reaction` and `read`, and names `message` and `reaction` in `webhook` for your server to keep ([the ready-made conversation window](events.md#ready-made-the-chat)).
 - **Files of other kinds**, such as a PDF, are a line in `KINDS` and in `accept` ([files](../use-cases/chat.md#files)).
 - **Where photos are kept** is your route's to decide: here the `file` table in Postgres, and a bucket of your own is the same route with another line to keep and to read.
 
 ### Lounges
 
-A lounge is a group call on WordPlus Cloud's media servers that members drop into and leave as they like: by voice, as **Coffee lounge**, or with their cameras and screens, as **Editing hangout**. The rule lets in any member, and a host as its host (`lib/realtime.ts` above). The lounge's page shows who is in it now, as WordPlus Cloud says, by the names and photos your server has:
+A lounge is a group call on WordPlus Cloud's media servers that members drop into and leave as they like: by voice, as **Coffee lounge**, or with their cameras and screens, as **Editing hangout**. Your lounge route lets in any member, and a host as its host (`app/api/lounge-token/route.ts` above). The lounge's page shows who is in it now, as WordPlus Cloud says, by the names and photos your server has:
 
 ```tsx title="app/(app)/lounges/[id]/page.tsx"
 // A lounge: who is in it now, as WordPlus Cloud says, and its call, which any member drops into.
@@ -735,32 +803,32 @@ async function Lounge({ params }: PageProps<'/lounges/[id]'>) {
                 <h1 className="flex items-center gap-2 text-xl font-semibold"><Kind kind={lounge.kind} />{lounge.name}</h1>
                 <p className="text-stone-600">{lounge.about}</p>
             </div>
-            <LoungeRoom room={`lounge:${lounge.id}`} name={lounge.name} kind={lounge.kind} people={people} host={host} />
+            <LoungeRoom id={lounge.id} room={`lounge:${lounge.id}`} name={lounge.name} kind={lounge.kind} people={people} host={host} />
         </section>
     );
 }
 ```
 
-The lounge's call shows in the page. `<CallSpot>` shows the call where it is, and inside it what shows while this member is not in the call: who is in it, and `<GroupCallButton>`, which asks your server for a pass (`/api/realtime/calls`) and joins, as a call by voice or with cameras, as the lounge is:
+The lounge's call shows in the page. `<CallSpot>` shows the call where it is, and inside it what shows while this member is not in the call: who is in it, and `<GroupCallButton>`, which asks your lounge route for a token and joins, as a call by voice or with cameras, as the lounge is. Both take the route as `tokenUrl`, which adds `call` and `type` to what you wrote (`?id=2&call=lounge:2&type=audio`):
 
 ```tsx title="app/(app)/lounges/[id]/lounge.tsx"
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallSpot, GroupCallButton } from '@wordplus/realtime-ui/react';
 
 type Person = { id: string; name: string; avatar: string };
-type Props = { room: string; name: string; kind: 'audio' | 'video'; people: Person[]; host: boolean };
+type Props = { id: string; room: string; name: string; kind: 'audio' | 'video'; people: Person[]; host: boolean };
 
 /**
  * A lounge's call, shown here in the page while this member is in it: by voice, everyone's picture and who speaks, or
  * with cameras, everyone's camera and screen. Before that, who is in it now and the button to drop in. On another page
  * the call goes on in the corner, and comes back here when this page opens again.
  */
-export function LoungeRoom({ room, name, kind, people, host }: Props) {
-    const rt = useRealtime();
+export function LoungeRoom({ id, room, name, kind, people, host }: Props) {
+    // This site's route for the lounge's token (app/api/lounge-token/route.ts), which builds the call's name from its number.
+    const tokenUrl = `/api/lounge-token?id=${id}`;
     return (
-        <CallSpot rt={rt} call={room} className="h-[calc(100dvh-14rem)] min-h-[28rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
+        <CallSpot call={room} tokenUrl={tokenUrl} className="h-[calc(100dvh-14rem)] min-h-[28rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
             <div className="flex h-full flex-col items-center justify-center gap-5 p-6 text-center" id="lounge">
                 {people.length > 0 ? (
                     <>
@@ -778,8 +846,8 @@ export function LoungeRoom({ room, name, kind, people, host }: Props) {
                 ) : (
                     <p className="text-lg text-stone-300">Nobody is in {name} right now.</p>
                 )}
-                {/* Asks this server for the call's pass (/api/realtime/calls), whose rule is lib/realtime.ts's groupCalls. */}
-                <GroupCallButton rt={rt} room={room} type={kind} title={name} className="rounded-full bg-orange-600 px-6 py-3 font-medium text-white hover:bg-orange-500">
+                {/* Asks this server's route for a token (/api/lounge-token), which says whether this member hosts. */}
+                <GroupCallButton call={room} tokenUrl={tokenUrl} type={kind} title={name} className="rounded-full bg-orange-600 px-6 py-3 font-medium text-white hover:bg-orange-500">
                     {people.length > 0 ? 'Drop in' : `Open ${name}`}
                 </GroupCallButton>
                 {/* … a line on how the lounge is joined, and for a host, that they can mute anyone or take them out */}
@@ -789,14 +857,14 @@ export function LoungeRoom({ room, name, kind, people, host }: Props) {
 }
 ```
 
-- **The hosts look after it**, with no code of yours: the rule answers `{ admin: true }` for a host, and the call screen gives them mute and take out on the tile of each of the others. Each is asked of your calls route, which takes it only from a host ([permissions](../permissions.md#group-calls)).
+- **The hosts look after it**, with no code of yours: the token says `admin: true` for a host, and the call screen gives them mute and take out on the tile of each of the others. Each goes through the SDK's calls route, on a proof in the token only your server makes, so it is taken only from a host ([permissions](../permissions.md#group-calls)).
 - **On another page** of the site the lounge goes on in the window in the corner, and comes back here when its page opens again. Nothing starts over.
 - **Who is in it** shows on every page as members come and go: the `group.joined` and `group.left` webhooks, told to the room `club` ([what's on now](#whats-on-now)).
 - **From your server**, a button of yours mutes someone, takes them out, or closes the lounge for everyone: `realtime.call( room ).mute()`, `.remove()` and `.end()` ([from your server](calls.md#from-your-server)).
 
 ### An event
 
-An event is a live stream its host goes live in, from a studio of their own, for every member to watch, with its chat and reactions beside the picture. The rule says who is who: its host, with `{ role: 'host' }`, and any other member a viewer (`lib/realtime.ts` above). The event's page gives everyone the player and its chat, `<LiveStream>`, which asks your server for the stream's pass (`/api/realtime/calls`) with that rule. Its host sees, in the player, the way to the studio, at the address `studioUrl` gives, and everyone else says whether they are going:
+An event is a live stream its host goes live in, from a studio of their own, for every member to watch, with its chat and reactions beside the picture. Your event route says who is who: its host, with `role: 'host'`, and any other member a viewer (`app/api/event-token/route.ts` above). The event's page gives everyone the player and its chat, `<LiveStream>`, whose `tokenUrl` is that route. It asks it with `stream` added, and again as each token runs out, after ten minutes, so a member your route no longer lets in is out by then. Its host sees, in the player, the way to the studio, at the address `studioUrl` gives, and everyone else says whether they are going:
 
 ```tsx title="app/(app)/events/[id]/page.tsx"
 // An event: its stream, with its chat beside it, for every member. Its host is shown the way to the studio, where they
@@ -827,15 +895,15 @@ async function Event({ params }: PageProps<'/events/[id]'>) {
                     </form>
                 )}
             </header>
-            {/* The player and its chat: WordPlus Cloud's ready-made screens, which ask this server for the stream's pass
-                (/api/realtime/calls) with the rule of lib/realtime.ts. */}
-            <LiveStream name={`event:${event.id}`} title={event.title} studioUrl={hosts ? `/studio/${event.id}` : undefined} />
+            {/* The player and its chat: WordPlus Cloud's ready-made screens, which ask this server's route for a token
+                (/api/event-token), again as each runs out. */}
+            <LiveStream name={`event:${event.id}`} tokenUrl={`/api/event-token?id=${event.id}`} title={event.title} studioUrl={hosts ? `/studio/${event.id}` : undefined} />
         </article>
     );
 }
 ```
 
-The studio is a page of its own, for the event's host alone: `<LiveStream view="studio-page">` on the same stream, the picture large with **Go live** under it, and beside it the chat, the hands raised and the link of the event. The host turns on the camera and microphone there, or shares a screen, and goes live. Anyone else who opens the address is sent to the event:
+The studio is a page of its own, for the event's host alone: `<LiveStream view="studio-page">` on the same stream, the picture large with **Go live** under it, and beside it the chat, the hands raised and the link of the event. The host turns on the camera and microphone there, or shares a screen, and goes live. It asks the same route, which makes the host its host. Anyone else who opens the address is sent to the event:
 
 ```tsx title="app/(app)/studio/[id]/page.tsx"
 // An event's studio, for its host alone: WordPlus Cloud's studio as a page of its own, the picture large with Go live
@@ -850,6 +918,7 @@ async function Studio({ params }: PageProps<'/studio/[id]'>) {
     return (
         <LiveStream
             name={`event:${event.id}`}
+            tokenUrl={`/api/event-token?id=${event.id}`}
             view="studio-page"
             title={event.title}
             url={`/events/${event.id}`}
@@ -867,10 +936,10 @@ async function Studio({ params }: PageProps<'/studio/[id]'>) {
 
 ### On stage
 
-A member watching an event raises a hand from the player, with **Ask to join on stage**. The host sees the hand under **Guests** in the studio, and **Invite** asks them on stage: once they press **Join stage**, their camera and microphone go live beside the host, and everyone watching sees and hears them. It takes no code of yours: the stream's settings say `stage: true` (`lib/realtime.ts` above), and the ready-made player and studio do the rest ([guests on stage](streams.md#guests-on-stage)).
+A member watching an event raises a hand from the player, with **Ask to join on stage**. The host sees the hand under **Guests** in the studio, and **Invite** asks them on stage: once they press **Join stage**, their camera and microphone go live beside the host, and everyone watching sees and hears them. It takes no code of yours: the stream's settings in your token say `stage: true` (`app/api/event-token/route.ts` above), and the ready-made player and studio do the rest ([guests on stage](streams.md#guests-on-stage)).
 
 - **The host** takes a guest off the stage from the studio, and the guest leaves it with **Leave stage**.
-- **Only those the rule lets watch** raise a hand: anyone else is refused the stream.
+- **Only those your route lets watch** raise a hand: anyone else is refused the stream.
 - **Without a stage**, a stream whose settings say `stage: false` shows no hand to raise.
 
 ### Events live now
@@ -1026,7 +1095,7 @@ export function OnlineStatus({ id }: { id: string }) {
 
 ### A conversation and its call
 
-A member's page holds your conversation with them, its room a chat of the two of you, made the first time either of you opens the other's page (`chatBetween` in `lib/club.ts`). The same name is a call between the two, which your calls rule lets either of them place and answer (`lib/realtime.ts` above):
+A member's page holds your conversation with them, its room a chat of the two of you, made the first time either of you opens the other's page (`chatBetween` in `lib/club.ts`). Its call takes the same name, from your chat call route, which lets either of them call the other (`app/api/chat-call-token/route.ts` above):
 
 ```tsx title="app/(app)/members/[id]/page.tsx"
 // A member: who they are, whether they are online, and our conversation with its calls.
@@ -1060,22 +1129,22 @@ async function Member({ params }: PageProps<'/members/[id]'>) {
 }
 ```
 
-`<Chat>` with `to` puts the member on its top bar, by the name and photo the page gives, with a video and an audio call button, and `call` shows their call in the chat itself, beside the messages. `upload` takes photos to the same route as the channels, which asks the rule of this conversation, so only its two share and open them. **Call** on Members links to the conversation with `?call=video`, and `startCall` calls them once as the chat opens:
+`<Chat>` with `to` puts the member on its top bar, by the name and photo the page gives, with a video and an audio call button, which ask `tokenUrl`, your route, with the name of the conversation, so their call shows in the chat itself, beside the messages. `upload` takes photos to the same route as the channels, which asks the rule of this conversation, so only its two share and open them. **Call** on Members links to the conversation with `?call=video`, and `startCall` calls them once as the chat opens:
 
 ```tsx title="app/(app)/members/[id]/chat.tsx"
 'use client';
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; to: string; name: string; avatar: string };
 
 /**
  * The conversation with a member, kept by this app's server, with typing, reactions, read ticks and photos. Their name
- * and call buttons are on its top bar, and a call shows in the chat itself, beside the messages. Opened from Call in
- * Members (`?call=video`), it calls them as it opens.
+ * and call buttons are on its top bar, and a call shows in the chat itself, beside the messages. The buttons ask this
+ * site's route for a token (app/api/chat-call-token/route.ts), with the conversation's name. Opened from Call in Members
+ * (`?call=video`), it calls them as it opens.
  */
 export function MemberChat({ room, to, name, avatar }: Props) {
     const path = usePathname();
@@ -1088,12 +1157,11 @@ export function MemberChat({ room, to, name, avatar }: Props) {
 
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             to={to}
             name={name}
             avatar={avatar}
-            call
+            tokenUrl="/api/chat-call-token"
             startCall={start}
             placeholder={`Message ${name}`}
             messages={`/api/messages?room=${room}`}
@@ -1118,9 +1186,9 @@ export function MemberChat({ room, to, name, avatar }: Props) {
 
 ## Make it yours
 
-- **Who may use what** is `isMember`, `isHost` and `mayWrite` in `lib/club.ts`, which the rules of `lib/realtime.ts`, the routes of messages and photos, and the pages ask. A channel for some members alone is a line in `mayWrite`.
-- **Who hosts a lounge** is its rule's answer, `{ admin: true }` for a host. `{ publish: false }` makes someone a listener, whom the host lets speak ([permissions](../permissions.md#group-calls)).
-- **What members may do in an event** is the stream rule's answer: `{ role: 'viewer', chat: 'read' }` keeps someone from writing, and `{ role: 'viewer', mod: true }` makes a member keep the chat ([live streams in depth](../streams.md#who-is-who)).
+- **Who may use what** is `isMember`, `isHost` and `mayWrite` in `lib/club.ts`, which the rules of `lib/realtime.ts`, the token routes, the routes of messages and photos, and the pages ask. A channel for some members alone is a line in `mayWrite`.
+- **Who hosts a lounge** is its token's `admin: true`, for a host. `publish: false` makes someone a listener, whom the host lets speak ([permissions](../permissions.md#group-calls)).
+- **What members may do in an event** is its token's: `chat: 'read'` keeps someone from writing, and `mod: true` makes a member keep the chat ([live streams in depth](../streams.md#who-is-who)).
 - **The studio** may also be in the event's page itself: leave out `studioUrl`, and its host sees the studio under the player there.
 - **Photos, or other files:** `KINDS` and `LARGEST` in `app/api/files/route.ts`, with `accept` and `maxFileSize` on each chat. Where they are kept is `keepFile` and `fileOf` in `lib/club.ts`.
 - **Channels and lounges** are rows of `channel` and `lounge`: a lounge's `kind` says whether it is by voice or with cameras.

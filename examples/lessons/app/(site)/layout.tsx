@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
+import { RealtimeProvider } from '@wordplus/realtime/next';
 import { currentUserId } from '@/lib/auth';
 import { coursesOf, personOf } from '@/lib/lessons';
 import { realtime } from '@/lib/realtime';
@@ -20,13 +19,12 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
 }
 
 async function Connected({ children }: { children: React.ReactNode }) {
-    await connection(); // made for each request: the settings are signed for this person, now
     const me = await currentUserId();
     const person = me ? await personOf(me) : null;
     // A teacher goes live from their studio, a link away on every page.
     const teaches = me ? (await coursesOf(me)).length > 0 : false;
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur">
                 <nav className="site-width mx-auto flex max-w-4xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3">
                     <Link href="/" className="text-xl font-bold text-teal-700">Live Lessons</Link>

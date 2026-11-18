@@ -1,5 +1,6 @@
 // The values "How this page works" shows on the demo, for the page open (?path=/lounges/…): who is signed in, and on
-// the page of a channel, a lounge, an event or a member, its room and what its rule answers now. Only on the demo.
+// the page of a channel, a lounge, an event or a member, its room and what its rule or token route answers now. Only
+// on the demo.
 import { currentUserId } from '@/lib/auth';
 import { channelOf, chatBetween, eventOf, isHost, loungeOf, personOf } from '@/lib/club';
 import { liveNow, loungesNow } from '@/lib/realtime';
@@ -25,14 +26,14 @@ export async function GET(request: Request) {
     }
     if (id && path.startsWith('/lounges/')) {
         const lounge = await loungeOf(id);
-        if (lounge) Object.assign(values, { call: `lounge:${lounge.id}`, lounge_name: lounge.name, kind: lounge.kind, answer: host ? '{ admin: true }: a host' : 'true: a member' });
+        if (lounge) Object.assign(values, { call: `lounge:${lounge.id}`, lounge_name: lounge.name, kind: lounge.kind, answer: host ? 'a token with admin: a host' : 'a token: a member' });
     }
     if (id && path.startsWith('/events/')) {
         const event = await eventOf(id);
         if (event) {
             Object.assign(values, {
                 stream: `event:${event.id}`, event_title: event.title, host_name: event.hostName,
-                role: me === event.host ? `{ role: 'host' }: ${person?.name} hosts it` : `'viewer': ${person?.name} is a member`,
+                role: me === event.host ? `role: 'host', ${person?.name} hosts it` : `role: 'viewer', ${person?.name} is a member`,
             });
         }
     }

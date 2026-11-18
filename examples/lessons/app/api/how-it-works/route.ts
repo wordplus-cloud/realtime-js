@@ -37,7 +37,7 @@ export async function GET(request: Request) {
         values.studio_lesson = 'the lesson picked';
     }
 
-    // A lesson's page, or its studio: the lesson, and what the rule answers this person.
+    // A lesson's page, or its studio: the lesson, and the token lessonToken makes this person.
     const lessonId = path.match(/^\/(?:lessons|studio)\/(\d+)$/)?.[1];
     const lesson = lessonId ? await lessonOf(lessonId) : null;
     if (lesson) {
@@ -58,7 +58,7 @@ export async function GET(request: Request) {
             course_title: lesson.courseTitle,
             enrolled: String(enrolled),
             may_watch: String(watches),
-            role: me === lesson.teacher ? `{ role: 'host', quality: '1080p' }: ${person?.name} teaches it` : watches ? `'viewer'` : 'false',
+            role: me === lesson.teacher ? `{ role: 'host', quality: '1080p' }: ${person?.name} teaches it` : !watches ? 'null: no token, a 403' : me === null ? `{ chat: 'read' }: a visitor watches, and signs in to write` : `{}: ${person?.name} watches and writes`,
             live_here: live.has(lesson.id) ? `live, ${live.get(lesson.id)} watching` : 'not live now',
             students: await namesOf(students),
             followers: await namesOf(followers),

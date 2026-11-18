@@ -1,35 +1,43 @@
 # Waiting rooms and breakout rooms
 
-Guests wait in a lobby until the host admits them, and during the meeting the host sends people to smaller rooms and brings them back. Both are your rules and a few routes of yours: the lobby is a presence room the host watches, each room is a group call your rule opens to whom you chose, and your server tells each page where to go.
+Guests wait in a lobby until the host admits them, and during the meeting the host sends people to smaller rooms and brings them back. Both are a rule and a few routes of yours: the lobby is a presence room the host watches, each room is a group call your route gives a token for to whom you chose, and your server tells each page where to go.
 
 **In your stack:** [Next.js](../nextjs/calls.md) · [Express](../express/calls.md) · [Laravel](https://docs.wordplus.cloud/laravel/calls/) · [PHP](https://docs.wordplus.cloud/php/calls/) · [Django](https://docs.wordplus.cloud/django/calls/) · [FastAPI](https://docs.wordplus.cloud/fastapi/calls/) · [Flask](https://docs.wordplus.cloud/flask/calls/) · [WordPress](https://docs.wordplus.cloud/wordpress/group-calls/)
 
-## The rules
+## Who may be where
 
 Three places, each named after the meeting: the lobby `lobby:5`, where guests wait, the meeting `meeting:5`, and its breakout rooms `meeting:5:breakout:1`, `meeting:5:breakout:2` and so on.
 
-Your server decides who may be where. A page that joins asks your server first, and a rule answers: a function your server registers once for every room or call whose name fits a pattern, such as `lobby:{id}`. WordPlus Cloud then holds the page to the answer ([permissions](../permissions.md)). These rules say:
+The lobby is a room, so a rule of your server lets a page in: a function your server registers once for every room whose name fits `lobby:{id}`. The meeting and its breakout rooms are group calls, which start from a token: the page asks a route of yours for one as it joins, and your route makes your own check, then answers a token for that room, or 403. They say:
 
 1. **The lobby** lets in anyone signed in, and the host sees who waits.
 2. **The meeting** lets in its host and the guests the host admitted.
 3. **A breakout room** lets in the host, and those the host sent there.
 
+The host hosts each of them, with the buttons to mute or take someone out. `isHostOf()`, `isAdmitted()` and `breakoutOf()` are yours:
+
 **Node**
 
 ```ts
 // 1. The lobby, such as lobby:5: anyone signed in waits there, and the host sees who.
-realtime.room( 'lobby:{id}', { presence: true }, ( user ) => user !== null );
+realtime.room( 'lobby:{id}', ( user ) => user !== null, { presence: true } );
 
-// 2. The meeting, such as meeting:5: its host, and those the host admitted.
-realtime.groupCalls( 'meeting:{id}', async ( user, { id } ) => {
-    if ( await isHostOf( id, user ) ) return true;
-    return isAdmitted( id, user );
-} );
+// Your route, GET /api/meeting-token?id=5, or &room=1 for a breakout room. Express here, the same in any framework.
+app.get( '/api/meeting-token', async ( req, res ) => {
+    const me = userOf( req );
+    const { id, room } = req.query;
+    if ( ! me ) return res.sendStatus( 401 );
+    const host = await isHostOf( id, me );
 
-// 3. A breakout room, such as meeting:5:breakout:1: the host, and those sent there.
-realtime.groupCalls( 'meeting:{id}:breakout:{n}', async ( user, { id, n } ) => {
-    if ( await isHostOf( id, user ) ) return true;
-    return String( await breakoutOf( id, user ) ) === n;
+    // 2. The meeting, such as meeting:5: its host, and those the host admitted.
+    if ( ! room ) {
+        if ( ! host && ! ( await isAdmitted( id, me ) ) ) return res.sendStatus( 403 );
+        return res.json( { token: await realtime.groupCallToken( me, 'meeting:' + id, { admin: host } ) } );
+    }
+
+    // 3. A breakout room, such as meeting:5:breakout:1: the host, and those sent there.
+    if ( ! host && String( await breakoutOf( id, me ) ) !== String( room ) ) return res.sendStatus( 403 );
+    res.json( { token: await realtime.groupCallToken( me, `meeting:${ id }:breakout:${ room }`, { admin: host } ) } );
 } );
 ```
 
@@ -41,23 +49,23 @@ $realtime->room( 'lobby:{id}', function ( $user ) {
     return null !== $user;
 }, [ 'presence' => true ] );
 
+// Your route, GET /api/meeting-token?id=5, or &room=1 for a breakout room. Laravel: the same in a route, with Realtime::groupCallToken().
+$me = current_user_id();
+$id = $_GET['id'] ?? '';
+$room = $_GET['room'] ?? '';
+$host = $me && is_host_of( $id, $me );
+
 // 2. The meeting, such as meeting:5: its host, and those the host admitted.
-$realtime->groupCalls( 'meeting:{id}', function ( $user, array $p ) {
-    if ( is_host_of( $p['id'], $user ) ) {
-        return true;
-    }
-
-    return is_admitted( $p['id'], $user );
-} );
-
 // 3. A breakout room, such as meeting:5:breakout:1: the host, and those sent there.
-$realtime->groupCalls( 'meeting:{id}:breakout:{n}', function ( $user, array $p ) {
-    if ( is_host_of( $p['id'], $user ) ) {
-        return true;
-    }
+$may = '' === $room ? $host || ( $me && is_admitted( $id, $me ) ) : $host || ( $me && (string) breakout_of( $id, $me ) === $room );
+if ( ! $may ) {
+    http_response_code( 403 );
+    exit;
+}
 
-    return (string) breakout_of( $p['id'], $user ) === $p['n'];
-} );
+$name = '' === $room ? 'meeting:' . $id : "meeting:{$id}:breakout:{$room}";
+header( 'Content-Type: application/json' );
+echo json_encode( [ 'token' => $realtime->groupCallToken( $me, $name, [ 'admin' => $host ] ) ] );
 ```
 
 **Python**
@@ -67,57 +75,38 @@ $realtime->groupCalls( 'meeting:{id}:breakout:{n}', function ( $user, array $p )
 def may_wait(user, p):
     return user is not None
 
-# 2. The meeting, such as meeting:5: its host, and those the host admitted.
-def may_join_meeting(user, p):
-    if is_host_of(p["id"], user):
-        return True
-    return is_admitted(p["id"], user)
-
-# 3. A breakout room, such as meeting:5:breakout:1: the host, and those sent there.
-def may_join_breakout(user, p):
-    if is_host_of(p["id"], user):
-        return True
-    return str(breakout_of(p["id"], user)) == p["n"]
-
 realtime.room("lobby:{id}", may_wait, presence=True)
-realtime.group_calls("meeting:{id}", may_join_meeting)
-realtime.group_calls("meeting:{id}:breakout:{n}", may_join_breakout)
+
+# Your route, GET /api/meeting-token?id=5, or &room=1 for a breakout room. Flask here, the same in any framework.
+@app.get("/api/meeting-token")
+def meeting_token():
+    me = session.get("user_id")
+    id = request.args["id"]
+    room = request.args.get("room")
+    if not me:
+        abort(401)
+    host = is_host_of(id, me)
+
+    # 2. The meeting, such as meeting:5: its host, and those the host admitted.
+    if not room:
+        if not host and not is_admitted(id, me):
+            abort(403)
+        return {"token": realtime.group_call_token(me, "meeting:" + id, admin=host)}
+
+    # 3. A breakout room, such as meeting:5:breakout:1: the host, and those sent there.
+    if not host and str(breakout_of(id, me)) != room:
+        abort(403)
+    return {"token": realtime.group_call_token(me, f"meeting:{id}:breakout:{room}", admin=host)}
 ```
 
-**WordPress**
-
-```php
-// 1. The lobby, such as lobby:5: anyone signed in waits there, and the host sees who.
-wordplus_realtime()->room( 'lobby:{id}', function ( $user_id ) {
-	return $user_id > 0;
-}, array( 'presence' => true ) );
-
-// 2. The meeting, such as meeting:5: its host, and those the host admitted.
-wordplus_realtime()->group_calls( 'meeting:{id}', function ( $user_id, array $p ) {
-	if ( my_meeting_host( (int) $p['id'] ) === $user_id ) {
-		return true;
-	}
-
-	return my_meeting_admitted( (int) $p['id'], $user_id );
-} );
-
-// 3. A breakout room, such as meeting:5:breakout:1: the host, and those sent there.
-wordplus_realtime()->group_calls( 'meeting:{id}:breakout:{n}', function ( $user_id, array $p ) {
-	if ( my_meeting_host( (int) $p['id'] ) === $user_id ) {
-		return true;
-	}
-
-	return (string) my_meeting_breakout( (int) $p['id'], $user_id ) === $p['n'];
-} );
-```
-
-`meeting:{id}` never matches `meeting:5:breakout:1`, since a part of a pattern stops at `:`, so each room keeps its own rule.
+- **A token is for one room:** the name your route builds from the id and the room. The token of the meeting lets nobody into a breakout room.
+- **On WordPress,** its package decides who joins each group call by a rule of its own ([WordPress group calls](https://docs.wordplus.cloud/wordpress/group-calls/)).
 
 ## Admitting a guest
 
 The Admit button of the host calls a route of yours, which checks that the host asks, then:
 
-1. **Keeps the choice** where the rule of the meeting reads it.
+1. **Keeps the choice** where your token route reads it.
 2. **Tells the guest,** on every page and app they have open.
 
 **Node**
@@ -127,7 +116,7 @@ app.post( '/meetings/:id/admit', async ( req, res ) => {
     // Only the host of the meeting.
     if ( !( await isHostOf( req.params.id, req.user.id ) ) ) return res.sendStatus( 403 );
 
-    // 1. Kept for the rule of the meeting.
+    // 1. Kept for whom the meeting lets in.
     await admit( req.params.id, req.body.user );
 
     // 2. The guest told.
@@ -140,7 +129,7 @@ app.post( '/meetings/:id/admit', async ( req, res ) => {
 
 ```php
 // In your route for POST /meetings/{id}/admit, once the host is checked.
-// 1. Kept for the rule of the meeting.
+// 1. Kept for whom the meeting lets in.
 admit( $meeting, $guest );
 
 // 2. The guest told.
@@ -151,7 +140,7 @@ $realtime->toUser( $guest )->emit( 'admitted', [ 'meeting' => $meeting ] );
 
 ```python
 # In your route for POST /meetings/<id>/admit, once the host is checked.
-# 1. Kept for the rule of the meeting.
+# 1. Kept for whom the meeting lets in.
 admit(meeting, guest)
 
 # 2. The guest told.
@@ -162,7 +151,7 @@ realtime.to_user(guest).emit("admitted", {"meeting": meeting})
 
 ```php
 // In your route for POST /meetings/{id}/admit, once the host is checked.
-// 1. Kept for the rule of the meeting.
+// 1. Kept for whom the meeting lets in.
 my_meeting_admit( $meeting, $guest );
 
 // 2. The guest told.
@@ -174,12 +163,19 @@ The page of the guest waits in the lobby, and joins when admitted:
 **Browser**
 
 ```js
+// Asks your route for a token: GET /api/meeting-token, as above. A room of null is the meeting itself.
+async function meetingToken( meeting, room = null ) {
+    const answer = await fetch( `/api/meeting-token?id=${ meeting }` + ( room === null ? '' : `&room=${ room }` ) );
+    if ( ! answer.ok ) throw new Error( 'Your server said no' );
+
+    return ( await answer.json() ).token;
+}
+
 const lobby = rt.join( 'lobby:5' );
-const calls = await rt.calls();
 
 rt.on( 'admitted', async ( { meeting } ) => {
     rt.leave( 'lobby:5' );
-    showMeeting( await calls.group( 'meeting:' + meeting, { type: 'video' } ) );
+    showMeeting( await rt.joinGroupCall( await meetingToken( meeting ) ) );
 } );
 ```
 
@@ -187,15 +183,15 @@ rt.on( 'admitted', async ( { meeting } ) => {
 
 ```tsx
 import { useState } from 'react';
-import { useCalls, useRoom, useUserEvent } from '@wordplus/realtime/react';
+import { useRealtime, useRoom, useUserEvent } from '@wordplus/realtime/react';
 
 export function Lobby() {
-    const { calls } = useCalls();
+    const rt = useRealtime();
     const [ admitted, setAdmitted ] = useState( false );
     useRoom( admitted ? null : 'lobby:5' );   // in the lobby until admitted, then out of it
     useUserEvent( 'admitted', async ( { meeting } ) => {
         setAdmitted( true );
-        showMeeting( await calls?.group( 'meeting:' + meeting, { type: 'video' } ) );
+        if ( rt ) showMeeting( await rt.joinGroupCall( await meetingToken( meeting ) ) );   // meetingToken(): your route, as above
     } );
 
     return admitted ? null : <p>You are in the lobby. The host lets you in from here.</p>;
@@ -241,7 +237,7 @@ export function Guests() {
 
 The host sends people to a room, and later back, through a route of yours, which checks that the host asks, then:
 
-1. **Keeps the room** of the person where the rule of the breakout rooms reads it: 1, 2 and so on, or none for back.
+1. **Keeps the room** of the person where your token route reads it: 1, 2 and so on, or none for back.
 2. **Tells the person,** whose page moves.
 
 **Node**
@@ -252,7 +248,7 @@ app.post( '/meetings/:id/breakouts', async ( req, res ) => {
     if ( !( await isHostOf( req.params.id, req.user.id ) ) ) return res.sendStatus( 403 );
     const { user, room } = req.body;                       // room: 1, 2 … or null for back
 
-    // 1. Kept for the rule of the breakout rooms.
+    // 1. Kept for whom the breakout rooms let in.
     await setBreakout( req.params.id, user, room );
 
     // 2. The person told.
@@ -265,7 +261,7 @@ app.post( '/meetings/:id/breakouts', async ( req, res ) => {
 
 ```php
 // In your route for POST /meetings/{id}/breakouts, once the host is checked.
-// 1. Kept for the rule of the breakout rooms.
+// 1. Kept for whom the breakout rooms let in.
 set_breakout( $meeting, $user, $room );
 
 // 2. The person told.
@@ -276,7 +272,7 @@ $realtime->toUser( $user )->emit( 'breakout', [ 'meeting' => $meeting, 'room' =>
 
 ```python
 # In your route for POST /meetings/<id>/breakouts, once the host is checked.
-# 1. Kept for the rule of the breakout rooms.
+# 1. Kept for whom the breakout rooms let in.
 set_breakout(meeting, user, room)
 
 # 2. The person told.
@@ -287,7 +283,7 @@ realtime.to_user(user).emit("breakout", {"meeting": meeting, "room": room})
 
 ```php
 // In your route for POST /meetings/{id}/breakouts, once the host is checked.
-// 1. Kept for the rule of the breakout rooms.
+// 1. Kept for whom the breakout rooms let in.
 my_meeting_set_breakout( $meeting, $user, $room );
 
 // 2. The person told.
@@ -299,11 +295,12 @@ The page moves its user:
 **Browser**
 
 ```js
-let current = await calls.group( 'meeting:5', { type: 'video' } );
+// meetingToken(): your route, as above.
+let current = await rt.joinGroupCall( await meetingToken( 5 ) );
 
 rt.on( 'breakout', async ( { meeting, room } ) => {
     current.leave();
-    current = await calls.group( room === null ? `meeting:${ meeting }` : `meeting:${ meeting }:breakout:${ room }`, { type: 'video' } );
+    current = await rt.joinGroupCall( await meetingToken( meeting, room ) );
     showMeeting( current );
 } );
 ```
@@ -312,39 +309,37 @@ rt.on( 'breakout', async ( { meeting, room } ) => {
 
 ```tsx
 import { useEffect, useState } from 'react';
-import type { GroupCall } from '@wordplus/realtime';
-import { useCalls, useUserEvent } from '@wordplus/realtime/react';
+import { useGroupCall, useUserEvent } from '@wordplus/realtime/react';
+
+// Asks your route for a token: GET /api/meeting-token, as above. A room of null is the meeting itself.
+async function meetingToken( meeting: number | string, room: number | null = null ) {
+    const answer = await fetch( `/api/meeting-token?id=${ meeting }` + ( room === null ? '' : `&room=${ room }` ) );
+    if ( ! answer.ok ) throw new Error( 'Your server said no' );
+
+    return ( await answer.json() ).token as string;
+}
 
 export function MeetingRoom() {
-    const { calls } = useCalls();
-    const [ name, setName ] = useState( 'meeting:5' );   // the meeting, or one of its breakout rooms
-    useUserEvent( 'breakout', ( { meeting, room } ) => setName( room === null ? `meeting:${ meeting }` : `meeting:${ meeting }:breakout:${ room }` ) );
+    // The meeting, or one of its breakout rooms: room null is the meeting.
+    const [ place, setPlace ] = useState<{ meeting: number | string; room: number | null }>( { meeting: 5, room: null } );
+    useUserEvent( 'breakout', ( { meeting, room } ) => setPlace( { meeting, room } ) );
+
+    // A new name joins the next room, and leaves the one it was in.
+    const name = place.room === null ? `meeting:${ place.meeting }` : `meeting:${ place.meeting }:breakout:${ place.room }`;
+    const { group } = useGroupCall( name, () => meetingToken( place.meeting, place.room ) );
 
     useEffect( () => {
-        if ( !calls ) return;
-        let current: GroupCall | null = null;
-        let gone = false;
-        void calls.group( name, { type: 'video' } ).then( ( call ) => {
-            if ( gone ) return call.leave();
-            current = call;
-            showMeeting( call );
-        } );
-
-        // The room it was in, left as it moves to the next.
-        return () => {
-            gone = true;
-            current?.leave();
-        };
-    }, [ calls, name ] );
+        if ( group ) showMeeting( group );
+    }, [ group ] );
 
     return null;
 }
 ```
 
 - **A breakout room** is a group call of its own: its people see and hear only each other.
-- **Only those sent there** get in. Once back, the room refuses them, since your rule no longer names it for them.
+- **Only those sent there** get in. Once back, your route refuses them a token for the room, since it no longer names it for them.
 - **Everyone back at once:** your server clears the rooms and sends `breakout` with `room: null` to each, in one `realtime.batch()`.
-- **The host visits any room,** since the rule lets the host into each.
+- **The host visits any room,** since your route gives the host a token for each.
 
 ## Variations
 

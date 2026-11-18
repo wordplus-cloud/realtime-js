@@ -8,7 +8,7 @@ import { answer } from './actions';
 import { When } from './when';
 
 type Notice = { key: number; text: React.ReactNode; href: string };
-type Request = { request: string; name: string; topic: string; waits: number };
+type TalkRequest = { request: string; name: string; topic: string; waits: number };
 
 /**
  * What the server tells this person, on whatever page they are: a message about an appointment, unless its page is
@@ -61,11 +61,11 @@ export function Notices() {
  * asking, or a minute goes by. Taken, both go to their new appointment and into its visit.
  */
 export function Requests() {
-    const [requests, setRequests] = useState<Request[]>([]);
+    const [requests, setRequests] = useState<TalkRequest[]>([]);
     const router = useRouter();
     const drop = (request: string) => setRequests((list) => list.filter((one) => one.request !== request));
 
-    useUserEvent('request', (data: Request) => {
+    useUserEvent('request', (data: TalkRequest) => {
         setRequests((list) => [...list, data]);
         setTimeout(() => drop(data.request), data.waits);
     });

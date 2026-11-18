@@ -53,14 +53,13 @@ A channel is the whole club's conversation about one thing, with the photos its 
 One rule says who may read and write: any member, in a channel.
 
 ```ts title="lib/realtime.ts"
-realtime.room('channel:{id}', MESSAGES, async (user, _params, room) => mayWrite(user, room));
+realtime.room('channel:{id}', async (user, _params, room) => mayWrite(user, room), MESSAGES);
 ```
 
-The ready-made chat, with the names and photos of the club for its older messages, and `upload`, this server's route for photos: picked, pasted or dropped on it.
+The ready-made conversation window (`<Chat>`), with the names and photos of the club for its older messages, and `upload`, this server's route for photos: picked, pasted or dropped on it.
 
 ```tsx title="app/(app)/channels/[id]/channel.tsx"
         <Chat
-            rt={useRealtime()}
             room={room}
             people={people}
             messages={`/api/messages?room=${room}`}
@@ -82,20 +81,23 @@ The route asks the room's own rule, with `mayJoin`, and keeps the photo. It take
 
 A lounge is a group call on WordPlus Cloud's media servers that members drop into, by voice or with their cameras, and leave as they like. This is `__call__`, `__kind__`.
 
-One rule says who may come in: any member, and a host as its host, with mute and remove on everyone's tile. For __me_name__: __answer__.
+This server's own route says who may come in, and answers a token: any member, and a host as its host, with mute and remove on everyone's tile. For __me_name__: __answer__.
 
-```ts title="lib/realtime.ts"
-realtime.groupCalls('lounge:{id}', async (user) => {
-    if (!(await isMember(user))) return false;
-    return (await isHost(user)) ? { admin: true } : true;
-});
+```ts title="app/api/lounge-token/route.ts"
+    const lounge = await loungeOf(id);
+    if (!lounge || !(await isMember(me))) return new Response(null, { status: 403 });
+    const token = await realtime.groupCallToken(me!, `lounge:${lounge.id}`, {
+        type: lounge.kind,
+        admin: await isHost(me),
+    });
 ```
 
-The call shows in the page, where the page puts it, with `CallSpot`. The button drops in, by voice or with cameras, the microphone and camera off until the member turns them on from the call.
+The call shows in the page, where the page puts it, with `CallSpot`. The button asks the route for a token and drops in, by voice or with cameras, the microphone and camera off until the member turns them on from the call.
 
 ```tsx title="app/(app)/lounges/[id]/lounge.tsx"
-        <CallSpot rt={rt} call={room}>
-                <GroupCallButton rt={rt} room={room} type={kind} title={name}>
+    const tokenUrl = `/api/lounge-token?id=${id}`;
+        <CallSpot call={room} tokenUrl={tokenUrl}>
+                <GroupCallButton call={room} tokenUrl={tokenUrl} type={kind} title={name}>
                     {people.length > 0 ? 'Drop in' : `Open ${name}`}
                 </GroupCallButton>
         </CallSpot>
@@ -132,35 +134,35 @@ realtime.on('stream.live', async ({ stream }) => {
 
 An event is a live stream its host goes live in, from their studio, for every member to watch, with its chat beside it. This is `__stream__`, __event_title__ with __host_name__.
 
-One rule says who is who: its host, and every member a viewer. For __me_name__: __role__.
+This server's own route says who is who, and answers a token: its host, and every member a viewer. For __me_name__: __role__.
 
-```ts title="lib/realtime.ts"
-realtime.streams(
-    'event:{id}',
-    async (user, { id }) => {
-        const event = await eventOf(id);
-        if (!event || !(await isMember(user))) return false;
-        return String(user) === event.host ? { role: 'host', quality: '1080p' } : 'viewer';
-    },
-    { stage: true, reactions: true },
-);
+```ts title="app/api/event-token/route.ts"
+    const event = await eventOf(id);
+    if (!event || !(await isMember(me))) return new Response(null, { status: 403 });
+    const hosts = me === event.host;
+    const token = await realtime.streamToken(me, `event:${event.id}`, {
+        role: hosts ? 'host' : 'viewer',
+        quality: hosts ? '1080p' : undefined,
+        settings: { stage: true, reactions: true },
+    });
 ```
 
-The player and its chat, WordPlus Cloud's ready-made screens: the host sees the way to the studio in it.
+The player and its chat, WordPlus Cloud's ready-made screens, which ask the route for a token, and again as each runs out: the host sees the way to the studio in it.
 
 ```tsx title="app/(app)/events/[id]/page.tsx"
-            <LiveStream name={`event:${event.id}`} title={event.title} studioUrl={hosts ? `/studio/${event.id}` : undefined} />
+            <LiveStream name={`event:${event.id}`} tokenUrl={`/api/event-token?id=${event.id}`} title={event.title} studioUrl={hosts ? `/studio/${event.id}` : undefined} />
 ```
 
 ## stage: On stage
 
-A member raises a hand from the player while the event is live, and the host invites them on stage from the studio, with their camera and microphone: everyone watching sees them beside the host. The rule's `stage: true` is all it takes.
+A member raises a hand from the player while the event is live, and the host invites them on stage from the studio, with their camera and microphone: everyone watching sees them beside the host. The token's `stage: true` is all it takes.
 
 The host's studio, a page of its own:
 
 ```tsx title="app/(app)/studio/[id]/page.tsx"
         <LiveStream
             name={`event:${event.id}`}
+            tokenUrl={`/api/event-token?id=${event.id}`}
             view="studio-page"
             title={event.title}
             url={`/events/${event.id}`}
@@ -184,23 +186,28 @@ WordPlus Cloud tells the page who is online as they come and go, with no request
 
 A conversation between two, with its photos, and its call, which shows in the conversation, beside the messages. This is `__room__`, with __them_name__.
 
-Two rules: who may write in it, its two, and who may call in it, both of them.
+A rule says who may write in it, its two, and this server's own route who may call in it, both of them, with the conversation's name the chat sends.
 
 ```ts title="lib/realtime.ts"
-realtime.room('chat:{id}', MESSAGES, async (user, _params, room) => mayWrite(user, room));
-realtime.calls('chat:{id}', async (user, other, _params, room) => (await mayWrite(user, room)) && (await mayWrite(other, room)));
+realtime.room('chat:{id}', async (user, _params, room) => mayWrite(user, room), MESSAGES);
 ```
 
-The ready-made chat, with the other one on top and their call in it (`to` and `call`), and photos (`upload`):
+```ts title="app/api/chat-call-token/route.ts"
+    if (!me || !idIn(name, 'chat') || !(await mayWrite(me, name)) || !(await mayWrite(to, name))) {
+        return new Response(null, { status: 403 });
+    }
+    return Response.json({ token: await realtime.callToken(me, to, { type: ask.get('type'), name }) });
+```
+
+The ready-made conversation window (`<Chat>`), with the other one on top and their call in it (`to` and `tokenUrl`), and photos (`upload`):
 
 ```tsx title="app/(app)/members/[id]/chat.tsx"
         <Chat
-            rt={useRealtime()}
             room={room}
             to={to}
             name={name}
             avatar={avatar}
-            call
+            tokenUrl="/api/chat-call-token"
             startCall={start}
             upload="/api/files"
         />

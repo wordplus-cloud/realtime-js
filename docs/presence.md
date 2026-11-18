@@ -15,7 +15,7 @@ A presence room is named after the place people are in: `room:7` for room 7. A p
 **Node**
 
 ```ts
-realtime.room( 'room:{id}', { presence: true }, async ( user, { id } ) => {
+realtime.room( 'room:{id}', async ( user, { id } ) => {
     // 1. Visitors stay out.
     if ( user === null ) return false;
 
@@ -24,7 +24,7 @@ realtime.room( 'room:{id}', { presence: true }, async ( user, { id } ) => {
 
     // 3. What the others see of them.
     return { info: { name: await nameOf( user ), role: 'agent' } };
-} );
+}, { presence: true } );
 ```
 
 **PHP**
@@ -90,7 +90,7 @@ A move to another server shows nobody leaving. In React, `usePresence( 'room:7' 
 
 ## Counting
 
-`count: true` gives a room a live count, without a list: `room.on( 'count', ( n ) => … )`, at most once a second, and `room.count` holds the latest. A presence room counts its members. Any other room its connections. Your server asks with `realtime.in( room ).count()`.
+`count: true` gives a room a live count, without a list: `room.on( 'count', ( n ) => … )`, at most once a second, and `room.count` holds the latest. A presence room counts its members. Any other room its connections. Your server asks with `realtime.room( room ).count()`.
 
 ## Who is online, across your app
 
@@ -138,11 +138,11 @@ Optional, as every ready-made part: the presence room above is all a list needs,
 The Better Messages members list on a presence room, with a call button for each of the others, and a live count:
 
 ```html
-<online-list room="room:7" title="In the room" call="support:{pair}" type="video"></online-list>
+<online-list room="room:7" title="In the room" token-url="/api/call-token" type="video"></online-list>
 <online-count room="product:7"></online-count>
 ```
 
-`await rt.callScreen()` loads them with the call screen, `rt.ui()` without. In React, `<OnlineList>` and `<OnlineCount>` ([React](react.md)). `call` names the call each row places: `{pair}` is the two user ids in order, `{me}` and `{id}` each one. Only those the user may call get a button: the list asks your calls route once for all its members, which runs your `calls()` rule for each as for the caller.
+`await rt.callScreen()` loads them with the call screen, `rt.ui()` without. In React, `<OnlineList tokenUrl>` and `<OnlineCount>` ([React](react.md)). `token-url` is your route for a call: pressing the call button on a row asks it `?to=34&type=video`, and it checks whatever your app needs and answers `{ token }` ([who may call](calls.md#who-may-call)). Each of the others has the button, and someone your route refuses is told so as they press. Without `token-url`, the list has no call buttons.
 
 ## Use cases
 

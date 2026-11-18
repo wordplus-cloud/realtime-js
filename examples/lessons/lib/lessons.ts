@@ -113,7 +113,7 @@ export async function isEnrolled(user: string, course: string): Promise<boolean>
 
 /**
  * Who may watch a lesson: its teacher, anyone for an open one, signed in or not, and otherwise the students of its
- * course. The same rule decides the stream (lib/realtime.ts) and what the lesson's page shows.
+ * course. The same check decides the stream's token (lib/realtime.ts) and what the lesson's page shows.
  */
 export async function mayWatch(user: string | null, lesson: Lesson): Promise<boolean> {
     if (user === lesson.teacher) return true;

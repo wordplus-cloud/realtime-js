@@ -1,11 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallSpot, GroupCallButton } from '@wordplus/realtime-ui/react';
 
 type Person = { id: string; name: string; avatar: string };
-type Props = { room: string; team: string; host: boolean; people: Person[] };
+type Props = { id: string; room: string; team: string; host: boolean; people: Person[] };
 
 /**
  * The team's meeting room. Its group call shows here, in the page, while this colleague is in it: everyone's camera and
@@ -13,14 +12,15 @@ type Props = { room: string; team: string; host: boolean; people: Person[] };
  * the meeting is on, the page joins it at once, the camera and microphone off. On another page the meeting goes on in
  * the corner, and comes back here when this page opens again.
  */
-export function MeetingRoom({ room, team, host, people }: Props) {
-    const rt = useRealtime();
+export function MeetingRoom({ id, room, team, host, people }: Props) {
+    // This server's route for the meeting's token, for the spot and the button alike.
+    const tokenUrl = `/api/meeting-token?id=${id}`;
     // On as the page opens: joined at once (CallSpot's join), the camera and microphone off until this colleague turns
     // them on. Decided once, so a meeting that starts while the page is open waits for the button, and someone who
     // leaves it or is taken out stays out.
     const [join] = useState(people.length > 0 ? ('video' as const) : undefined);
     return (
-        <CallSpot rt={rt} call={room} join={join} className="h-[32rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
+        <CallSpot call={room} tokenUrl={tokenUrl} join={join} className="h-[32rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
             <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center" id="meeting-room">
                 <p className="text-lg font-medium">The {team} meeting room</p>
                 {people.length > 0 ? (
@@ -36,8 +36,8 @@ export function MeetingRoom({ room, team, host, people }: Props) {
                 ) : (
                     <p className="text-stone-300">Nobody is in the meeting.</p>
                 )}
-                {/* Asks this server for the call's pass (/api/realtime/calls), whose rule is lib/realtime.ts's groupCalls. */}
-                <GroupCallButton rt={rt} room={room} type="video" title={`${team} meeting`}
+                {/* Asks this server for the call's token (/api/meeting-token), from meetingToken in lib/realtime.ts. */}
+                <GroupCallButton call={room} tokenUrl={tokenUrl} type="video" title={`${team} meeting`}
                                  className="rounded-full bg-indigo-500 px-6 py-3 font-medium text-white hover:bg-indigo-400">
                     {people.length > 0 ? 'Join the meeting' : 'Start the meeting'}
                 </GroupCallButton>

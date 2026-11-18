@@ -64,14 +64,14 @@ Up to 100 events a call.
 ## Asking about a room
 
 ```js
-const n = await realtime.in( 'shop' ).count();
-const { list, count, next } = await realtime.in( 'shop' ).members();   // of a presence room, their info opened
-const { events, more } = await realtime.in( 'chat:34:42' ).history( { limit: 50 } );
-await realtime.in( 'chat:34:42' ).forget( events[ 0 ].id );           // one kept event, forget() for all
-await realtime.in( 'chat:34:42' ).kick( 43 );                          // out now, and back only if your rule lets them in again
+const n = await realtime.room( 'shop' ).count();
+const { list, count, next } = await realtime.room( 'shop' ).members();   // of a presence room, their info opened
+const { events, more } = await realtime.room( 'chat:34:42' ).history( { limit: 50 } );
+await realtime.room( 'chat:34:42' ).forget( events[ 0 ].id );           // one kept event, forget() for all
+await realtime.room( 'chat:34:42' ).remove( 43 );                       // out now, and back only if your rule lets them in again
 ```
 
-`kick()` also moves a sealed room key on, so what is sent after it is not theirs to read, when your server keeps the key generations:
+`remove()` also moves a sealed room key on, so what is sent after it is not theirs to read, when your server keeps the key generations:
 
 ```js
 const realtime = createRealtime( {
@@ -102,7 +102,7 @@ Your server can hear what happens in rooms. Set the address on your app page in 
 
 ```js
 // 1. The chat of two sends its messages here too. isOneOf is its rule, as in rooms.
-realtime.room( 'chat:{a}:{b}', { history: 50, emit: [ 'message', 'typing' ], webhook: [ 'message' ] }, isOneOf );
+realtime.room( 'chat:{a}:{b}', isOneOf, { history: 50, emit: [ 'message', 'typing' ], webhook: [ 'message' ] } );
 
 // 2. Each message, kept once by its event_id: a repeat has the same one.
 realtime.on( 'message', async ( { room, from, data, event_id, at } ) => {

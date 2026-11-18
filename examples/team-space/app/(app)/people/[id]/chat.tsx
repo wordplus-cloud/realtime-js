@@ -2,7 +2,6 @@
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; to: string; name: string; avatar: string };
@@ -23,15 +22,15 @@ export function PersonChat({ room, to, name, avatar }: Props) {
     }, [start, path]);
 
     // The conversation, kept by this server (messages), their name and photo on top from this page, and their calls in
-    // it (call). On localhost, where no webhook reaches this server, onSent tells it of each message.
+    // it, each with a token from this server (tokenUrl, /api/chat-call-token). On localhost, where no webhook reaches
+    // this server, onSent tells it of each message.
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             to={to}
             name={name}
             avatar={avatar}
-            call
+            tokenUrl="/api/chat-call-token"
             startCall={start}
             placeholder={`Message ${name}`}
             messages={`/api/messages?room=${room}`}

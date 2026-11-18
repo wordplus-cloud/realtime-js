@@ -8,6 +8,7 @@ A room is a name your app and your web pages join to get its events. Your server
 
 ```tsx
 import { useEffect, useState } from 'react';
+import { Text } from 'react-native';
 import type { Realtime } from '@wordplus/realtime/native';
 
 function OrderStatus( { rt, id }: { rt: Realtime; id: number } ) {

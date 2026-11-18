@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
+import { RealtimeProvider } from '@wordplus/realtime/next';
 import { currentUserId } from '@/lib/auth';
 import { personOf } from '@/lib/clinic';
 import { realtime } from '@/lib/realtime';
@@ -16,18 +15,19 @@ import { Screens } from './screens';
 export default function AppLayout({ children }: { children: React.ReactNode }) {
     return (
         <Suspense fallback={<p className="p-6 text-stone-500">Loading…</p>}>
-            <Connected>{children}</Connected>
+            <SignedIn>{children}</SignedIn>
         </Suspense>
     );
 }
 
-async function Connected({ children }: { children: React.ReactNode }) {
-    await connection(); // made for each request: the settings are signed for this person, now
+// Signed in, or sent to sign in. The provider signs the page's settings for them, and connects the page with no
+// request first.
+async function SignedIn({ children }: { children: React.ReactNode }) {
     const me = await currentUserId();
     if (!me) redirect('/signin');
     const person = await personOf(me);
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <Screens />
             <ExpertsLive />
             <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur">

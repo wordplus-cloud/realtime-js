@@ -70,10 +70,10 @@ The elements are the ready-made option, never a must. Draw who is online, the ch
 
 ## Live streams
 
-`<live-stream>` and `<stream-studio>` are the player, chat and studio of Easy Stream, with a look of their own: custom properties on `.estream-theme`, such as `--estream-accent`, `--estream-radius` and `--estream-font`, and their words in the same nine languages, by `rt.streamScreen( { lang, strings } )` ([live streams](../customizing.md#live-streams)).
+`<live-stream>` and `<stream-studio>` are the player, chat and studio of Easy Stream, with a look of their own: custom properties on `.wplus-live-stream-theme`, such as `--wplus-live-stream-accent`, `--wplus-live-stream-radius` and `--wplus-live-stream-font`, and their words in the same nine languages, by `rt.streamScreen( { lang, strings } )` ([live streams](../customizing.md#live-streams)).
 
 ```css
-body .estream-theme { --estream-accent: #16a34a; --estream-radius: 12px; }
+body .wplus-live-stream-theme { --wplus-live-stream-accent: #16a34a; --wplus-live-stream-radius: 12px; }
 ```
 
 ## With your AI coding agent

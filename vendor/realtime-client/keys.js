@@ -378,7 +378,7 @@ function utf8Encode(text) {
     }
     return new Uint8Array(out);
 }
-function utf8Decode(bytes) {
+export function utf8Decode(bytes) {
     if (typeof TextDecoder !== 'undefined')
         return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     let out = '';

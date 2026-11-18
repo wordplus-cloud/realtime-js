@@ -11,21 +11,21 @@ This page builds it with you from an empty folder: a small Node.js app where Ann
 Ann goes live, user `34` in your app. Ben watches, user `42`. A visitor has not signed in.
 
 1. **Ann opens the page.** It holds the live stream `live:1`. There is nothing to create first: the stream is there for whoever opens its name, and waits until its host goes live.
-2. **Her page asks your server** who she is in the stream: the SDK sends a request to `/api/realtime/calls` on your own server, with her usual cookie. It is your own route, not ours: WordPlus Cloud never sees this request.
-3. **Your server runs your rule,** which makes Ann the host, and signs the answer with your secret. Her page shows the studio: her camera before she goes live, and Go live.
-4. **Ben and the visitor open the same page.** Your rule makes them viewers: they see the player, waiting for the stream to start, and its chat.
+2. **Her page asks your server for a token:** the stream sends a GET to `/api/stream-token?id=1`, a route of your own, with her usual cookie. WordPlus Cloud never sees this request.
+3. **Your route says who she is in the stream,** the host, in a token your server signs with your secret. Her page shows the studio: her camera before she goes live, and Go live.
+4. **Ben and the visitor open the same page.** Your route makes them viewers, the visitor one who reads the chat: they see the player, waiting for the stream to start, and its chat.
 5. **Ann presses Go live.** Everyone on the page sees and hears her at once.
 6. **Ben writes in the chat,** and Ann reads it in her studio. The visitor watches and reads, and signs in to write.
 7. **Ann presses End stream.** It ends for everyone. She may go live again later under the same name.
 
-You write none of the requests of steps 2 and 3: the SDK in the page and the WordPlus package on your server make them. You write the rule, one line for the route, and a page with the stream, as below.
+A token lasts ten minutes, so each page asks your route again as its token runs out, and your route may then say no. Who is who in a stream is your app's own logic, in your own route: the SDK holds none of it. You write that route, one line for the package routes, and a page with the stream, as below.
 
 A stream is for everyone watching it, so its picture and chat are not encrypted end to end. They are encrypted on the way, and the media servers of WordPlus Cloud see them, as a stream needs ([live streams](../streams.md#what-wordplus-cloud-sees)).
 
 ## What you need
 
 - **Node.js 22** or newer.
-- **An app in WordPlus Cloud.** Apps are in early access, so first [ask for it](https://www.wordplus.cloud/contact). Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](../getting-started.md#1-your-app-in-wordplus-cloud)).
+- **An app in WordPlus Cloud.** If you have no subscription yet, [choose your connections](https://www.wordplus.cloud/pricing#apps) first. Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](../getting-started.md#1-your-app-in-wordplus-cloud)).
 - **Three browser windows:** a normal window, a private one, and one of another browser, for Ann, Ben and the visitor.
 
 ## Step 1. Make the project
@@ -48,7 +48,7 @@ cd live-streaming
     "start": "node --env-file-if-exists=.env server.mjs"
   },
   "dependencies": {
-    "@wordplus/realtime": "^1.0.0",
+    "@wordplus/realtime": "^1.2.0",
     "express": "5.3.0",
     "express-session": "1.19.0"
   },
@@ -79,7 +79,7 @@ SESSION_SECRET=
 ```
 
 - **`WORDPLUS_SITE`** is the key of your app, such as `s1500000007`.
-- **`WORDPLUS_SECRET`** is its secret. It stays on your server, and signs every answer of your rule.
+- **`WORDPLUS_SECRET`** is its secret. It stays on your server, and signs every token your route answers.
 - **`WORDPLUS_LOCAL_KEY`** is a key of your own, which seals what goes through WordPlus Cloud. Make one with `openssl rand -hex 32`.
 - **`SESSION_SECRET`** signs the session cookie of this example: any long random string.
 
@@ -108,25 +108,9 @@ const HOST = 34;
 
 // The WordPlus package, with your keys from .env.
 const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE,
-    secret: process.env.WORDPLUS_SECRET,
-    localKey: process.env.WORDPLUS_LOCAL_KEY,
     // The name the others see in the chat of the stream.
     profile: (id) => (USERS[id] ? { name: USERS[id].name } : null),
 });
-
-// The rule: who is who in a live stream, such as live:1.
-// It runs each time someone opens the stream.
-realtime.streams('live:{id}', (user) => {
-    // 1. A visitor who is not signed in watches, and signs in to write.
-    if (user === null) return 'viewer';
-
-    // 2. Ann hosts: she goes live, and ends the stream.
-    if (user === HOST) return 'host';
-
-    // 3. Everyone else watches, and writes in the chat.
-    return 'viewer';
-}, { reactions: true });
 
 const app = express();
 
@@ -138,9 +122,31 @@ app.use(session({
     saveUninitialized: false,
 }));
 
-// The route the page asks before it opens the stream, /api/realtime/calls,
-// and the others the package answers, for the user of the session.
+// The routes the package answers, for the user of the session:
+// the page connects, and the stream runs through them.
 app.use('/api/realtime', realtime.node((req) => req.session.user ?? null));
+
+// Your route, the one the stream asks before it opens: /api/stream-token?id=1.
+// It runs as someone opens the stream, and again as each token runs out.
+app.get('/api/stream-token', async (req, res) => {
+    const me = USERS[req.session.user] ? req.session.user : null;
+
+    // 1. Your own check: the stream of this app, live:1, and no other.
+    if (req.query.id !== '1') return res.sendStatus(403);
+
+    // 2. Who they are in it, and the settings of the stream: it takes reactions.
+    const settings = { reactions: true };
+    const token = await realtime.streamToken(me, 'live:1', me === null
+        // A visitor who is not signed in watches, and signs in to write.
+        ? { chat: 'read', settings }
+        : me === HOST
+            // Ann hosts: she goes live, and ends the stream.
+            ? { role: 'host', settings }
+            // Everyone else watches, and writes in the chat.
+            : { settings });
+
+    res.json({ token });
+});
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static('public'));
@@ -166,7 +172,7 @@ app.post('/login', (req, res) => {
 
 // The stream: the player and its chat for everyone,
 // and the studio, with Go live, for Ann.
-const STREAM = `<live-stream name="live:1" title="Live with Ann">
+const STREAM = `<live-stream name="live:1" token-url="/api/stream-token?id=1" login-url="/login" title="Live with Ann">
     </live-stream>`;
 
 // The page, for anyone: the settings of the user, or of a visitor,
@@ -203,11 +209,11 @@ app.listen(port, () => console.log(`http://localhost:${port}`));
 What each part does:
 
 1. **Your users.** Ann and Ben, and who hosts: Ann. In your app, they come from your database.
-2. **The WordPlus package.** `createRealtime()` takes your keys, where the page finds the browser files, and `profile`: the name the others see in the chat.
-3. **The rule.** `realtime.streams()` is called once, for every live stream whose name fits `live:{id}`. It runs each time someone opens the stream, and gives them a role: a viewer for a visitor, whose `user` is `null`, the host for Ann, and a viewer for everyone else. `reactions: true` lets viewers send hearts and the like over the picture.
-4. **The route.** `app.use( '/api/realtime', … )` is the one line that answers the page when it asks before opening the stream (step 2 of [how it goes](#how-it-goes)). It gives the package the user of the session, or nobody for a visitor, and the package runs your rule. `/api/realtime` is only the usual address: any other works, as [any address you like](how-it-works.md#any-address-you-like) shows.
+2. **The WordPlus package.** `createRealtime()` takes your keys from `.env`, and `profile`: the name the others see in the chat.
+3. **The package routes.** `app.use( '/api/realtime', … )` is the one line for them. It gives the package the user of the session, or nobody for a visitor. The page connects through them, and the stream runs through them. `/api/realtime` is only the usual address: any other works, as [any address you like](how-it-works.md#any-address-you-like) shows.
+4. **Your token route.** `/api/stream-token` is your app's own logic: it checks that the stream is `live:1`, then says who this person is in it. A visitor, whose user is `null`, reads the chat (`chat: 'read'`), Ann hosts (`role: 'host'`), and everyone else watches and writes. It answers `realtime.streamToken( me, 'live:1', … )`, or 403 to refuse. `settings: { reactions: true }` lets viewers send hearts and the like over the picture, the same in every token for the stream.
 5. **Signing in.** Two buttons, for Ann and Ben, and a link to watch without signing in. Your app has its own sign-in instead.
-6. **The stream.** `STREAM` is the `<live-stream>` element: the player and its chat for everyone, and for the host the studio, with Go live and End stream.
+6. **The stream.** `STREAM` is the `<live-stream>` element, with a token from `token-url`, your route: the player and its chat for everyone, and for the host the studio, with Go live and End stream. `login-url` is where a visitor signs in to write.
 7. **The page.** It is for anyone: `realtime.config( me )` is what the page needs to connect as the signed-in user, or as a visitor when `me` is `null`, and goes into the page as JSON. Then the stream.
 
 ## Step 4. The page script
@@ -227,7 +233,7 @@ await rt.streamScreen();
 ```
 
 - **`connect()`** connects the page as the signed-in user, or as a visitor, with the settings your server wrote into the page.
-- **`rt.streamScreen()`** starts the live streams. It draws the `<live-stream>` element: for Ann the studio, and for everyone else the player and the chat.
+- **`rt.streamScreen()`** starts the live streams. It draws the `<live-stream>` element, which asks your route for its token: for Ann the studio, and for everyone else the player and the chat.
 
 ## Step 5. Install and start
 
@@ -253,9 +259,9 @@ Each step of [how it goes](#how-it-goes), and the code that did it:
 
 | Step | What happened | The code |
 |---|---|---|
-| 1, 4 | Ann, then Ben and the visitor, opened the page | `<live-stream name="live:1">` in the page, from `server.mjs` |
-| 2 | Their pages asked your server | the SDK, started by `connect()` and `rt.streamScreen()` in `page.js`, posting to `/api/realtime/calls` |
-| 3 | Your server ran your rule, and signed the role of each | `app.use( '/api/realtime', realtime.node( … ) )`, then `realtime.streams( 'live:{id}', … )` |
+| 1, 4 | Ann, then Ben and the visitor, opened the page | `<live-stream name="live:1" token-url="/api/stream-token?id=1">` in the page, from `server.mjs` |
+| 2 | Their pages asked your route for a token | the stream, started by `connect()` and `rt.streamScreen()` in `page.js`, with a GET to `/api/stream-token?id=1&stream=live:1` |
+| 3 | Your route said who each is, in a token | `app.get( '/api/stream-token', … )`, then `realtime.streamToken( me, 'live:1', … )` |
 | 5 | Ann went live | the studio of `<live-stream>`, on the media servers of WordPlus Cloud |
 | 6 | Ben wrote in the chat | the chat of `<live-stream>`, for viewers who signed in |
 | 7 | Ann ended it for everyone | End stream, in her studio |
@@ -264,7 +270,8 @@ More on steps 2 and 3: [how a page asks your server](how-it-works.md#how-a-page-
 
 ## If it does not work
 
-- **Ann sees no studio, only the player:** your rule did not make her the host. Sign in as Ann, user `34`.
+- **Ann sees no studio, only the player:** your route did not make her the host. Sign in as Ann, user `34`.
+- **The stream shows no access:** your route said no, with a 403. The element must ask `/api/stream-token?id=1`.
 - **The player of Ben keeps waiting:** Ann has not pressed Go live yet.
 - **No page connects:** `.env` must hold the key and secret of your app, and `http://localhost:3000` must be among its addresses in WordPlus Cloud.
 - **No camera:** a browser gives the camera only to `https` pages and to `localhost`.
@@ -274,104 +281,127 @@ More on steps 2 and 3: [how a page asks your server](how-it-works.md#how-a-page-
 The same pieces, with three changes:
 
 1. **Who hosts.** `HOST` becomes who hosts this stream, from your database.
-2. **Your sign-in.** In `realtime.node( ( req ) => … )`, give the user your own sign-in found, in place of `req.session.user`.
-3. **Your streams.** Each stream has a name of its own, `live:` and its id, as `live:1` here: one for each event, channel or class of your app.
+2. **Your sign-in.** In `realtime.node( ( req ) => … )` and in your token route, give the user your own sign-in found, in place of `req.session.user`.
+3. **Your streams.** Each stream has a name of its own, `live:` and its id, as `live:1` here: one for each event, channel or class of your app. Your route builds the name from the id, and checks the stream is one of yours.
 
-On another stack, the guide of each sets up the route and the settings in the page: [Next.js](../nextjs/getting-started.md), [Express](../express/getting-started.md), [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [PHP](https://docs.wordplus.cloud/php/getting-started/), [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/), [Flask](https://docs.wordplus.cloud/flask/getting-started/) and [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/). A fuller rule, in each language, also lets your moderators keep the chat, and makes the host go live in 1080p with a shared screen:
+On another stack, the guide of each sets up the package routes and the settings in the page: [Next.js](../nextjs/getting-started.md), [Express](../express/getting-started.md), [Laravel](https://docs.wordplus.cloud/laravel/getting-started/), [PHP](https://docs.wordplus.cloud/php/getting-started/), [Django](https://docs.wordplus.cloud/django/getting-started/), [FastAPI](https://docs.wordplus.cloud/fastapi/getting-started/), [Flask](https://docs.wordplus.cloud/flask/getting-started/) and [WordPress](https://docs.wordplus.cloud/wordpress/getting-started/). A fuller route, in each language, also lets your moderators keep the chat, and makes the host go live in 1080p with a shared screen. Finding the user, `streamOf()`, `isHostOf()` and `isModerator()` are yours:
 
 **Node**
 
 ```ts
-realtime.streams( 'live:{id}', async ( user, { id } ) => {
-    // 1. A visitor watches.
-    if ( user === null ) return 'viewer';
+import type { StreamTokenOptions } from '@wordplus/realtime/server';
+
+// Who someone is in the stream, from your own data.
+async function placeIn( id: string, me: string | number | null ): Promise<StreamTokenOptions> {
+    // 1. A visitor watches, and reads the chat.
+    if ( me === null ) return { chat: 'read' };
 
     // 2. The host, with a camera, a microphone and a shared screen, in 1080p.
-    if ( await isHostOf( id, user ) ) {
-        return { role: 'host', src: [ 'camera', 'microphone', 'screen' ], quality: '1080p' };
-    }
+    if ( await isHostOf( id, me ) ) return { role: 'host', src: [ 'camera', 'microphone', 'screen' ], quality: '1080p' };
 
     // 3. Your moderators keep the chat.
-    if ( await isModerator( user ) ) return { role: 'viewer', mod: true };
+    if ( await isModerator( me ) ) return { mod: true };
 
     // 4. Everyone else watches and writes.
-    return 'viewer';
-}, { reactions: true, chat: { offline: 'closed', links: false } } );
+    return {};
+}
+
+// Your route, GET /api/stream-token?id=1. Express here, the same in any framework.
+app.get( '/api/stream-token', async ( req, res ) => {
+    const me = userOf( req );   // null for a visitor who is not signed in
+    const id = String( req.query.id );
+    if ( ! ( await streamOf( id ) ) ) return res.sendStatus( 403 );
+
+    const token = await realtime.streamToken( me, 'live:' + id, {
+        ...await placeIn( id, me ),
+        // The same in every token for it: reactions, the chat closed while not live, links only from its keepers.
+        settings: { reactions: true, chat: { offline: 'closed', links: false } },
+    } );
+
+    res.json( { token } );
+} );
 ```
 
 **PHP**
 
 ```php
-$realtime->streams( 'live:{id}', function ( $user, array $p ) {
-    // 1. A visitor watches.
-    if ( null === $user ) {
-        return 'viewer';
+// Who someone is in the stream, from your own data.
+function place_in( string $id, $me ): array {
+    // 1. A visitor watches, and reads the chat.
+    if ( null === $me ) {
+        return [ 'chat' => 'read' ];
     }
 
     // 2. The host, with a camera, a microphone and a shared screen, in 1080p.
-    if ( is_host_of( $p['id'], $user ) ) {
+    if ( is_host_of( $id, $me ) ) {
         return [ 'role' => 'host', 'src' => [ 'camera', 'microphone', 'screen' ], 'quality' => '1080p' ];
     }
 
     // 3. Your moderators keep the chat.
-    if ( is_moderator( $user ) ) {
-        return [ 'role' => 'viewer', 'mod' => true ];
+    if ( is_moderator( $me ) ) {
+        return [ 'mod' => true ];
     }
 
     // 4. Everyone else watches and writes.
-    return 'viewer';
-}, [ 'reactions' => true, 'chat' => [ 'offline' => 'closed', 'links' => false ] ] );
+    return [];
+}
+
+// Your route, GET /api/stream-token?id=1. Laravel: the same in a route, with Realtime::streamToken().
+$me = current_user_id();   // null for a visitor who is not signed in
+$id = (string) ( $_GET['id'] ?? '' );
+if ( null === stream_of( $id ) ) {
+    http_response_code( 403 );
+    exit;
+}
+
+header( 'Content-Type: application/json' );
+echo json_encode( [ 'token' => $realtime->streamToken( $me, 'live:' . $id, place_in( $id, $me ) + [
+    // The same in every token for it: reactions, the chat closed while not live, links only from its keepers.
+    'settings' => [ 'reactions' => true, 'chat' => [ 'offline' => 'closed', 'links' => false ] ],
+] ) ] );
 ```
 
 **Python**
 
 ```python
-def live_role(user, p):
-    # 1. A visitor watches.
-    if user is None:
-        return "viewer"
+# Who someone is in the stream, from your own data.
+def place_in(id, me):
+    # 1. A visitor watches, and reads the chat.
+    if me is None:
+        return {"chat": "read"}
 
     # 2. The host, with a camera, a microphone and a shared screen, in 1080p.
-    if is_host_of(p["id"], user):
+    if is_host_of(id, me):
         return {"role": "host", "src": ["camera", "microphone", "screen"], "quality": "1080p"}
 
     # 3. Your moderators keep the chat.
-    if is_moderator(user):
-        return {"role": "viewer", "mod": True}
+    if is_moderator(me):
+        return {"mod": True}
 
     # 4. Everyone else watches and writes.
-    return "viewer"
+    return {}
 
-realtime.streams("live:{id}", live_role, reactions=True, chat={"offline": "closed", "links": False})
+# Your route, GET /api/stream-token?id=1. Flask here, the same in any framework.
+@app.get("/api/stream-token")
+def stream_token():
+    me = session.get("user_id")   # None for a visitor who is not signed in
+    id = request.args["id"]
+    if stream_of(id) is None:
+        abort(403)
+
+    return {"token": realtime.stream_token(
+        me,
+        "live:" + id,
+        # The same in every token for it: reactions, the chat closed while not live, links only from its keepers.
+        settings={"reactions": True, "chat": {"offline": "closed", "links": False}},
+        **place_in(id, me),
+    )}
 ```
 
-**WordPress**
-
-```php
-wordplus_realtime()->streams( 'live:{id}', function ( $user_id, array $p ) {
-	// 1. A visitor watches.
-	if ( 0 === $user_id ) {
-		return 'viewer';
-	}
-
-	// 2. The host, with a camera, a microphone and a shared screen, in 1080p.
-	if ( my_stream_host( (int) $p['id'] ) === $user_id ) {
-		return array( 'role' => 'host', 'src' => array( 'camera', 'microphone', 'screen' ), 'quality' => '1080p' );
-	}
-
-	// 3. Your moderators keep the chat.
-	if ( user_can( $user_id, 'moderate_comments' ) ) {
-		return array( 'role' => 'viewer', 'mod' => true );
-	}
-
-	// 4. Everyone else watches and writes.
-	return 'viewer';
-}, array( 'reactions' => true, 'chat' => array( 'offline' => 'closed', 'links' => false ) ) );
-```
-
-- **Visitors** watch without signing in, so a link shared anywhere opens the stream.
+- **Visitors** watch without signing in, so a link shared anywhere opens the stream. A visitor may only be a viewer: `streamToken()` throws if asked for more.
 - **`chat.links: false`** takes links only from those who keep the chat, which keeps spam out.
 - **`offline: 'closed'`** closes the chat while the stream is not live.
+- **On WordPress,** its package decides who is who by a rule of its own ([WordPress streams](https://docs.wordplus.cloud/wordpress/streams/)).
 
 ## The element, in full
 
@@ -380,7 +410,7 @@ wordplus_realtime()->streams( 'live:{id}', function ( $user_id, array $p ) {
 **Browser**
 
 ```html
-<live-stream name="live:1" title="Live with Ann" cover="https://example.com/live-1/cover.jpg"
+<live-stream name="live:1" token-url="/api/stream-token?id=1" title="Live with Ann" cover="https://example.com/live-1/cover.jpg"
                  login-url="/login?next=/live/1" sticky></live-stream>
 ```
 
@@ -391,10 +421,11 @@ import { LiveStream } from '@wordplus/realtime/react';
 
 // Inside your <RealtimeProvider>.
 export function Live() {
-    return <LiveStream name="live:1" title="Live with Ann" cover="https://example.com/live-1/cover.jpg" loginUrl="/login?next=/live/1" sticky />;
+    return <LiveStream name="live:1" tokenUrl="/api/stream-token?id=1" title="Live with Ann" cover="https://example.com/live-1/cover.jpg" loginUrl="/login?next=/live/1" sticky />;
 }
 ```
 
+- **`token-url`** (`tokenUrl` in React) is your route. The element adds `stream` to the address, here `?id=1&stream=live:1`, and asks again as each token runs out.
 - **The host** sees the studio on the same element: the camera before going live, Go live, OBS, and End stream.
 - **`sticky`** keeps the player at the top of a phone while it is live, as the viewer scrolls the page.
 - **`login-url`** (`loginUrl` in React) is where a visitor signs in to write.
@@ -446,11 +477,20 @@ $show->slow( 10 );                     // one message every 10 seconds each, whi
 
 ## A player of your own
 
+The element is optional. The same stream with a player of your own: `rt.joinStream( getToken )` with a function that asks your route, or `useStream( name, getToken )` in React. The function is asked again as each token runs out:
+
 **Browser**
 
 ```js
-const calls = await rt.calls();
-const show = await calls.stream( 'live:1' );
+// Asks your route for a token: GET /api/stream-token, as above.
+async function streamToken() {
+    const answer = await fetch( '/api/stream-token?id=1' );
+    if ( ! answer.ok ) throw new Error( 'Your server said no' );
+
+    return ( await answer.json() ).token;
+}
+
+const show = await rt.joinStream( streamToken );
 
 show.watch( player );                                                    // the picture and its sound
 show.on( 'viewers', ( n ) => ( watching.textContent = n + ' watching' ) );
@@ -464,8 +504,16 @@ heart.onclick = () => show.react( '❤️' );
 import { useEffect, useRef } from 'react';
 import { useStream } from '@wordplus/realtime/react';
 
+// Asks your route for a token: GET /api/stream-token, as above.
+async function streamToken() {
+    const answer = await fetch( '/api/stream-token?id=1' );
+    if ( ! answer.ok ) throw new Error( 'Your server said no' );
+
+    return ( await answer.json() ).token as string;
+}
+
 export function Player() {
-    const { stream: show, state } = useStream( 'live:1' );   // state: the stream as it changes
+    const { stream: show, state } = useStream( 'live:1', streamToken );   // state: the stream as it changes
     const player = useRef<HTMLVideoElement>( null );
 
     // The picture and its sound, until the component goes.

@@ -1,7 +1,7 @@
 // The demo frame around the API demo (WORDPLUS_DEMO=1), as the demo sites run it (nextjs.docs.wordplus.cloud and
-// the others): a shop for each visitor, for 24 hours, signed in as Ann (app/demo/route.ts), windows that are Ben or
-// Cara (/as/<token>, proxy.ts), and what the page draws around the shop: the stacks, the guide, the source, "Try this".
-// The example itself is the same with or without it.
+// the others): a shop for each visitor, for 24 hours, signed in as Ann (proxy.ts, app/demo/route.ts), windows that are
+// Ben or Cara (/as/<token>, proxy.ts), and what the page draws around the shop: the stacks, the guide, the source, "Try
+// this". The example itself is the same with or without it.
 import { randomInt } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { openShop, peopleOf, shops, type Person } from './shop';
@@ -69,6 +69,14 @@ export function openVisitorShop(address: string): number {
     shops().set(s, openShop(s));
     recent.push({ s, at: Date.now() });
     return s;
+}
+
+/** A new visitor of the request with these headers: the token of the Ann of their shop, for the browser cookie. */
+export function startVisitor(headers: Headers): string {
+    // The visitor address as the proxy in front saw it: the last of X-Forwarded-For, the one it added. The ones before
+    // it are whatever the visitor sent.
+    const address = headers.get('x-forwarded-for')?.split(',').pop()?.trim() || 'local';
+    return sign(openVisitorShop(address) * 100 + 34);
 }
 
 export interface Frame {

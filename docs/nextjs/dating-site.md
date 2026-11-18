@@ -14,12 +14,12 @@ The whole site is in the package, `examples/dating`: sign-up, profiles with a ph
 |---|---|
 | **People:** everyone the member may meet, those online first, live | `useOnline` on their ids: WordPlus Cloud tells the page as people come and go ([who is online](presence.md#who-is-online-across-your-app)). A member who chose to hide is never shown online (`hidden`) |
 | **A chat** with each of them, with typing, read ticks and reactions | `<Chat>` on the room of their chat, `chat:{id}`, which your rule opens to its members while they may meet ([events from the page](events.md)) |
-| **Video dates and voice calls** in the chat, beside the messages | `<Chat to name avatar call>`, and a calls rule of the same name ([the call in its chat](calls.md#the-call-in-its-chat)) |
+| **Video dates and voice calls** in the chat, beside the messages | `<Chat to name avatar tokenUrl>`, and a route of yours that answers a token to two people who may use the chat ([the call in its chat](calls.md#the-call-in-its-chat)) |
 | **Video** on a card opens the chat and calls | `startCall`, from the address the card links to |
 | **A call goes on** while they move between pages, at the top of each | `<CallSpot>` in the layout ([the call in the page](calls.md#the-call-in-the-page)) |
 | **A notice** of each new message, on whatever page they are | your server keeps each message from the webhook and tells the other person with `realtime.toUser( id ).emit()` ([to a user](sending.md#to-a-user)) |
 | **Messages:** the conversations, the latest first | your database, from the webhook ([keeping the conversation](events.md#keeping-the-conversation)) |
-| **Block or report:** the chat closes at once on both screens | `realtime.in( room ).kick()`, and your rule from then on ([taking access away](../permissions.md#taking-access-away)) |
+| **Block or report:** the chat closes at once on both screens | `realtime.room( room ).remove()`, and your rule and your token route from then on ([taking access away](../permissions.md#taking-access-away)) |
 
 ## Run it
 
@@ -27,7 +27,7 @@ You need:
 
 - **Node.js 22** or newer.
 - **Postgres 15** or newer, with a database of its own for the site.
-- **An app in WordPlus Cloud.** Apps are in early access, so first [ask for it](https://www.wordplus.cloud/contact). Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
+- **An app in WordPlus Cloud.** If you have no subscription yet, [choose your connections](https://www.wordplus.cloud/pricing#apps) first. Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
 
 ```bash
 cd examples/dating
@@ -259,7 +259,7 @@ export async function mayChat(user: string | number | null, chat: string) {
 
 ### Your server and WordPlus Cloud
 
-Your server tells WordPlus Cloud three things: who is asking, what others see of them, and who may use which room and call. All of it is in one file:
+Your server tells WordPlus Cloud three things: who is asking, what others see of them, and who may use which room. All of it is in one file. Who may call whom is a route of its own, [below](#who-may-call-whom).
 
 ```ts title="lib/realtime.ts"
 import { createRealtime } from '@wordplus/realtime/server';
@@ -267,9 +267,6 @@ import { currentUserId } from './auth';
 import { chatIn, keepMessage, mayChat, membersOf, nameOf, photoOf, profileOf, react, type Message } from './dating';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
     // Who is asking: the signed-in user, or null.
     user: () => currentUserId(),
     // What the other person sees in the chat and the call: the name and photo.
@@ -290,23 +287,13 @@ export const realtime = createRealtime({
 // at /api/realtime/auth.
 realtime.room(
     'chat:{id}',
+    async (user, { id }) => mayChat(user, id),
     {
         history: 50,
         emit: ['message', 'typing', 'reaction', 'read'],
         webhook: ['message', 'reaction'],
     },
-    async (user, { id }) => mayChat(user, id),
 );
-
-// Video and voice calls in a chat, by the name of its room: the one asking and the other one may both use the chat. A
-// page asks to call, or to answer, at /api/realtime/calls.
-realtime.calls('chat:{id}', async (user, other, { id }) => {
-    // The one asking: who calls, as they call, or who is called, as they answer.
-    const userMayChat = await mayChat(user, id);
-    // The other one of the call.
-    const otherMayChat = await mayChat(other, id);
-    return userMayChat && otherMayChat;
-});
 
 /** Keeps a message, and the first time, tells the others in its chat, on whatever page they are. */
 export async function keepAndTell(message: Message) {
@@ -335,14 +322,14 @@ realtime.on('reaction', async ({ from, data }) => {
 });
 ```
 
+- **The keys of your app** come from the environment, `WORDPLUS_SITE`, `WORDPLUS_SECRET` and `WORDPLUS_LOCAL_KEY`, so `createRealtime()` names none.
 - **`user`** is the signed-in member, from Better Auth's session.
 - **`profile`** is what the other person sees of them in the chat and on the call screen: their name and photo.
 - **`hidden`**: a member who chose to hide is never shown online, to anyone.
 - **The room `chat:{id}`** is one rule for every chat. `{id}` stands for the chat's number in a room's name: for `chat:7`, `id` is `7`. It lets in whoever `mayChat` allows. Its pages send each other messages, typing, reactions and read ticks through WordPlus Cloud, with no request to your server, and the messages and reactions also come to your server as webhooks, to be kept.
-- **The calls of the same name** ring only within the chat: the one asking (`user`) and the other one (`other`) may both use it. The caller's page asks as it calls, and the other's as it answers. A call your rule refuses never rings.
 - **`keepAndTell`** keeps a message once, by its id, and tells the others in the chat, wherever they are on the site.
 
-A page asks your server before it joins a room or calls, and your server runs the rule. These routes are your own, so you see where it happens. A page asks to join at `/api/realtime/auth`:
+A page asks your server before it joins a room, and your server runs the rule. This route is your own, so you see where it happens. A page asks to join at `/api/realtime/auth`:
 
 ```ts title="app/api/realtime/auth/route.ts"
 // POST /api/realtime/auth: a page asks to join rooms, as { rooms: ['chat:7'] }. This server runs each room's rule
@@ -366,13 +353,53 @@ export async function POST(request: Request) {
 - **`realtime.authorize( rooms, user )`** runs the rule of each room for the member signed in. It answers a pass for the rooms allowed, signed with your app's secret, for 6 hours, with why each other was refused.
 - **The page shows the pass to WordPlus Cloud**, which checks the signature and lets it in. The page asks again before the pass runs out, so a block takes effect at once: the next answer is no.
 
-A page asks to call, or to answer a call, at `/api/realtime/calls`:
+### Who may call whom
+
+Whether one member may call another is your app's own logic, and the SDK holds none of it. The chat's call buttons ask a route of yours for a token, with the name of the chat: `/api/chat-call-token?to=10&type=video&name=chat:7`. Your route makes its own check, then answers a token your server signs for this call alone, or refuses. With the token, WordPlus Cloud rings the other one, who answers with no token of their own, as the token that rang them proves your server said yes. This route lets a call through when:
+
+1. **The one calling** may use the chat: a member of it, who may still meet the others in it (`mayChat`).
+2. **So may the one called,** who is not the one calling.
+
+```ts title="app/api/chat-call-token/route.ts"
+// GET /api/chat-call-token?to=10&type=video&name=chat:7: a chat's video or audio call button asks for a token before it
+// calls. This server makes its own check for the member signed in: the call is that of a chat, and both of them may
+// still use it (mayChat). Then it answers a token for this call alone, signed with the app's secret, which takes the
+// name of the chat, so the call shows in it. With the token, WordPlus Cloud rings the other one, who answers with no
+// token of their own.
+import { currentUserId } from '@/lib/auth';
+import { chatIn, mayChat } from '@/lib/dating';
+import { realtime } from '@/lib/realtime';
+
+export async function GET(request: Request) {
+    const ask = new URL(request.url).searchParams;
+    const me = await currentUserId();
+    const to = ask.get('to') ?? '';
+    const name = ask.get('name') ?? '';
+    // The name comes from the page: chat:7 is chat 7, and any other name is refused.
+    const chat = chatIn(name);
+
+    // 1. The one calling may use the chat.
+    if (!me || !chat || !(await mayChat(me, chat))) return new Response(null, { status: 403 });
+    // 2. So may the one called, who is not the one calling.
+    if (to === me || !(await mayChat(to, chat))) return new Response(null, { status: 403 });
+
+    // The call takes the name of the chat, so it shows there.
+    return Response.json({ token: await realtime.callToken(me, to, { type: ask.get('type'), name }) });
+}
+```
+
+- **The name comes from the page,** so the route checks it: `chatIn()` reads chat 7 from `chat:7`, and any other name is refused with a 403.
+- **The token takes the name of the chat,** so the call shows in it, beside the messages ([a call in a chat](calls.md#the-call-in-its-chat)).
+- **A token rings once,** and is for its member alone. The chat asks again for each call.
+- **Blocked:** `mayChat` says no from then on, so the route refuses, and nothing rings.
+
+Once a call has started, its line runs through `/api/realtime/calls`: a page holds the line of its member there, so their calls ring, answers a call that rings, and keeps a call going. Every ask carries a proof that only your server makes, so this route needs no rule of its own:
 
 ```ts title="app/api/realtime/calls/route.ts"
-// POST /api/realtime/calls: a page asks to call someone, as { call: 'chat:7', to: '10', role: 'caller', … }, or to
-// answer a call, or whom it may call. This server runs the call's rule (realtime.calls in lib/realtime.ts) for the
-// member signed in, and answers a pass for the call, signed with the app's secret, or why not. With the pass, WordPlus
-// Cloud rings the other one.
+// POST /api/realtime/calls: the line of a call, once it started with a token from /api/chat-call-token. A page holds
+// the line of its member here, so their calls ring, answers a call that rings, and keeps a call going. Every ask
+// carries a proof that only this server makes: the token that rang, which says this server already said yes. This
+// route checks it for the member signed in, and answers a pass signed with the app's secret, or why not.
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 
@@ -392,12 +419,11 @@ The SDK answers its other routes by itself: the keys of sealed rooms, the webhoo
 
 ```ts title="app/api/realtime/[...path]/route.ts"
 // WordPlus Cloud's other routes: the keys of sealed rooms (POST /api/realtime/keys), the webhooks the cloud sends
-// (POST /api/realtime/webhook), and the browser's files (GET). Joining rooms and calling are the site's own routes,
-// auth/route.ts and calls/route.ts beside this one.
+// (POST /api/realtime/webhook), and the browser's files (GET). Joining rooms and the line of a call are the site's own
+// routes, auth/route.ts and calls/route.ts beside this one.
 import { realtime } from '@/lib/realtime';
 
-export const GET = realtime.route;
-export const POST = realtime.route;
+export const { GET, POST } = realtime.handlers;
 ```
 
 ### Every page connected
@@ -408,8 +434,7 @@ The layout of the pages of a signed-in member connects once for all of them, wit
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
+import { RealtimeProvider } from '@wordplus/realtime/next';
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 import { signOut } from '../account';
@@ -427,11 +452,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 async function Connected({ children }: { children: React.ReactNode }) {
-    await connection(); // made for each request: the settings are signed for this member, now
     const me = await currentUserId();
     if (!me) redirect('/signin');
+    // The settings signed for this member, for this request alone, and the page connected with them.
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <Screens />
             <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur">
                 <nav className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3">
@@ -455,22 +480,21 @@ async function Connected({ children }: { children: React.ReactNode }) {
 }
 ```
 
-- **`realtime.config( me )`** is made for each request: it signs this member into the settings. `connection()` keeps it out of any page cached for everyone.
+- **`<RealtimeProvider realtime={ realtime } user={ me }>`** signs the settings of this member on your server, for this request alone, and connects the page with them. `user` is the member the layout already found, so the provider asks nobody again.
 - **The call screen** takes no place in the page. It rings on any of them.
 - **`<CallOnEveryPage />`** is where a call shows while the member moves around: at the top of the page, never over it. On the page of the person they talk with, the call moves into their chat.
 
 ```tsx title="app/(app)/screens.tsx"
 'use client';
 
-// The look of the ready-made chat and call screens, and the call screen itself: it takes no place on the page, and
+// The look of the ready-made conversation window and call screens, and the call screen itself: it takes no place on the page, and
 // shows the ring over it.
 import '@wordplus/realtime-ui/calls.css';
 import '@wordplus/realtime-ui/chat.css';
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallScreen, CallSpot } from '@wordplus/realtime-ui/react';
 
 export function Screens() {
-    return <CallScreen rt={useRealtime()} />;
+    return <CallScreen />;
 }
 
 /**
@@ -478,7 +502,7 @@ export function Screens() {
  * call in the chat instead (MemberChat), as a chat naming its call wins over this spot for every call.
  */
 export function CallOnEveryPage() {
-    return <CallSpot rt={useRealtime()} className="mb-6 h-[24rem] overflow-hidden rounded-2xl" />;
+    return <CallSpot className="mb-6 h-[24rem] overflow-hidden rounded-2xl" />;
 }
 ```
 
@@ -744,7 +768,7 @@ The chat itself, from `@wordplus/realtime-ui`:
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { useRealtime, useRoom, useUserEvent } from '@wordplus/realtime/react';
+import { useRoom, useUserEvent } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; to: string; name: string; avatar: string; placeholder: string };
@@ -777,16 +801,15 @@ export function MemberChat({ room, to, name, avatar, placeholder }: Props) {
     }, [error, router]);
 
     // The conversation, kept by this server (messages), their name and photo on top from this page, and their calls in
-    // it (call), started by itself when the catalog's Video opened it (startCall). On localhost, where no webhook
-    // reaches this server, onSent tells it of each message.
+    // it, each with a token from this server's route (tokenUrl), started by itself when the catalog's Video opened it
+    // (startCall). On localhost, where no webhook reaches this server, onSent tells it of each message.
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             to={to}
             name={name}
             avatar={avatar}
-            call
+            tokenUrl="/api/chat-call-token"
             startCall={start}
             placeholder={placeholder}
             messages={`/api/messages?room=${room}`}
@@ -803,8 +826,8 @@ export function MemberChat({ room, to, name, avatar, placeholder }: Props) {
 ```
 
 - **`to`, `name` and `avatar`** are the other person, on the bar of the chat with a video and an audio call button. Give their name and photo from your page: WordPlus Cloud keeps a person in its [directory](../encryption.md#your-users) only for a day after they were last online, and someone away longer would show with neither.
-- **`call`** shows their call in the chat while it is on: beside the messages where the chat is wide, over them where it is narrow, with Show Chat and Hide Chat in its controls. `true` names it as the room, `chat:{id}`, which the calls rule above decides.
-- **`startCall`** calls them once as the chat opens, when the catalog's Video opened it. The page takes `?call=video` out of the address at once, so a reload calls nobody.
+- **`tokenUrl`** is your route for its call buttons ([who may call whom](#who-may-call-whom)). They send it the name of the chat, `chat:{id}`, which the token takes, so their call shows in the chat while it is on: beside the messages where the chat is wide, over them where it is narrow, with Show Chat and Hide Chat in its controls.
+- **`startCall`** calls them once as the chat opens, when the catalog's Video opened it, with a token from the same route. The page takes `?call=video` out of the address at once, so a reload calls nobody.
 - **A call goes on** when either of them leaves the page: at the top of whatever page they open, and back into the chat when they come back.
 
 ### Keeping the conversation
@@ -897,6 +920,20 @@ The notices on every page come from `keepAndTell`'s `realtime.toUser( others ).e
 Blocking takes effect at once, on both sides:
 
 ```ts title="app/(app)/actions.ts"
+'use server';
+
+import { refresh } from 'next/cache';
+import { redirect } from 'next/navigation';
+import { currentUserId } from '@/lib/auth';
+import { block, chatBetween, roomOf, saveProfile, type Gender, type Seeking } from '@/lib/dating';
+import { realtime } from '@/lib/realtime';
+
+async function me(): Promise<string> {
+    const id = await currentUserId();
+    if (!id) redirect('/signin');
+    return id;
+}
+
 type How = 'block' | 'report';
 
 /** Block, or report with a reason: their chat closes on both sides at once, and neither sees the other again. */
@@ -906,20 +943,59 @@ export async function blockMember(them: string, how: How, form: FormData) {
     await block(id, them, reason);
 
     const room = roomOf(await chatBetween(id, them));
-    await realtime.in(room).kick(them); // out of the chat now: the rule says no from here on
+    await realtime.room(room).remove(them); // out of the chat now: the rule says no from here on
     await realtime.toUser([id, them]).emit('closed', { room });
     redirect('/members');
 }
+
+export type ProfileState = { error?: string; saved?: boolean } | null;
+
+export async function saveMyProfile(_state: ProfileState, form: FormData): Promise<ProfileState> {
+    const id = await me();
+    const name = String(form.get('name') ?? '').trim();
+    const birthday = String(form.get('birthday') ?? '');
+    const gender = String(form.get('gender')) as Gender;
+    const seeking = String(form.get('seeking')) as Seeking;
+    if (!name) return { error: 'Your first name, please.' };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(birthday) || !adult(birthday)) return { error: 'You need to be 18 or older.' };
+    if (!['woman', 'man', 'nonbinary'].includes(gender) || !['women', 'men', 'everyone'].includes(seeking)) return { error: 'Choose who you are and who you are looking for.' };
+
+    const file = form.get('photo');
+    let photo: Buffer | null = null;
+    if (file instanceof File && file.size > 0) {
+        if (file.type !== 'image/jpeg' || file.size > 800_000) return { error: 'That photo did not work. Try another one.' };
+        photo = Buffer.from(await file.arrayBuffer());
+    }
+
+    const first = form.get('first') === '1';
+    await saveProfile(id, name, {
+        birthday,
+        gender,
+        seeking,
+        city: String(form.get('city') ?? '').trim().slice(0, 80),
+        about: String(form.get('about') ?? '').trim().slice(0, 500),
+        hideOnline: form.get('hideOnline') === 'on',
+    }, photo);
+    if (first) redirect('/members');
+    refresh();
+    return { saved: true };
+}
+
+function adult(birthday: string): boolean {
+    const [year, month, day] = birthday.split('-').map(Number);
+    const eighteenth = new Date(year + 18, month - 1, day);
+    return eighteenth <= new Date();
+}
 ```
 
-- **`realtime.in( room ).kick( them )`** takes the other person out of the chat now. Your rule says no from then on, so they can't come back, nor call.
+- **`realtime.room( room ).remove( them )`** takes the other person out of the chat now. Your rule and your token route say no from then on, so they can't come back, nor call.
 - **`realtime.toUser( [ id, them ] ).emit( 'closed' )`** tells both. Their chat pages leave the conversation, as `MemberChat` above does on `closed`, or on the `kicked` and `forbidden` the room reports.
 - **The catalog and the member pages** use the same rule, so neither sees the other again.
 
 ## Make it yours
 
-- **Who sees whom** is `canMeet` in `lib/dating.ts`, which the chat, the calls and the member pages ask. Add an age range, a distance, or anything your profiles hold, there and in `membersFor` beside it, so the catalog lists the same people.
-- **Group chats** need nothing new from the realtime side: make a chat with more members (`pair` left empty), and the same room, the same `mayChat` and the same calls rule serve it. For a group, `mayChat` may ask only that someone is a member.
+- **Who sees whom** is `canMeet` in `lib/dating.ts`, which the chat, the token route of its calls and the member pages ask. Add an age range, a distance, or anything your profiles hold, there and in `membersFor` beside it, so the catalog lists the same people.
+- **Group chats** need nothing new from the realtime side: make a chat with more members (`pair` left empty), and the same room, the same `mayChat` and the same token route serve it. For a group, `mayChat` may ask only that someone is a member.
 - **Your own sign-in:** `currentUserId()` in `lib/auth.ts` is all the realtime side asks of it. Return the id of the signed-in user from yours.
 - **Its look** is Tailwind's in your pages, and in the chat and the call screen the tokens in `app/globals.css`, such as `--wplus-color-accent` ([customizing](customizing.md)).
 - **Take out the demo:** `SPARK_DEMO` off, then `db/people.json`, `db/seed.mjs`, `public/people`, `app/demo-people.tsx`, `how-it-works.md`, `app/how-it-works.tsx`, `app/how-it-works-cards.tsx`, `app/api/how-it-works`, `scripts/how-it-works.mjs`, the `predev` and `prebuild` scripts that run it, the `.how-it-works-code` styles in `app/globals.css`, `lib/worlds.ts` and `db/worlds.sql` (the public demo's own), and their lines in the layout, the home page, `lib/db.ts`, `proxy.ts`, and the sign-up and sign-in pages.

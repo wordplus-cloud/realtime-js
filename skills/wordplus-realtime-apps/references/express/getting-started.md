@@ -15,7 +15,7 @@ Your framework can run websockets of its own. [Why WordPlus Cloud](../why.md) sa
 
 ## 1. Your app in WordPlus Cloud
 
-**Apps are in early access.** Ask for it on our [contact form](https://www.wordplus.cloud/contact), and we turn **Apps** on in your WordPlus Cloud account. Until then your account has no Apps page.
+**Apps come with a subscription.** [Choose your connections](https://www.wordplus.cloud/pricing#apps), starting from 1,000, and your WordPlus Cloud account gets its **Apps** page.
 
 In your WordPlus Cloud account, go to **Apps → Add app**. Name it, and list the addresses its pages are served from: `https://shop.example.com`, and `http://localhost:3000` while you develop. Only pages on those addresses may connect.
 
@@ -27,6 +27,8 @@ WORDPLUS_SITE=s1500000007
 WORDPLUS_SECRET=…
 WORDPLUS_LOCAL_KEY=…        # openssl rand -hex 32; the same on every server of the app, kept as long as the app
 ```
+
+Once the package is installed, its command writes these for you, with a local key it makes, and says whether your keys and routes work: `npx wordplus-realtime init`, then `npx wordplus-realtime check http://localhost:3000`.
 
 ## 2. Install
 
@@ -52,9 +54,6 @@ import session from 'express-session';
 import { createRealtime } from '@wordplus/realtime/server';
 
 const realtime = createRealtime( {
-    site: process.env.WORDPLUS_SITE,
-    secret: process.env.WORDPLUS_SECRET,
-    localKey: process.env.WORDPLUS_LOCAL_KEY,
     // What others see of a user: in presence, calls and the directory.
     profile: async ( user ) => {
         const person = await db.users.find( user );
@@ -63,14 +62,14 @@ const realtime = createRealtime( {
 } );
 
 // The room of an order, order:1042, the last 20 updates kept.
-realtime.room( 'order:{id}', { history: 20 }, async ( user, { id } ) => {
+realtime.room( 'order:{id}', async ( user, { id } ) => {
     // 1. Visitors stay out.
     if ( user === null ) return false;
 
     // 2. The customer of the order, and nobody else.
     const order = await db.orders.find( id );
     return order?.customerId === user;
-} );
+}, { history: 20 } );
 
 const app = express();
 app.use( session( { secret: process.env.SESSION_SECRET, resave: false, saveUninitialized: false } ) );
@@ -83,7 +82,8 @@ app.use( express.json() );
 app.use( express.static( 'public' ) );
 ```
 
-- **The user** is whatever id your app knows them by, a number or a string, or `null` for nobody. With Passport, `( req ) => req.user?.id ?? null`.
+- **The user** is whatever id your app knows them by, a number or a string, or `null` for nobody. With Passport, `( req ) => req.user?.id ?? null`. Read it from the session or a token your server checks, never from a name or an id the page sends: whoever sends one reads that person's rooms and calls as them.
+- **The keys** come from the environment: `node --env-file=.env server.mjs` reads the file.
 - **The pattern of a room** names its parts: `order:{id}` matches `order:1042`, and the rule gets `{ id: '1042' }`.
 - **The routes** take JSON POSTs, and GETs for the browser files alone. A page on another site cannot send JSON without asking first, and it is never allowed.
 - **CommonJS works too:** `const { createRealtime } = require( '@wordplus/realtime/server' )` in an app without `"type": "module"`, or in NestJS compiled to CommonJS, on Node 20.19 or later.
@@ -115,7 +115,7 @@ order.on( 'updated', ( data ) => showStatus( data.status ) );
 order.on( 'error', ( e ) => console.warn( e.code ) );   // forbidden, no_rule …
 ```
 
-`connect( { app: 's1500000007' } )` works too: the page then asks `/api/realtime/keys` for the user keys before it connects.
+`connect()` with no settings works too: the page then asks `/api/realtime/keys` for the app and the user keys before it connects.
 
 ## 5. Send
 
@@ -133,7 +133,7 @@ Everyone in the room gets `{ status }`, sealed with the room key on the way, and
 
 ## Next
 
-- [Rooms](rooms.md), [presence and who is online](presence.md), [sending from your server](sending.md) and [events from the page](events.md), with the ready-made chat
+- [Rooms](rooms.md), [presence and who is online](presence.md), [sending from your server](sending.md) and [events from the page](events.md), with the ready-made conversation window (`<chat-room>`)
 - [Calls and group calls](calls.md), with the call screen, and [live streams](streams.md)
 - [Encryption and your users](encryption.md)
 - [Customizing the screens](customizing.md): their look, a piece of your own, or their whole code

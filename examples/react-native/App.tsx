@@ -1,7 +1,7 @@
 // The API demo as a React Native app: sign in as Ann (support), Ben (a customer) or Cara (the warehouse), then
 // watch the order of Ben move on, see who is in the shop, and chat with “typing…”. The same rooms as the shop web
-// pages, so the app and a browser signed in as someone else see each other. Calls come to React Native in a later
-// version of the SDK.
+// pages, so the app and a browser signed in as someone else see each other. Calls are in @wordplus/realtime-react-native,
+// which needs a native build, so they aren't in this example.
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';

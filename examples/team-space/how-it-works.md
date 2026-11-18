@@ -81,24 +81,25 @@ All together, as this page was made:
 
 Each team has a meeting room, a group call on WordPlus Cloud's media servers, for the members of the team. Its lead hosts it.
 
-One rule says who may come in: the members of the team, and the lead as its host, with mute and remove on everyone's tile.
+Who may come in is this site's own logic: the members of the team, and the lead as its host, with mute and remove on everyone's tile. A page asks this server for a token, and the token says what this colleague may do in the call.
 
 ```ts title="lib/realtime.ts"
-realtime.groupCalls('meeting:{id}', async (user, { id }) => {
-    if (!(await isMember(id, user))) return false;                // __me_name__ is in __team_name__
-    const team = await teamOf(id);
-    return team?.lead === String(user) ? { admin: true } : true;  // __answer__
-});
+export async function meetingToken(user: string, team: string): Promise<string | null> {
+    if (!(await isMember(team, user))) return null;                // __me_name__ is in __team_name__
+    const lead = (await teamOf(team))?.lead === user;
+    return realtime.groupCallToken(user, meetingOf(team), { admin: lead });   // __answer__
+}
 ```
 
-The rule runs on this server, in a route of its own, each time a page asks to come into a meeting: the page gets a pass signed with the app's secret, or why not.
+The page asks for it at a route of the site, which builds the name of the meeting from the team's number, and answers the token, or 403.
 
-```ts title="app/api/realtime/calls/route.ts"
-export async function POST(request: Request) {
-    const ask = await request.json();                // { room: '__meeting__', type: 'video' }
-    const user = await currentUserId();              // '__me_id__'
-    const pass = await realtime.authorizeCall(ask, user);
-    return Response.json(pass);
+```ts title="app/api/meeting-token/route.ts"
+export async function GET(request: Request) {
+    const id = new URL(request.url).searchParams.get('id') ?? '';
+    const me = await currentUserId();                // '__me_id__'
+    const token = me && (await meetingToken(me, id));
+    if (!token) return new Response(null, { status: 403 });
+    return Response.json({ token }, { headers: { 'Cache-Control': 'no-store' } });
 }
 ```
 
@@ -110,16 +111,16 @@ The meeting room on the team's page: who is in it now, from WordPlus Cloud, and 
 ```
 
 ```tsx title="app/(app)/teams/[id]/meeting.tsx"
-export function MeetingRoom({ room, team, host, people }: Props) {
-    const rt = useRealtime();
+export function MeetingRoom({ id, room, team, host, people }: Props) {
+    const tokenUrl = `/api/meeting-token?id=${id}`;
     // On as the page opens: joined at once (CallSpot's join), the camera and microphone off until this colleague turns
     // them on. Decided once, so a meeting that starts while the page is open waits for the button, and someone who
     // leaves it or is taken out stays out.
     const [join] = useState(people.length > 0 ? ('video' as const) : undefined);
     return (
-        <CallSpot rt={rt} call={room} join={join} className="h-[32rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
+        <CallSpot call={room} tokenUrl={tokenUrl} join={join} className="h-[32rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
             {/* … who is in it now */}
-                <GroupCallButton rt={rt} room={room} type="video" title={`${team} meeting`}
+                <GroupCallButton call={room} tokenUrl={tokenUrl} type="video" title={`${team} meeting`}
                                  className="rounded-full bg-indigo-500 px-6 py-3 font-medium text-white hover:bg-indigo-400">
                     {people.length > 0 ? 'Join the meeting' : 'Start the meeting'}
                 </GroupCallButton>
@@ -131,14 +132,14 @@ export function MeetingRoom({ room, team, host, people }: Props) {
 All together, as __me_name__ comes into the __team_name__ meeting:
 
 ```ts note="All together"
-// app/(app)/teams/[id]/meeting.tsx: Start the meeting, or Join, asks for a pass
-// app/api/realtime/calls/route.ts
-    const ask = await request.json();
-    // { room: '__meeting__', type: 'video' }
+// app/(app)/teams/[id]/meeting.tsx: Start the meeting, or Join, asks for a token
+// app/api/meeting-token/route.ts
+    const token = me && (await meetingToken(me, id));
+    // GET /api/meeting-token?id=__team_id__&call=__meeting__&type=video
 
 // lib/realtime.ts
-    if (!(await isMember(id, user))) return false;
-    return team?.lead === String(user) ? { admin: true } : true;
+    if (!(await isMember(team, user))) return null;
+    return realtime.groupCallToken(user, meetingOf(team), { admin: lead });
     // __answer__
 
 // app/(app)/teams/[id]/meeting.tsx: the call shows here, with __in_meeting__ in it now
@@ -153,12 +154,12 @@ A channel is a chat of its own, `chat:` and its number, and its members are its 
 ```ts title="lib/realtime.ts"
 realtime.room(
     'chat:{id}',
+    async (user, { id }) => mayChat(user, id),
     {
         history: 50,
         emit: ['message', 'typing', 'reaction', 'read'],
         webhook: ['message', 'reaction'],
     },
-    async (user, { id }) => mayChat(user, id),
 );
 ```
 
@@ -173,13 +174,12 @@ export async function membersOf(chat: string): Promise<string[]> {
 }
 ```
 
-The page shows the channel with the ready-made chat, its writers by the team's names and photos, as some may not have been online for days.
+The page shows the channel with the ready-made conversation window (`<Chat>`), its writers by the team's names and photos, as some may not have been online for days.
 
 ```tsx title="app/(app)/teams/[id]/channel.tsx"
 export function ChannelChat({ room, name, people }: Props) {
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             people={people}
             placeholder={`Message #${name}`}
@@ -311,27 +311,26 @@ export async function chatBetween(me: string, them: string): Promise<string> {
 }
 ```
 
-Its call is named as its room, and both of them may use it. A channel has no call of its own: its team meets in its meeting room.
+Its call is named as its room, and both of them may use it. The chat's call buttons ask this server for a token, with the name of the chat, which comes from the page and is checked. A channel has no call of its own: its team meets in its meeting room.
 
 ```ts title="lib/realtime.ts"
-realtime.calls('chat:{id}', async (user, other, { id }) => {
-    if (!(await isConversation(id))) return false;
-    const userMayChat = await mayChat(user, id);
-    const otherMayChat = await mayChat(other, id);
-    return userMayChat && otherMayChat;
-});
+export async function chatCallToken(user: string, to: string, name: string, type: string | null): Promise<string | null> {
+    const chat = chatIn(name);
+    if (!chat || !(await isConversation(chat))) return null;
+    if (!(await mayChat(user, chat)) || !(await mayChat(to, chat))) return null;
+    return realtime.callToken(user, to, { type, name });
+}
 ```
 
-The page shows the ready-made chat with its call: their name and the call buttons on top, and the call beside the messages. Opened from Call in People, it calls them as it opens.
+The page shows the ready-made conversation window (`<Chat>`) with its call: their name and the call buttons on top, and the call beside the messages. Opened from Call in People, it calls them as it opens.
 
 ```tsx title="app/(app)/people/[id]/chat.tsx"
         <Chat
-            rt={useRealtime()}
             room={room}
             to={to}
             name={name}
             avatar={avatar}
-            call
+            tokenUrl="/api/chat-call-token"
             startCall={start}
         />
 ```
@@ -344,8 +343,9 @@ All together, as __me_name__ calls __them_name__:
     const { rows } = await db.query(`select id::text as id from chat where pair = $1`, [pair]);
     // their chat: __chat_id__, the room __chat_room__
 
-// app/(app)/people/[id]/chat.tsx: Video on the top bar asks for a pass
+// app/(app)/people/[id]/chat.tsx: Video on the top bar asks /api/chat-call-token for a token
 // lib/realtime.ts
-    return userMayChat && otherMayChat;
+    if (!(await mayChat(user, chat)) || !(await mayChat(to, chat))) return null;
+    return realtime.callToken(user, to, { type, name });
     // WordPlus Cloud rings __them_name__ on every page they have open
 ```

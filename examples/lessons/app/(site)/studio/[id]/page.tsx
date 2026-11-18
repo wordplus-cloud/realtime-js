@@ -25,6 +25,7 @@ async function LessonStudio({ params }: { params: Promise<{ id: string }> }) {
     return (
         <LiveStream
             name={roomOf(lesson.id)}
+            tokenUrl={`/api/lesson-token?id=${lesson.id}`}
             view="studio-page"
             title={`${lesson.position}. ${lesson.title}`}
             url={`/lessons/${lesson.id}`}

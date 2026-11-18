@@ -1,6 +1,7 @@
 import demo from '@/db/people.json';
 import { WORLDS } from '@/lib/worlds';
 import { signInAs } from './account';
+import { PersonButton } from './pending';
 
 /** The ready-made people of db/people.json, one click each, on the sign-up and sign-in pages while SPARK_DEMO=1. */
 export function DemoPeople() {
@@ -20,11 +21,11 @@ function People() {
         <div className="grid grid-cols-4 gap-2" id={WORLDS ? 'demo-people' : undefined}>
             {demo.people.map((person) => (
                 <form key={person.key} action={signInAs.bind(null, person.key)}>
-                    <button className="flex w-full flex-col items-center gap-1 rounded-2xl p-1.5 hover:bg-white">
+                    <PersonButton className="flex w-full flex-col items-center gap-1 rounded-2xl p-1.5 hover:bg-white">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={`/people/${person.key}.jpg`} alt="" className="size-14 rounded-full object-cover" />
                         <span className="text-sm font-medium">{person.name}</span>
-                    </button>
+                    </PersonButton>
                 </form>
             ))}
         </div>

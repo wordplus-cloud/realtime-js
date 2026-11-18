@@ -8,7 +8,7 @@
     "start": "node --env-file-if-exists=.env server.mjs"
   },
   "dependencies": {
-    "@wordplus/realtime": "^1.0.0",
+    "@wordplus/realtime": "^1.2.0",
     "express": "5.3.0",
     "express-session": "1.19.0"
   },

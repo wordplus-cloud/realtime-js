@@ -52,10 +52,13 @@ paths:
         Sends one event to rooms, to users (every tab and device they have open), or both. Everyone in a room gets it,
         and a room whose `history` you give keeps it for pages that reconnect.
 
+        Or to `everyone`, on its own: every page and app connected now, signed in or not, heard as a user's event. It is
+        never kept, and goes plain, as there is no key they all hold.
+
         The data is any JSON, up to 1 MB. Seal it first to keep it from WordPlus Cloud ([sealing](/api/sealing/)):
         the packages seal the data of every room and user by default.
 
-        In the packages: `realtime.to( rooms ).toUser( users ).emit( event, data )`.
+        In the packages: `realtime.to( rooms ).toUser( users ).emit( event, data )`, `realtime.toEveryone().emit( event, data )`.
       requestBody:
         required: true
         content:
@@ -68,6 +71,9 @@ paths:
               user:
                 summary: A notice to one user
                 value: { users: [ '42' ], event: notice, data: { text: 'Your order shipped' } }
+              everyone:
+                summary: A notice to everyone connected
+                value: { everyone: true, event: notice, data: { text: 'Back at 9' } }
       responses:
         '200':
           description: Sent. The ids of the events kept, by room.
@@ -419,25 +425,27 @@ paths:
     post:
       tags: [Rooms]
       operationId: kick
-      summary: Take someone out of a room
+      summary: Take someone, or everyone, out of a room
       description: |
         Takes every connection of a user out of the room at once, and refuses the room tokens signed for them before
         now. Move the key of the room on too ([sealing](/api/sealing/#taking-a-key-back)), so what it carries next stays
-        sealed from them.
+        sealed from them. With `everyone`, it does this to everyone in the room, visitors too.
 
-        In the packages: `realtime.in( room ).kick( user )`.
+        In the packages: `realtime.room( name ).remove( user )`, `realtime.room( name ).removeEveryone()`.
       parameters:
         - $ref: '#/components/parameters/Room'
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [ user ]
-              properties:
-                user: { $ref: '#/components/schemas/UserId' }
-            example: { user: '43' }
+            schema: { $ref: '#/components/schemas/RoomPerson' }
+            examples:
+              user:
+                summary: One person
+                value: { user: '43' }
+              everyone:
+                summary: Everyone in the room
+                value: { everyone: true }
       responses:
         '200': { $ref: '#/components/responses/Done' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -464,6 +472,59 @@ paths:
           label: Go
           source: |
             _, err := app.Request("POST", "/wordplus/realtime/rooms/"+url.PathEscape("chat:34:42")+"/kick", map[string]any{"user": "43"})
+
+  /wordplus/realtime/rooms/{name}/recheck:
+    post:
+      tags: [Rooms]
+      operationId: recheck
+      summary: Ask a room's rule again
+      description: |
+        For an answer that changed, such as a member made a reader. Takes the connections of a user out of this room alone
+        and tells them to ask your server for a new token, whose answer says what they get now. Tokens signed for them
+        before are refused as `expired`, so a page holding one asks too. With `everyone`, it does this to everyone in the
+        room, visitors too. The others see them leave and join again.
+
+        In the packages: `realtime.room( name ).recheck( user )`, `realtime.room( name ).recheckEveryone()`.
+      parameters:
+        - $ref: '#/components/parameters/Room'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomPerson' }
+            examples:
+              user:
+                summary: One person
+                value: { user: '43' }
+              everyone:
+                summary: Everyone in the room
+                value: { everyone: true }
+      responses:
+        '200': { $ref: '#/components/responses/Done' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/rooms/chat%3A34%3A42/recheck' '{"user":"43"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            await wordplus('POST', `/wordplus/realtime/rooms/${encodeURIComponent('chat:34:42')}/recheck`, { user: '43' });
+        - lang: Python
+          label: Python
+          source: |
+            wordplus("POST", f"/wordplus/realtime/rooms/{quote('chat:34:42', safe='')}/recheck", {"user": "43"})
+        - lang: PHP
+          label: PHP
+          source: |
+            wordplus('POST', '/wordplus/realtime/rooms/'.rawurlencode('chat:34:42').'/recheck', ['user' => '43']);
+        - lang: Go
+          label: Go
+          source: |
+            _, err := app.Request("POST", "/wordplus/realtime/rooms/"+url.PathEscape("chat:34:42")+"/recheck", map[string]any{"user": "43"})
 
   /wordplus/realtime/online:
     get:
@@ -1689,7 +1750,10 @@ paths:
         Turns off the microphone, camera or screen of someone in a group call, as a host does. They may turn it on again: to
         keep them quiet, remove them, or give them a token that does not publish.
 
-        In the packages: `realtime.call( name ).mute( user, track )`.
+        With `hold`, for a microphone only, the call keeps it off until `unmute`, Mute or Unmute Everyone, or the end of the
+        call, through a reload and a token signed later too: the call screen's Mute Microphone.
+
+        In the packages: `realtime.call( name ).mute( user, track, { hold?, by? } )`.
       parameters:
         - $ref: '#/components/parameters/Call'
       requestBody:
@@ -1702,6 +1766,8 @@ paths:
               properties:
                 user: { $ref: '#/components/schemas/UserId' }
                 track: { type: string, enum: [ microphone, camera, screen ] }
+                hold: { type: boolean, description: 'Holds a microphone off. Not for a camera or a screen (`bad_request`).' }
+                by: { $ref: '#/components/schemas/ActedBy' }
             example: { user: '43', track: microphone }
       responses:
         '200':
@@ -1746,10 +1812,10 @@ paths:
       operationId: removeFromCall
       summary: Remove someone
       description: |
-        Takes someone out of a group call now. The call and room tokens signed for them before do not take them back in: a
-        token your server signs after does.
+        Takes someone out of a group call now, a kick. The call and room tokens signed for them before do not take them back
+        in: a token your server signs after does, unless the call is locked, which keeps out whoever was removed.
 
-        In the packages: `realtime.call( name ).remove( user )`.
+        In the packages: `realtime.call( name ).remove( user, { by? } )`.
       parameters:
         - $ref: '#/components/parameters/Call'
       requestBody:
@@ -1761,6 +1827,7 @@ paths:
               required: [ user ]
               properties:
                 user: { $ref: '#/components/schemas/UserId' }
+                by: { $ref: '#/components/schemas/ActedBy' }
             example: { user: '43' }
       responses:
         '200':
@@ -1811,9 +1878,12 @@ paths:
 
         It is theirs at once when they are in the call, and their page hears `permissions`. The call and room tokens
         signed for them before follow it too, so an older token cannot undo it. A token your server signs after follows
-        your rule, so keep the change where the rule reads it.
+        your rule, so keep the change where the rule reads it. A `publish` held before goes.
 
-        In the packages: `realtime.call( name ).permit( user, { publish, subscribe } )`.
+        With `hold`, `publish` holds for every join after too, whatever the token says, until the other one, a switch of
+        Broadcast Mode or the end of the call: the call screen's Make Listener and its promotion.
+
+        In the packages: `realtime.call( name ).permit( user, { publish, subscribe, hold?, by? } )`.
       parameters:
         - $ref: '#/components/parameters/Call'
       requestBody:
@@ -1827,6 +1897,8 @@ paths:
                 user: { $ref: '#/components/schemas/UserId' }
                 publish: { type: boolean, description: 'May send their camera, microphone and screen.' }
                 subscribe: { type: boolean, description: 'Gets those of the others.' }
+                hold: { type: boolean, description: 'Holds `publish`, which it then needs.' }
+                by: { $ref: '#/components/schemas/ActedBy' }
             example: { user: '43', publish: true }
       responses:
         '200':
@@ -1871,11 +1943,21 @@ paths:
       operationId: endCall
       summary: End a call
       description: |
-        Ends a group call for everyone in it. The tokens signed before do not open it again.
+        Ends a group call for everyone in it. The tokens signed before do not open it again, and what the call held
+        goes: its rules, hands, held acts and the bans until it ends. A ban given minutes lasts its minutes. A join after
+        it starts a new call.
 
-        In the packages: `realtime.call( name ).end()`.
+        In the packages: `realtime.call( name ).end( { by? } )`.
       parameters:
         - $ref: '#/components/parameters/Call'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                by: { $ref: '#/components/schemas/ActedBy' }
       responses:
         '200': { $ref: '#/components/responses/Done' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -1902,6 +1984,496 @@ paths:
           label: Go
           source: |
             _, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/end", nil)
+
+  /wordplus/realtime/calls/{name}/unmute:
+    post:
+      tags: [Group calls]
+      operationId: unmuteInCall
+      summary: Let a held microphone go
+      description: |
+        Lets go of a microphone the call holds off, by `mute` with `hold` or by Mute Everyone: the person may turn it on
+        again, until the next Mute Everyone. The call screen's Allow Microphone.
+
+        In the packages: `realtime.call( name ).unmute( user, { by? } )`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ user ]
+              properties:
+                user: { $ref: '#/components/schemas/UserId' }
+                by: { $ref: '#/components/schemas/ActedBy' }
+            example: { user: '43' }
+      responses:
+        '200':
+          description: 'Whether they are in the call now.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, changed ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  changed: { type: boolean }
+              example: { ok: true, changed: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/calls/meeting%3A7/unmute' '{"user":"43"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { changed } = await wordplus('POST', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}/unmute`, { user: '43' });
+        - lang: Python
+          label: Python
+          source: |
+            changed = wordplus("POST", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}/unmute", {"user": "43"})["changed"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $changed = wordplus('POST', '/wordplus/realtime/calls/'.rawurlencode('meeting:7').'/unmute', ['user' => '43'])['changed'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/unmute", map[string]any{"user": "43"})
+
+  /wordplus/realtime/calls/{name}/ban:
+    post:
+      tags: [Group calls]
+      operationId: banFromCall
+      summary: Ban someone
+      description: |
+        Takes someone out of a group call and keeps them out, whatever token they bring, for `minutes`, or until the call
+        ends with none. Their join is refused `banned`. A host is never banned (`forbidden`). The call screen's Ban.
+
+        In the packages: `realtime.call( name ).ban( user, { minutes?, by? } )`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ user ]
+              properties:
+                user: { $ref: '#/components/schemas/UserId' }
+                minutes: { type: integer, minimum: 1, maximum: 10080, description: 'How long, at most a week. None: until the call ends.' }
+                by: { $ref: '#/components/schemas/ActedBy' }
+            example: { user: '43', minutes: 60 }
+      responses:
+        '200':
+          description: 'Whether they were in it, and until when the ban holds, in milliseconds, null until the call ends.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, removed, until ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  removed: { type: boolean }
+                  until: { type: [ integer, 'null' ] }
+              example: { ok: true, removed: true, until: 1791642000000 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/calls/meeting%3A7/ban' '{"user":"43","minutes":60}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { until } = await wordplus('POST', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}/ban`, { user: '43', minutes: 60 });
+        - lang: Python
+          label: Python
+          source: |
+            until = wordplus("POST", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}/ban", {"user": "43", "minutes": 60})["until"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $until = wordplus('POST', '/wordplus/realtime/calls/'.rawurlencode('meeting:7').'/ban', ['user' => '43', 'minutes' => 60])['until'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/ban", map[string]any{"user": "43", "minutes": 60})
+
+  /wordplus/realtime/calls/{name}/unban:
+    post:
+      tags: [Group calls]
+      operationId: unbanFromCall
+      summary: Lift a ban
+      description: |
+        Lets someone banned from a group call join it again.
+
+        In the packages: `realtime.call( name ).unban( user, { by? } )`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ user ]
+              properties:
+                user: { $ref: '#/components/schemas/UserId' }
+                by: { $ref: '#/components/schemas/ActedBy' }
+            example: { user: '43' }
+      responses:
+        '200':
+          description: 'Whether they were banned.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, unbanned ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  unbanned: { type: boolean }
+              example: { ok: true, unbanned: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/calls/meeting%3A7/unban' '{"user":"43"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { unbanned } = await wordplus('POST', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}/unban`, { user: '43' });
+        - lang: Python
+          label: Python
+          source: |
+            unbanned = wordplus("POST", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}/unban", {"user": "43"})["unbanned"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $unbanned = wordplus('POST', '/wordplus/realtime/calls/'.rawurlencode('meeting:7').'/unban', ['user' => '43'])['unbanned'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/unban", map[string]any{"user": "43"})
+
+  /wordplus/realtime/calls/{name}/bans:
+    get:
+      tags: [Group calls]
+      operationId: callBans
+      summary: Who is banned
+      description: |
+        Who is banned from a group call now, and until when, in milliseconds.
+
+        In the packages: `realtime.call( name ).bans()`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      responses:
+        '200':
+          description: 'The bans.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, bans ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  bans:
+                    type: array
+                    items:
+                      type: object
+                      required: [ user, until ]
+                      properties:
+                        user: { type: string }
+                        until: { type: [ integer, 'null' ], description: 'Null: until the call ends.' }
+              example: { ok: true, bans: [ { user: '43', until: 1791642000000 } ] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus GET '/wordplus/realtime/calls/meeting%3A7/bans'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { bans } = await wordplus('GET', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}/bans`);
+        - lang: Python
+          label: Python
+          source: |
+            bans = wordplus("GET", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}/bans")["bans"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $bans = wordplus('GET', '/wordplus/realtime/calls/'.rawurlencode('meeting:7').'/bans')['bans'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("GET", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/bans", nil)
+
+  /wordplus/realtime/calls/{name}/rules:
+    post:
+      tags: [Group calls]
+      operationId: callRules
+      summary: Set the rules
+      description: |
+        Sets any of a group call's rules, which hold until everyone has left or it ends: `mode` `broadcast` (only hosts and
+        those promoted send) or `participatory`, `locked` (only those already in get back in) and `muted` (Mute
+        Everyone). They apply at once to everyone in it but its hosts. A mode switch lets go of every held `publish`, and
+        Mute or Unmute Everyone of every held microphone. The call screen's Host Controls.
+
+        In the packages: `realtime.call( name ).rules( { mode?, locked?, muted? }, { by? } )`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode: { type: string, enum: [ broadcast, participatory ] }
+                locked: { type: boolean }
+                muted: { type: boolean }
+                by: { $ref: '#/components/schemas/ActedBy' }
+            example: { locked: true }
+      responses:
+        '200':
+          description: 'The rules now.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, rules ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  rules: { $ref: '#/components/schemas/CallRules' }
+              example: { ok: true, rules: { mode: participatory, locked: true, muted: false } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/calls/meeting%3A7/rules' '{"locked":true}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { rules } = await wordplus('POST', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}/rules`, { locked: true });
+        - lang: Python
+          label: Python
+          source: |
+            rules = wordplus("POST", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}/rules", {"locked": True})["rules"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $rules = wordplus('POST', '/wordplus/realtime/calls/'.rawurlencode('meeting:7').'/rules', ['locked' => true])['rules'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/rules", map[string]any{"locked": true})
+
+  /wordplus/realtime/calls/{name}/hand:
+    post:
+      tags: [Group calls]
+      operationId: handInCall
+      summary: Raise or lower a hand
+      description: |
+        Raises or lowers someone's hand in a group call. A hand stays up until it is lowered or its owner leaves, and a host
+        who joins later sees it: the room's `hands`.
+
+        In the packages: `realtime.call( name ).hand( user, up )`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ user, up ]
+              properties:
+                user: { $ref: '#/components/schemas/UserId' }
+                up: { type: boolean }
+            example: { user: '43', up: true }
+      responses:
+        '200':
+          description: 'Whether it changed.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, changed ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  changed: { type: boolean }
+              example: { ok: true, changed: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/calls/meeting%3A7/hand' '{"user":"43","up":true}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { changed } = await wordplus('POST', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}/hand`, { user: '43', up: true });
+        - lang: Python
+          label: Python
+          source: |
+            changed = wordplus("POST", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}/hand", {"user": "43", "up": True})["changed"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $changed = wordplus('POST', '/wordplus/realtime/calls/'.rawurlencode('meeting:7').'/hand', ['user' => '43', 'up' => true])['changed'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/hand", map[string]any{"user": "43", "up": true})
+
+  /wordplus/realtime/calls/{name}/hands/lower:
+    post:
+      tags: [Group calls]
+      operationId: lowerHandsInCall
+      summary: Lower every hand
+      description: |
+        Lowers every hand in a group call.
+
+        In the packages: `realtime.call( name ).lowerHands( { by? } )`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                by: { $ref: '#/components/schemas/ActedBy' }
+      responses:
+        '200':
+          description: 'How many were up.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, lowered ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  lowered: { type: integer }
+              example: { ok: true, lowered: 2 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/calls/meeting%3A7/hands/lower' '{}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { lowered } = await wordplus('POST', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}/hands/lower`, {});
+        - lang: Python
+          label: Python
+          source: |
+            lowered = wordplus("POST", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}/hands/lower", {})["lowered"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $lowered = wordplus('POST', '/wordplus/realtime/calls/'.rawurlencode('meeting:7').'/hands/lower', [])['lowered'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/hands/lower", map[string]any{})
+
+  /wordplus/realtime/calls/{name}/ask:
+    post:
+      tags: [Group calls]
+      operationId: askInCall
+      summary: Ask to turn on a camera or microphone
+      description: |
+        Asks someone in a group call to turn on their camera, microphone or both, for `by`, who asks: their page hears
+        it, and answers `by` alone. Nothing is kept. The same ask of the same person again within 30 seconds is refused
+        `asked_recently` (429), and someone not in the call `not_in_call` (404).
+
+        In the packages: `realtime.call( name ).ask( user, devices, by )`.
+      parameters:
+        - $ref: '#/components/parameters/Call'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ user, devices, by ]
+              properties:
+                user: { $ref: '#/components/schemas/UserId' }
+                devices: { type: array, minItems: 1, maxItems: 2, uniqueItems: true, items: { type: string, enum: [ camera, microphone ] } }
+                by: { $ref: '#/components/schemas/UserId' }
+            example: { user: '43', devices: [ camera ], by: '42' }
+      responses:
+        '200':
+          description: 'The ask, with its id, which the answer names, and the devices asked.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ ok, id, devices ]
+                properties:
+                  ok: { type: boolean, const: true }
+                  id: { type: string }
+                  devices: { type: array, items: { type: string, enum: [ camera, microphone ] } }
+              example: { ok: true, id: 'k3v9x2', devices: [ camera ] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotIncluded' }
+        '404':
+          description: '`not_in_call`: they are not in the call now.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refusal' }
+              example: { ok: false, error: not_in_call }
+        '429':
+          description: '`asked_recently`: the same ask within 30 seconds.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refusal' }
+              example: { ok: false, error: asked_recently }
+      x-codeSamples:
+        - lang: Shell
+          label: curl
+          source: |
+            wordplus POST '/wordplus/realtime/calls/meeting%3A7/ask' '{"user":"43","devices":["camera"],"by":"42"}'
+        - lang: JavaScript
+          label: Node
+          source: |
+            const { id } = await wordplus('POST', `/wordplus/realtime/calls/${encodeURIComponent('meeting:7')}/ask`, { user: '43', devices: ['camera'], by: '42' });
+        - lang: Python
+          label: Python
+          source: |
+            ask = wordplus("POST", f"/wordplus/realtime/calls/{quote('meeting:7', safe='')}/ask", {"user": "43", "devices": ["camera"], "by": "42"})["id"]
+        - lang: PHP
+          label: PHP
+          source: |
+            $id = wordplus('POST', '/wordplus/realtime/calls/'.rawurlencode('meeting:7').'/ask', ['user' => '43', 'devices' => ['camera'], 'by' => '42'])['id'];
+        - lang: Go
+          label: Go
+          source: |
+            answer, err := app.Request("POST", "/wordplus/realtime/calls/"+url.PathEscape("meeting:7")+"/ask", map[string]any{"user": "43", "devices": []string{"camera"}, "by": "42"})
 
   /wordplus/realtime/usage:
     get:
@@ -2328,10 +2900,19 @@ components:
     EventId:
       type: string
       pattern: '^\d{1,16}-\d{1,20}$'
+    RoomPerson:
+      type: object
+      description: Whom a request about a room's people names, a user or `everyone`, never both.
+      properties:
+        user: { $ref: '#/components/schemas/UserId' }
+        everyone:
+          type: boolean
+          enum: [ true ]
+          description: Everyone in the room, visitors too.
     Emit:
       type: object
       required: [ event ]
-      description: One event. `rooms`, `users` or both, one at least.
+      description: One event. `rooms`, `users` or both, one at least, or `everyone` on its own.
       properties:
         rooms:
           type: array
@@ -2341,6 +2922,10 @@ components:
           type: array
           maxItems: 1000
           items: { $ref: '#/components/schemas/UserId' }
+        everyone:
+          type: boolean
+          enum: [ true ]
+          description: Every page and app connected now, signed in or not. Never with `rooms` or `users`, never kept, and sent plain.
         event:
           type: string
           minLength: 1
@@ -2452,6 +3037,8 @@ components:
         name: { $ref: '#/components/schemas/RoomName' }
         people: { type: integer }
         started_at: { type: [ integer, 'null' ], description: 'In milliseconds, null with nobody in it.' }
+        rules: { $ref: '#/components/schemas/CallRules' }
+        hands: { type: array, items: { type: string }, description: 'The users with a hand up, earliest first.' }
         list:
           type: array
           items: { $ref: '#/components/schemas/CallParticipant' }
@@ -2464,6 +3051,23 @@ components:
         camera: { type: boolean, description: 'On and not muted.' }
         microphone: { type: boolean }
         screen: { type: boolean }
+        held:
+          type: object
+          description: 'What the call holds of them for every join after.'
+          properties:
+            publish: { type: boolean }
+            mic: { type: string, enum: [ held, free ] }
+    CallRules:
+      type: object
+      description: 'A group call''s rules, held until everyone has left or it ends.'
+      required: [ mode, locked, muted ]
+      properties:
+        mode: { type: string, enum: [ broadcast, participatory ] }
+        locked: { type: boolean }
+        muted: { type: boolean }
+    ActedBy:
+      description: 'The host this is done for, named in the `call.moderated` webhook. Left out, it names your server.'
+      type: [ string, integer ]
     WebhookDelivery:
       type: object
       required: [ id, at, events, types, attempt, status, ms, resendable ]
@@ -2499,13 +3103,16 @@ components:
           them on it, left as they leave or it ends, `seconds` the live time alone.
         - `emit`: `room`, `event`, `data`, `from`, `event_id`. An event a page sent to a room whose token names it in `w`
           (the room rule `webhook`). `event_id` is the id the pages saw.
+        - `call.moderated`: `call`, `act`, `user`, `by`, `held`, and `minutes` for a ban, `rules` for the rules. A host or
+          your server acted in a group call, once each act: `by` the host whose screen acted, null for your server, `user`
+          null for `rules` and `end`, `held` whether the call keeps it for every join after.
         - `webhook.test`: nothing more. Sent once when your server asks for it.
       properties:
         id: { type: string, description: The id of this webhook event, to drop a repeat. }
         at: { type: integer, description: When, in milliseconds. }
         type:
           type: string
-          enum: [ room.occupied, room.vacated, member.joined, member.left, user.online, user.offline, stream.live, stream.ended, call.ended, group.joined, group.left, stream.joined, stream.left, emit, webhook.test ]
+          enum: [ room.occupied, room.vacated, member.joined, member.left, user.online, user.offline, stream.live, stream.ended, call.ended, group.joined, group.left, stream.joined, stream.left, emit, call.moderated, webhook.test ]
         room: { type: string }
         user: { type: [ string, integer ], description: A user id. In what people used, as your rules got it, an id of digits a number. }
         stream: { type: string }
@@ -2528,3 +3135,8 @@ components:
         from: { type: [ string, integer ] }
         to: { type: [ string, integer ] }
         event_id: { $ref: '#/components/schemas/EventId' }
+        act: { type: string, enum: [ remove, ban, unban, listen, speak, mute, hold_mic, release_mic, rules, end ], description: 'In `call.moderated`: what was done.' }
+        by: { type: [ string, 'null' ], description: 'In `call.moderated`: the host whose screen acted, null for your server.' }
+        held: { type: boolean, description: 'In `call.moderated`: whether the call keeps it for every join after.' }
+        minutes: { type: integer, description: 'In `call.moderated`: how long a ban lasts. None: until the call ends.' }
+        rules: { $ref: '#/components/schemas/CallRules' }

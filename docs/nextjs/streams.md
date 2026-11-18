@@ -6,9 +6,99 @@ How a stream starts, runs and ends is in [how it works](../use-cases/how-it-work
 
 ![A live stream as a viewer sees it: Mia live with Ava on stage beside her, the chat of the stream on the right, and the reactions and Ask to join on stage under the picture. The cameras are illustrations](https://docs.wordplus.cloud/img/nextjs/lessons-stage.webp)
 
+## Your first stream
+
+On top of [getting started](getting-started.md), a stream is two pieces: a route handler of yours that answers a token saying who this person is in it, and the ready-made player, which asks it.
+
+```ts
+// app/api/stream-token/route.ts: GET /api/stream-token?slug=opening-night, which the player asks.
+import { currentUserId } from '@/lib/auth';
+import { realtime } from '@/lib/realtime';
+
+export async function GET( request: Request ) {
+    const me = await currentUserId();   // null for a visitor who is not signed in
+    const show = await showOf( new URL( request.url ).searchParams.get( 'slug' ) ?? '' );   // yours, from your data
+    if ( ! show ) return new Response( null, { status: 403 } );
+
+    // Its presenter hosts, a visitor reads the chat, everyone else watches and writes.
+    return Response.json( { token: await realtime.streamToken( me, `show:${ show.slug }`,
+        me !== null && me === show.presenter ? { role: 'host' } : me === null ? { chat: 'read' } : {} ) } );
+}
+```
+
+```tsx
+// app/shows/opening-night/show.tsx
+'use client';
+
+import { LiveStream } from '@wordplus/realtime/react';
+
+export function Show() {
+    return <LiveStream name="show:opening-night" tokenUrl="/api/stream-token?slug=opening-night" title="Opening night" />;
+}
+```
+
+The presenter opens the page and sees the studio: the camera, the picture before going live, and Go live. Everyone else who opens it, signed in or not, sees the player and the chat, and the picture once it is live. The rest of this page is who may do what, a screen of your own, and [the other way, by a rule](#by-a-rule).
+
 ## Who is who
 
-Each stream has a name, as a room has: `show:mugs` is the show of the mugs, one name for each show of your shop. A page that opens a stream asks your server first, through the realtime route, and a rule of yours answers who the user is in it. WordPlus Cloud then holds the page to the answer. The rule goes beside your rooms and calls, in `lib/realtime.ts`, and decides:
+Each stream has a name, as a room has: `show:opening-night` is the show called opening night, one name for each show of your app. The player asks your route for a token, and your route checks whatever it needs and says who this person is in the stream. WordPlus Cloud then holds the page to it, and the SDK holds none of that logic. This route decides:
+
+1. **A show of your shop** opens: any other is refused.
+2. **A visitor** who is not signed in watches and reads the chat, and signs in to write.
+3. **The presenter** of the show hosts: goes live, brings viewers on stage and keeps the chat.
+4. **Your staff** keep the chat beside the host.
+5. **Everyone else** watches, writes in the chat, and may raise a hand to come on stage.
+
+Its settings take guests on stage and reactions, and links in the chat only from those who keep it.
+
+```ts
+// app/api/stream-token/route.ts: showOf() and isStaff() are yours, from your data.
+import type { StreamTokenOptions } from '@wordplus/realtime/server';
+import { currentUserId } from '@/lib/auth';
+import { realtime } from '@/lib/realtime';
+
+// Who someone is in a show.
+async function placeIn( show: { presenter: string }, me: string | null ): Promise<StreamTokenOptions> {
+    // 2. A visitor watches and reads the chat, and signs in to write.
+    if ( me === null ) return { chat: 'read' };
+
+    // 3. Its presenter hosts: goes live, brings viewers on stage and keeps the chat.
+    if ( me === show.presenter ) return { role: 'host' };
+
+    // 4. Your staff keep the chat beside the host.
+    if ( await isStaff( me ) ) return { mod: true };
+
+    // 5. Everyone else watches, writes, and may raise a hand to come on stage.
+    return {};
+}
+
+export async function GET( request: Request ) {
+    const me = await currentUserId();
+
+    // 1. A show of your shop: any other is refused.
+    const show = await showOf( new URL( request.url ).searchParams.get( 'slug' ) ?? '' );
+    if ( ! show ) return new Response( null, { status: 403 } );
+
+    return Response.json( { token: await realtime.streamToken( me, `show:${ show.slug }`, {
+        ...await placeIn( show, me ),
+        // Guests on stage, reactions, and links in the chat only from those who keep it.
+        settings: { stage: true, reactions: true, chat: { links: false } },
+    } ) } );
+}
+```
+
+- **What `streamToken()` takes** beside the user and the name: `role` (`viewer` by default, or `host`), `info` (what everyone sees of them, your `profile` by default), `chat` (`write` or `read`), `mod` (keeps the chat without hosting), `src` (what the host sends: `camera`, `microphone`, `screen`), `quality` (the best picture the host sends: `720p` or `1080p`) and `settings`.
+- **A visitor who is not signed in** is `null`, and may only be a viewer: `streamToken()` throws if asked for more. With `chat: 'read'`, the player offers them Log in to chat, to the page its `loginUrl` names.
+- **The settings of the stream** are the same in every token for it: `stage` (guests on stage, on unless `false`), `reactions`, `people` (who sees who is watching: `mods`, the default, or `all`) and `chat: { offline, links, fresh }`: the chat `open` or `closed` while the stream is not live, links from everyone or only from those who keep the chat, and the chat emptied each time it goes live ([live streams in depth](../streams.md#who-is-who)).
+- **A token lasts ten minutes,** so the player asks your route again as each runs out, and your route may then say no. To refuse, answer 401 or 403: the player shows no access in place of the stream.
+
+Your server hears each stream go live and end by [webhook](sending.md#webhooks): `stream.live` and `stream.ended`, with its name in `stream`, and `started_at` and `ended_at` in milliseconds.
+
+### By a rule
+
+The other way, for an app that would rather declare who is who once: a rule, a function your server declares in `lib/realtime.ts` for every stream whose name fits a pattern, as it declares rooms and calls. The player then takes the name alone, `<LiveStream name="show:opening-night" />`, and the realtime route asks the rule as someone opens the stream. Everything else stays the same: the player and the studio, guests on stage, the chat and who keeps it, your server's `realtime.stream( name )`, the webhooks and credits.
+
+The same five as a rule:
 
 1. **A show of your shop** opens: any other name is refused.
 2. **A visitor** who is not signed in watches and reads the chat, and signs in to write.
@@ -44,13 +134,11 @@ realtime.streams('show:{slug}', async (user, { slug }) => {
 });
 ```
 
-- **The answer:** `false`, `'host'` or `'viewer'`, or `{ role, info, chat, mod, src, quality }` for more: what others see of them (`info`, your `profile` by default), whether they write in the chat (`write` or `read`), whether they keep it (`mod`), and what the host sends (`src`: `camera`, `microphone`, `screen`, and `quality`: `720p` or `1080p`).
-- **A visitor who is not signed in** comes with `user` null, and may only be a viewer: a rule that gives them more is refused with `no_user`. With `chat: 'read'`, the player offers them Log in to chat, to the page its `loginUrl` names.
-- **The settings of the stream**, the third argument, are each a value or a function of the parts of its name: `stage` (guests on stage, on unless `false`), `reactions`, `people` (who sees who is watching: `mods`, the default, or `all`) and `chat: { offline, links, fresh }`: the chat `open` or `closed` while the stream is not live, links from everyone or only from those who keep the chat, and the chat emptied each time it goes live ([live streams in depth](../streams.md#who-is-who)).
+- **The answer:** `false`, `'host'` or `'viewer'`, or `{ role, info, chat, mod, src, quality }` for more, the same as a token's options.
+- **A visitor who is not signed in** comes with `user` null, and may only be a viewer: a rule that gives them more is refused with `no_user`.
+- **The settings of the stream** are the third argument, each a value or a function of the parts of its name.
 
-The realtime route (`app/api/realtime/[...path]/route.ts`) answers streams too: nothing more to add.
-
-Your server hears each stream go live and end by [webhook](sending.md#webhooks): `stream.live` and `stream.ended`, with its name in `stream`, and `started_at` and `ended_at` in milliseconds.
+The realtime route (`app/api/realtime/[...path]/route.ts`) asks the rule: nothing more to add.
 
 ## The page
 
@@ -63,9 +151,11 @@ The stream drawn ready: its player with the chat beside it, and the studio where
 import { LiveStream } from '@wordplus/realtime/react';
 
 export function Show() {
-    return <LiveStream name="show:mugs" title="The new mugs" loginUrl="/login?next=/shows/mugs" />;
+    return <LiveStream name="show:opening-night" tokenUrl="/api/stream-token?slug=opening-night" title="Opening night" loginUrl="/login?next=/shows/opening-night" />;
 }
 ```
+
+- **`tokenUrl`** is your route ([who is who](#who-is-who)). The player asks it with a GET, with the page's cookies and `stream` added to what you wrote, `?slug=opening-night&stream=show:opening-night`, reads `{ token }`, and asks again as each token runs out. By a rule, `name` alone.
 
 - **The host** sees the studio in it: the camera and microphone, the picture before going live, a shared screen, OBS, the guests, Go live and End stream. Everyone else sees the player, how many watch, and the chat.
 - **Guests on stage:** while live, a viewer who is signed in raises a hand from the player, and the host invites them from the studio to come on with their camera and microphone ([guests on stage](#guests-on-stage)). [Build a live lessons site](live-lessons.md) does it.
@@ -80,15 +170,22 @@ export function Show() {
 
 ## A screen of your own
 
-`useStream( name )` joins the stream while the component is on the page, and gives its state as it changes:
+`useStream( name, getToken )` joins the stream while the component is on the page, and gives its state as it changes. `getToken` asks your route, and is asked again as each token runs out:
 
 ```tsx
 'use client';
 import { useCallback } from 'react';
 import { useStream } from '@wordplus/realtime/react';
 
+// Asks your route for a token: the route above.
+async function showToken() {
+    const answer = await fetch('/api/stream-token?slug=opening-night');
+    if (!answer.ok) throw new Error('Your server said no');
+    return (await answer.json()).token as string;
+}
+
 export function Show() {
-    const { stream, state, error } = useStream('show:mugs');
+    const { stream, state, error } = useStream('show:opening-night', showToken);
     const picture = useCallback((video: HTMLVideoElement | null) => (video && stream ? stream.watch(video) : undefined), [stream]);
     if (error) return <p>The show is not available here ({error}).</p>;
 
@@ -105,6 +202,7 @@ export function Show() {
 }
 ```
 
+- **By a rule,** `useStream( 'show:opening-night' )` with no function.
 - **`state`** is everything the screen of the stream draws: its phase, the audience, the chat, the stage, the pictures and their layout ([live streams in depth](../streams.md#a-screen-of-your-own)).
 - **`stream`** does what the page does: `chat.send( text )`, `react( '❤️' )`, `preview()`, `setCamera()`, `setMicrophone()`, `setScreenShare()`, `goLive()`, `end()`.
 - **The picture** follows the stream as it changes: a shared screen, the picture from OBS, else the camera of the host. `video` stays `muted`, and the sound plays from the page.
@@ -151,7 +249,7 @@ export function Stage({ stream, state }: { stream: Stream; state: StreamSnapshot
 
 ## Keeping the chat
 
-The host, and anyone the rule made `mod`, keep the chat. In the ready-made player, each message has a menu for them: pin it over the chat, delete it, mute its writer for a minute, 10 minutes, an hour or a day, remove them from the stream, or ban them. The chat settings hold slow mode and Clear the chat, and Who is here lists the signed-in people watching, with the same menu, and those banned, with Let back.
+The host, and anyone your token or rule made `mod`, keep the chat. In the ready-made player, each message has a menu for them: pin it over the chat, delete it, mute its writer for a minute, 10 minutes, an hour or a day, remove them from the stream, or ban them. The chat settings hold slow mode and Clear the chat, and Who is here lists the signed-in people watching, with the same menu, and those banned, with Let back.
 
 On a screen of your own:
 
@@ -187,7 +285,7 @@ await stream.kick(user);                // out now: they may come back
 await stream.ban(user);                 // out, and kept out
 ```
 
-- **`user`** is the id your rule named them by.
+- **`user`** is the id your token or rule named them by.
 - **A host is never** put out, banned or timed out.
 - **Your server** keeps the chat too, with no page open ([from your server](#from-your-server)): a ban lifted, a timeout lifted, or the stream ended.
 
@@ -221,11 +319,11 @@ Your server reads a stream and keeps its chat as its moderators do, with no page
 
 ```ts
 await realtime.listStreams();                    // [ { name, started_at, viewers } ], those live now
-const show = realtime.stream('show:mugs');
+const show = realtime.stream('show:opening-night');
 await show.get();                                // { state, viewers, peak, slow, reactions, pinned }
 await show.people();                             // { watching, people: [ { user, name, role, timeout_until? } ] }
 await show.chat({ limit: 50 });                  // the last messages, oldest first, up to 200
-await show.say('Free shipping until midnight', { name: 'Mug Shop', avatar: 'https://shop.example/logo.png' });
+await show.say('We start in five minutes', { name: 'The team', avatar: 'https://example.com/logo.png' });
 await show.deleteMessage(id);                    // clearChat() empties it
 await show.pin(id);                              // null unpins
 await show.slow(30);                             // one message per 30 seconds each, up to 300, 0 turns it off
@@ -249,14 +347,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     const { slug } = await params;
     const { text } = await request.json();
     const show = realtime.stream(`show:${slug}`);
-    const message = await show.say(text, { name: 'Mug Shop', avatar: 'https://shop.example/logo.png' });
+    const message = await show.say(text, { name: 'The team', avatar: 'https://example.com/logo.png' });
     await show.pin(message.id);
     return Response.json({ ok: true });
 }
 ```
 
 - **A message from your app** shows as a host message, with the name and https picture you give it, up to 500 characters, and nobody may ban it.
-- **`user`** is the id your rule named them by. A host is never put out or timed out: that is refused with `host`.
+- **`user`** is the id your token or rule named them by. A host is never put out or timed out: that is refused with `host`.
 - **A timeout** lasts from a minute to a day, and they go on watching.
 - **`people()`** lists the signed-in people watching or on stage, and `watching` counts everyone, visitors included.
 - **In a server component,** `await realtime.listStreams()` lists what is live as the page renders: call `await connection()` first, so Next.js renders it for each request.
@@ -278,9 +376,9 @@ realtime.on('stream.left', async ({ id, user, role, seconds }) => {
 - **Only live time counts.** A page open before the stream goes live counts from when it goes live. Going live again starts another pair, with the same `watch`.
 - **Visitors are not told:** someone who did not sign in has nobody to charge.
 - **Each event has an `id`:** an event may come again, so charge once for each.
-- **`role`** is the one your rule gave them, so the host pays nothing here.
+- **`role`** is the one your token or rule gave them, so the host pays nothing here.
 
-Your rule letting a viewer in only with a balance, and your server taking out whoever ran out while watching: [charging for calls and streams](../use-cases/charging.md).
+A rule letting a viewer in only with a balance, as your route would, and your server taking out whoever ran out while watching: [charging for calls and streams](../use-cases/charging.md).
 
 ## Refusals
 
@@ -288,8 +386,9 @@ Your rule letting a viewer in only with a balance, and your server taking out wh
 
 | Code | |
 |---|---|
-| `forbidden` | Your rule said no, or no pattern matches the name |
-| `no_user` | Your rule gave a visitor who is not signed in more than the place of a viewer |
+| `forbidden` | Your route answered 401 or 403. By a rule: your rule said no, or no pattern matches the name |
+| `bad_token` | What your route answered is no token |
+| `no_user` | By a rule: your rule gave a visitor who is not signed in more than the place of a viewer |
 | `not_included` | The plan of your app does not include live streams |
 | `banned` | This user is banned from the stream, until `unban()` lets them back |
 | `no_hours` | A new viewer above what your plan includes, while your account has no credits left (below) |

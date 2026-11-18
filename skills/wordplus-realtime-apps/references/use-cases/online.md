@@ -75,13 +75,13 @@ Your server decides who may join and what the others see of them. A page that jo
 **Node**
 
 ```ts
-realtime.room( 'shop', { presence: true }, async ( user ) => {
+realtime.room( 'shop', async ( user ) => {
     // 1. Signed-in users only.
     if ( user === null ) return false;
 
     // 2. What the others see of them.
     return { info: { name: await nameOf( user ), role: await roleOf( user ) } };
-} );
+}, { presence: true } );
 ```
 
 **PHP**
@@ -158,7 +158,7 @@ export function InTheShop() {
 }
 ```
 
-Ready-made, with a call button on each row: `<online-list room="shop" call="support:{pair}" type="video"></online-list>`, `<OnlineList room="shop" call="support:{pair}" type="video" />` in React, or the one of `@wordplus/realtime-ui/react`, drawn in your own tree. `{pair}` is the two ids, the smaller first, and ids of text in text order.
+Ready-made, with a call button on each row: `<online-list room="shop" token-url="/api/call-token" type="video"></online-list>`, `<OnlineList room="shop" tokenUrl="/api/call-token" type="video" />` in React, or the one of `@wordplus/realtime-ui/react`, drawn in your own tree. A press asks your route with `?to=34&type=video`, and your route checks, then answers a call token ([calls from a button](support-calls.md#into-your-own-app)).
 
 - **A user with several tabs or devices** is one member: they leave when the last one closes.
 - **Up to 1,000 members** are listed in full. Past that, the room counts them, and `members()` pages through them.
@@ -213,7 +213,7 @@ export function Looking() {
 }
 ```
 
-Ready-made: `<online-count room="product:42"></online-count>`, `<OnlineCount room="product:42" />` in React. Your server asks too, with `realtime.in( 'product:42' ).count()`.
+Ready-made: `<online-count room="product:42"></online-count>`, `<OnlineCount room="product:42" />` in React. Your server asks too, with `realtime.room( 'product:42' ).count()`.
 
 ## Variations
 

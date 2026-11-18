@@ -21,14 +21,14 @@ export async function joinCourse(course: string) {
     revalidatePath('/', 'layout'); // every page shows it
 }
 
-/** Leave a course: out of its lessons live now at once, as the rule says no to them from here on. */
+/** Leave a course: out of its lessons live now at once, as their token route says no to them from here on. */
 export async function leaveCourse(course: string) {
     const id = await me();
     await leave(id, course);
 
     const live = await liveNow();
     for (const lesson of await lessonsOf(course)) {
-        if (!lesson.open && live.has(lesson.id)) await realtime.stream(roomOf(lesson.id)).kick(id);
+        if (!lesson.open && live.has(lesson.id)) await realtime.stream(roomOf(lesson.id)).remove(id);
     }
     revalidatePath('/', 'layout'); // every page shows it
 }

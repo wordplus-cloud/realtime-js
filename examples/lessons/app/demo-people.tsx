@@ -1,6 +1,7 @@
 import demo from '@/db/people.json';
 import { WORLDS } from '@/lib/worlds';
 import { signInAs } from './account';
+import { PersonButton } from './pending';
 
 /** The ready-made people of db/people.json, one click each, on the sign-up and sign-in pages while LESSONS_DEMO=1. */
 export function DemoPeople() {
@@ -42,12 +43,12 @@ function People() {
 function Person({ id, name, note }: { id: string; name: string; note?: string }) {
     return (
         <form action={signInAs.bind(null, id)}>
-            <button className="flex w-full flex-col items-center gap-1 rounded-2xl p-1.5 text-center hover:bg-white">
+            <PersonButton className="flex w-full flex-col items-center gap-1 rounded-2xl p-1.5 text-center hover:bg-white">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={`/people/${id}.jpg`} alt="" className="size-14 rounded-full object-cover" />
                 <span className="text-sm font-medium">{name}</span>
                 {note && <span className="text-xs leading-tight text-stone-500">{note}</span>}
-            </button>
+            </PersonButton>
         </form>
     );
 }

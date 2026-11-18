@@ -13,7 +13,7 @@ One room for the whole shop, named `shop`, lists who is in it to everyone in it.
 
 ```ts
 // lib/realtime.ts
-realtime.room( 'shop', { presence: true }, async ( user ) => {
+realtime.room( 'shop', async ( user ) => {
     // 1. Signed-in users only.
     if ( user === null ) return false;
     const person = await db.user.findUnique( { where: { id: user } } );
@@ -21,7 +21,7 @@ realtime.room( 'shop', { presence: true }, async ( user ) => {
 
     // 2. What the others see of them.
     return { info: { name: person.name, role: person.role } };
-} );
+}, { presence: true } );
 ```
 
 - **`info`** is what the others see of the member: a name, a role, anything small (up to 4 KB). It is sealed with the room key.
@@ -84,19 +84,17 @@ The Better Messages list of members, on a presence room, with a call button for 
 ```tsx
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { OnlineCount, OnlineList } from '@wordplus/realtime-ui/react';
 
 export function InTheShop( { id }: { id: string } ) {
-    const rt = useRealtime();
     return <>
-        <OnlineList rt={ rt } room="shop" title="In the shop now" call="support:{pair}" type="video" />
-        <OnlineCount rt={ rt } room={ `product:${ id }` } />
+        <OnlineList room="shop" title="In the shop now" call="support:{pair}" type="video" />
+        <OnlineCount room={ `product:${ id }` } />
     </>;
 }
 ```
 
-- **Its stylesheet** is `@wordplus/realtime-ui/presence.css`, imported once, as `screens.tsx` of [getting started](getting-started.md#4-the-page) does.
+- **Its stylesheet** is in `@wordplus/realtime-ui/styles.css`, imported once, as the layout of [getting started](getting-started.md#4-the-page) does, or on its own as `presence.css`.
 - **`call`** names the call the button of each row places: `{pair}` is the two user ids in order (`support:34:42`), `{me}` and `{id}` each one. Without it, the rows have no button.
 - **Only those the user may call** get a button: the list asks your calls route once for all its members, which runs your `calls()` rule for each as for the caller. Nothing to add on your server.
 - **`type`** is `video`, `audio`, or both: `type="audio video"`.

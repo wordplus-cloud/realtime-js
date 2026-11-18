@@ -487,6 +487,194 @@ func (a App) CallSide(call, id, role, kind string, me, other any, info any) map[
 	return answer
 }
 
+// CallToken is a token that lets `me` call `to`, for a route of your own to give the page once your app has said yes:
+// rt.startCall( token ). kind is audio, or video for anything else. The person called answers with no token of their own:
+// the proof that they were rung comes sealed in the caller's info, and ProvenSide reads it back in your calls route. The
+// call is named call: and its id; NamedCallToken gives it a name of your own.
+func (a App) CallToken(me, to any, kind string, info map[string]any) string {
+	return a.NamedCallToken(me, to, "", kind, info)
+}
+
+// NamedCallToken is CallToken for a call with a name of your own, one a room could have, such as the chat it is in
+// (chat:34:42): call.ended and the other webhooks give it back, and the chat's page finds its call by it. Empty is call:
+// and the call's id, as CallToken has it.
+func (a App) NamedCallToken(me, to any, name, kind string, info map[string]any) string {
+	caller, _ := CallUser(me)
+	callee, _ := CallUser(to)
+	random := make([]byte, 15)
+	if _, err := rand.Read(random); err != nil {
+		panic(err)
+	}
+	id := b64.EncodeToString(random)
+	call := name
+	if call == "" {
+		call = "call:" + id
+	}
+	if kind != "audio" {
+		kind = "video"
+	}
+	about := map[string]any{"_ring": a.Proof(fmt.Sprintf("rung|%s|%s|%s|%s|%s", call, id, IDPart(caller), IDPart(callee), IDPart(callee)))}
+	for field, value := range info {
+		about[field] = value
+	}
+	made := a.CallSide(call, id, "caller", kind, caller, callee, about)
+	made["call"], made["id"], made["to"], made["type"] = call, id, callee, kind
+	return b64.EncodeToString(jsonOf(made))
+}
+
+// AddToCallToken is a token that rings `to` into the call `into` names, the `call.ref` the page of `me` sent your route, once
+// your app has said yes: call.add( token ). It answers an error when `me` is not in that call: only this server makes that proof.
+func (a App) AddToCallToken(me, to any, into string, info map[string]any) (string, error) {
+	notIn := errors.New("wordplus: into must be the call.ref of a call this user is in")
+	raw, err := b64.DecodeString(into)
+	if err != nil {
+		return "", notIn
+	}
+	var ref struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Type   string `json:"type"`
+		Pair   []any  `json:"pair"`
+		Member string `json:"member"`
+	}
+	if json.Unmarshal(raw, &ref) != nil || ref.ID == "" || ref.Name == "" || len(ref.Pair) != 2 {
+		return "", notIn
+	}
+	caller, callerOK := CallUser(me)
+	callee, calleeOK := CallUser(to)
+	first, firstOK := CallUser(ref.Pair[0])
+	second, secondOK := CallUser(ref.Pair[1])
+	if !callerOK || !calleeOK || !firstOK || !secondOK {
+		return "", notIn
+	}
+	proofOf := func(kind string, user any) string {
+		return a.Proof(fmt.Sprintf("%s|%s|%s|%s|%s|%s", kind, ref.Name, ref.ID, IDPart(first), IDPart(second), IDPart(user)))
+	}
+	if subtle.ConstantTimeCompare([]byte(ref.Member), []byte(proofOf("member", caller))) != 1 {
+		return "", notIn
+	}
+	random := make([]byte, 15)
+	if _, err := rand.Read(random); err != nil {
+		return "", err
+	}
+	id := b64.EncodeToString(random)
+	kind := "video"
+	if ref.Type == "audio" {
+		kind = "audio"
+	}
+	made := a.callsToken(map[string]any{"aud": "wordplus-realtime call", "call": ref.Name, "id": id, "sub": caller, "role": "caller", "type": kind, "to": callee, "group": ref.ID, "info": a.callInfo(info)})
+	made["call"], made["id"], made["to"], made["type"], made["group"] = ref.Name, id, callee, kind, ref.ID
+	made["pair"], made["member"], made["ring"] = []any{first, second}, ref.Member, proofOf("rung", callee)
+	return b64.EncodeToString(jsonOf(made)), nil
+}
+
+// GroupPlace is what someone may do in a group call, for GroupCallToken.
+type GroupPlace struct {
+	Kind        string // audio, or video for anything else
+	Listener    bool   // publish false: sends nothing
+	NoSubscribe bool   // subscribe false: sees and hears nobody
+	Admin       bool   // hosts the call
+	Hidden      bool   // listed to nobody
+	Encrypt     bool   // encrypted end to end, with a key only this server gives out
+	Info        map[string]any
+}
+
+// GroupCallToken is a token that lets `me` into the group call `name`, for a route of your own to give the page once your app
+// has said yes: rt.joinGroupCall( token ). A host's proof goes with it, which a calls route checks with HoldsHost before a
+// host's act, and a recording's with HoldsRecorder.
+func (a App) GroupCallToken(me any, name string, place GroupPlace) string {
+	user, _ := CallUser(me)
+	kind := "video"
+	if place.Kind == "audio" {
+		kind = "audio"
+	}
+	answer := a.GroupCall(name, kind, user, place.Info, !place.Listener, !place.NoSubscribe, place.Admin, place.Hidden, place.Encrypt)
+	answer["room"], answer["type"], answer["user"] = name, kind, user
+	if place.Admin {
+		until := answer["exp"].(int64) + 21600
+		answer["host"] = map[string]any{"until": until, "proof": a.groupProof("host", name, user, until)}
+		answer["recorder"] = map[string]any{"until": until, "proof": a.groupProof("recorder", name, user, until)}
+	}
+	return b64.EncodeToString(jsonOf(answer))
+}
+
+func (a App) groupProof(kind, name string, user any, until int64) string {
+	return a.Proof(fmt.Sprintf("%s|%s|%s|%d", kind, name, IDPart(user), until))
+}
+
+func (a App) holdsGroupProof(kind, name string, user, held any) bool {
+	given, _ := held.(map[string]any)
+	proof, _ := given["proof"].(string)
+	until, _ := given["until"].(float64)
+	if proof == "" || int64(until) < time.Now().Unix() {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(proof), []byte(a.groupProof(kind, name, user, int64(until)))) == 1
+}
+
+// HoldsHost is whether what a page sent with a host's act is the proof GroupCallToken gave it, still in time.
+func (a App) HoldsHost(name string, user, held any) bool {
+	return a.holdsGroupProof("host", name, user, held)
+}
+
+// HoldsRecorder is the same for a recording.
+func (a App) HoldsRecorder(name string, user, held any) bool {
+	return a.holdsGroupProof("recorder", name, user, held)
+}
+
+// Yes is what a Stream's Stage, Links, Fresh and React take for true.
+var Yes = func() *bool { yes := true; return &yes }()
+
+// StreamToken is a token that lets someone into a live stream, for a route of your own to give the page once your app has said
+// who they are in it: rt.joinStream( getToken ). It lives ten minutes, and the page asks your route again as it runs out.
+func (a App) StreamToken(s Stream) string {
+	answer := a.StreamGrant(s)
+	answer["name"] = s.Name
+	return b64.EncodeToString(jsonOf(answer))
+}
+
+// ProvenSide is whether this side of a call holds what only this server makes, so it already said yes (CallToken): the
+// person rung, with the proof the ring brought, or either side, with its proof of being in the call, for a token that ran
+// out. A calls route answers it with CallSide, and no rule of its own.
+func (a App) ProvenSide(body map[string]any, call, id, role string, me, other any) bool {
+	caller, callee := other, me
+	if role == "caller" {
+		caller, callee = me, other
+	}
+	holds := func(field, kind string) bool {
+		proof, _ := body[field].(string)
+		want := a.Proof(fmt.Sprintf("%s|%s|%s|%s|%s|%s", kind, call, id, IDPart(caller), IDPart(callee), IDPart(me)))
+		return proof != "" && subtle.ConstantTimeCompare([]byte(proof), []byte(want)) == 1
+	}
+	return holds("member", "member") || (role == "callee" && holds("ring", "rung"))
+}
+
+// ProvenRing is whether someone rung into a group call holds the proof the ring brought (AddToCallToken), and if so, what the
+// calls route answers them, with no rule of its own.
+func (a App) ProvenRing(body map[string]any, call, id, kind string, me, from any, info any) (map[string]any, bool) {
+	group, _ := body["group"].(string)
+	pair, _ := body["pair"].([]any)
+	ring, _ := body["ring"].(string)
+	if group == "" || len(pair) != 2 || ring == "" {
+		return nil, false
+	}
+	first, firstOK := CallUser(pair[0])
+	second, secondOK := CallUser(pair[1])
+	if !firstOK || !secondOK {
+		return nil, false
+	}
+	people := fmt.Sprintf("%s|%s|%s|%s|%s", call, group, IDPart(first), IDPart(second), IDPart(me))
+	if subtle.ConstantTimeCompare([]byte(ring), []byte(a.Proof("rung|"+people))) != 1 {
+		return nil, false
+	}
+	answer := a.callsToken(map[string]any{"aud": "wordplus-realtime call", "call": call, "id": id, "sub": me, "role": "callee", "type": kind, "group": group, "info": a.callInfo(info)})
+	answer["key"] = a.CallKey(id, from, me)
+	answer["media_key"] = a.MediaKey(fmt.Sprintf("call|%s|%s|%s|%s", call, group, IDPart(first), IDPart(second)))
+	answer["pair"] = []any{first, second}
+	answer["member"] = a.Proof("member|" + people)
+	return answer, true
+}
+
 // GroupCall is the answer of the calls route for a place in a group call, its rule having said yes, with what this user
 // may do in it. Encrypted adds the key its media is encrypted with end to end.
 func (a App) GroupCall(room, kind string, me any, info any, publish, subscribe, admin, hidden, encrypted bool) map[string]any {

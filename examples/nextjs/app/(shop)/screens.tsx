@@ -5,10 +5,8 @@
 import '@wordplus/realtime-ui/calls.css';
 import '@wordplus/realtime-ui/presence.css';
 import '@wordplus/realtime-ui/chat.css';
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallScreen } from '@wordplus/realtime-ui/react';
 
 export function Screens() {
-    const rt = useRealtime();
-    return <CallScreen rt={rt} />;
+    return <CallScreen />;
 }

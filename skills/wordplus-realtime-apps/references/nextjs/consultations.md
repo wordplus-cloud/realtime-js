@@ -15,10 +15,10 @@ The whole site is in the package, `examples/consultations`: sign-up, six experts
 | **Who is free now**, online and in no visit, on the page of the experts and on each expert's page | `useOnline()` for who is online, and `realtime.listCalls()` for the visits on now, with no table of yours ([who is online](presence.md#who-is-online-across-your-app)) |
 | **Booking a half hour** from the times still free, a time booked going from every page that shows it | your server keeps it, then says so in a room every page joins, `experts` ([rooms](rooms.md)) |
 | **A waiting room** for each appointment, where the expert sees the client on any page | the presence room `waiting:{id}`, and `usePresence()` ([a presence room](presence.md#a-presence-room)) |
-| **The expert lets the client in**, whose page comes into the visit by itself | the visit's rule, which says yes to the client from then on, and `realtime.toUser( id ).emit()` to the page of the client ([to a user](sending.md#to-a-user)) |
-| **The visit**, a video call of the two in the page, encrypted end to end, open from ten minutes before its time until its end | `realtime.groupCalls( 'visit:{id}', rule, { encrypt: true } )`, and `<CallSpot>` with `join` ([the call in the page](calls.md#the-call-in-the-page), [encryption](encryption.md#calls-and-live-streams)) |
+| **The expert lets the client in**, whose page comes into the visit by itself | your visit route, which answers the client a token from then on, and `realtime.toUser( id ).emit()` to the page of the client ([to a user](sending.md#to-a-user)) |
+| **The visit**, a video call of the two in the page, encrypted end to end, open from ten minutes before its time until its end | your route that answers `realtime.groupCallToken( me, 'visit:' + id, { encrypt: true } )`, and `<CallSpot>` with `tokenUrl` and `join` ([the call in the page](calls.md#the-call-in-the-page), [encryption](encryption.md#calls-and-live-streams)) |
 | **The visit ends** for both at its time, or when the expert ends it | `realtime.call( room ).end()`, from a timer the `group.joined` webhook starts, or from End visit ([from your server](../calls.md#from-your-server)) |
-| **Messages and files** about each appointment, before the visit, during it and after, for the two alone | `<Chat>` with `upload` on the room `chat:{id}`, the files kept by your server, which asks the room's rule with `realtime.mayJoin()` ([the ready-made chat](events.md#ready-made-the-chat)) |
+| **Messages and files** about each appointment, before the visit, during it and after, for the two alone | `<Chat>` with `upload` on the room `chat:{id}`, the files kept by your server, which asks the room's rule with `realtime.mayJoin()` ([the ready-made conversation window](events.md#ready-made-the-chat)) |
 | **Talk now** to an expert who is free: the request reaches them on whatever page they are, and taken, both go straight into a new visit | `realtime.toUser( id ).emit()` both ways, and `useUserEvent()` on the pages ([to a user](sending.md#to-a-user)) |
 | **Notes** after the visit, and a notice of each step on whatever page | the same, `toUser` and `useUserEvent()` |
 
@@ -28,7 +28,7 @@ You need:
 
 - **Node.js 22** or newer.
 - **Postgres 15** or newer, with a database of its own for the site.
-- **An app in WordPlus Cloud.** Apps are in early access, so first [ask for it](https://www.wordplus.cloud/contact). Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
+- **An app in WordPlus Cloud.** If you have no subscription yet, [choose your connections](https://www.wordplus.cloud/pricing#apps) first. Then in your account, go to Apps, then Add app, and give it the address `http://localhost:3000`. You get its **key** and its **secret** ([getting started](getting-started.md#1-your-app-in-wordplus-cloud)).
 
 ```bash
 cd examples/consultations
@@ -75,7 +75,7 @@ Sign-up and sign-in are ordinary Next.js and are left out here: they are `app/ac
 
 ### Who may use what
 
-An appointment is a client's half hour with an expert, and two rules decide it all. Its messages and its waiting room are for its expert and its client, before the visit, during it and after. Its visit is open from ten minutes before its time until its end, or until its expert ends it: its expert may come in while it is open, and its client once the expert let them in. The database holds the people, each an expert or a client, the appointments, the requests to talk now, and the messages and files of each appointment:
+An appointment is a client's half hour with an expert, and two checks of your own decide it all. Its messages and its waiting room are for its expert and its client, before the visit, during it and after. Its visit is open from ten minutes before its time until its end, or until its expert ends it: its expert may come in while it is open, and its client once the expert let them in. The database holds the people, each an expert or a client, the appointments, the requests to talk now, and the messages and files of each appointment:
 
 ```sql title="db/schema.sql"
 -- The consultations part of the database. Better Auth makes its own tables first (npx auth migrate), as this one refers
@@ -153,7 +153,7 @@ create table if not exists file (
 );
 ```
 
-The rules, and what they read. Appointment 7 is visited in the group call `visit:7`, written about in the room `chat:7`, and waited for in the presence room `waiting:7`:
+The checks, and what they read. Appointment 7 is visited in the group call `visit:7`, written about in the room `chat:7`, and waited for in the presence room `waiting:7`:
 
 ```ts title="lib/clinic.ts"
 export const SESSION_MINUTES = 30;
@@ -203,23 +203,23 @@ export function appointmentIn(name: string, kind: 'visit' | 'chat' | 'waiting'):
 
 ### Your server and WordPlus Cloud
 
-The realtime side of your server is one file: who is asking and what people see of each other, then the three of each appointment. Its messages are a room, with the rule above. Its waiting room is a presence room, with the same rule. Its visit is a group call, with the rule of the visit. Then the room `experts`, through which every page keeps who is free current, and the webhooks. Those keep the messages with their files and tell the other one, start the timer that ends a visit at its time, and tell every page that someone came into a visit or left it.
+The realtime side of your server is one file, and a route of your own for the visit. A room has a rule, a function your server runs as a page asks to join. A group call starts from a token instead: the page asks a route of yours, your route makes its own check, and answers a token that says what this person may do in the call. WordPlus Cloud then holds the page to it.
 
-`encrypt: true` encrypts the visit end to end. Each browser encrypts its camera and its microphone before they leave, with a key your server makes from its local key and gives, with the pass, only to the two the rule lets in. WordPlus Cloud's media servers forward what they cannot see or hear. The messages go from page to page sealed with the key of their room, which the realtime servers never hold ([what is sealed](encryption.md#what-is-sealed)).
+The file says who is asking and what people see of each other, then the two rooms of each appointment. Its messages are a room, with the check above as its rule. Its waiting room is a presence room, with the same rule. Then the room `experts`, through which every page keeps who is free current, and the webhooks. Those keep the messages with their files and tell the other one, start the timer that ends a visit at its time, and tell every page that someone came into a visit or left it.
+
+The visit is encrypted end to end, as its token route says (below). Each browser encrypts its camera and its microphone before they leave, with a key your server makes from its local key and gives only to the two it answers a token. WordPlus Cloud's media servers forward what they cannot see or hear. The messages go from page to page sealed with the key of their room, which the realtime servers never hold ([what is sealed](encryption.md#what-is-sealed)).
 
 ```ts title="lib/realtime.ts"
 import { createRealtime } from '@wordplus/realtime/server';
 import { currentUserId } from './auth';
 import {
-    appointmentIn, appointmentOf, filesFor, isParty, keepMessage, markEnded, markStarted, mayChat, mayJoinVisit, nameOf, personOf, photoOf, react,
+    appointmentIn, appointmentOf, filesFor, isParty, keepMessage, markEnded, markStarted, mayChat, nameOf, personOf, photoOf, react,
     visitOf, type Appointment, type Message,
 } from './clinic';
 import { DEMO_VISIT_MINUTES, WORLDS, webhooksInEveryWorld } from './worlds';
 
 export const realtime = createRealtime({
-    site: process.env.WORDPLUS_SITE!,
-    secret: process.env.WORDPLUS_SECRET!,
-    localKey: process.env.WORDPLUS_LOCAL_KEY!,
+    // The app's key, secret and local key come from the environment: WORDPLUS_SITE, WORDPLUS_SECRET, WORDPLUS_LOCAL_KEY.
     // Who is asking: the signed-in user, or null.
     user: () => currentUserId(),
     // What people see of each other: in the messages, the waiting room and the visit.
@@ -236,23 +236,20 @@ if (WORLDS) webhooksInEveryWorld(realtime);
 // sealed, and the messages and reactions come here too (below), to be kept. A page asks to join at /api/realtime/auth.
 realtime.room(
     'chat:{id}',
+    async (user, { id }) => mayChat(user, id),
     {
         history: 50,
         emit: ['message', 'typing', 'reaction', 'read'],
         webhook: ['message', 'reaction'],
     },
-    async (user, { id }) => mayChat(user, id),
 );
 
 // Its waiting room: waiting:{id}, a presence room. The client waits there once they are ready, and the expert's pages
 // see them in it, as they come and go.
-realtime.room('waiting:{id}', { presence: true }, async (user, { id }) => mayChat(user, id));
+realtime.room('waiting:{id}', async (user, { id }) => mayChat(user, id), { presence: true });
 
-// Its visit: visit:{id}, a group call on WordPlus Cloud's media servers, encrypted end to end: each browser encrypts
-// what it sends with a key this server makes, which only those the rule lets in get, so the media servers forward
-// what they can't see or hear. Its expert comes in while it is open, from ten minutes before it starts, and its client
-// once the expert let them in (lib/clinic.ts). A page asks to join at /api/realtime/calls.
-realtime.groupCalls('visit:{id}', async (user, { id }) => mayJoinVisit(user, id), { encrypt: true });
+// Its visit, visit:{id}, a group call, starts from a token the site's own route answers after its check:
+// app/api/visit-token/route.ts.
 
 // Who is free: every signed-in page joins it, and hears when a visit starts or ends, or a time is booked, to show the
 // experts as they are now. Only the server says anything in it.
@@ -335,7 +332,7 @@ function endAtItsTime(appointment: Appointment) {
 }
 ```
 
-The rules run on your server, in two routes of your own, each time a page asks: to join an appointment's messages or its waiting room, or to come into its visit. The page gets a pass signed with the app's secret, or why not. The pass of a visit carries the key its media is encrypted with.
+The rules of the rooms run on your server, in a route of your own, each time a page asks to join an appointment's messages or its waiting room. The page gets a pass signed with the app's secret, or why not. A second route serves what a page does in a visit once its token let it in, such as renewing what it holds as the visit goes on, each ask on a proof only your server makes.
 
 ```ts title="app/api/realtime/auth/route.ts"
 // POST /api/realtime/auth: a page asks to join rooms, as { rooms: ['chat:7', 'waiting:7'] }. This server runs each
@@ -358,10 +355,9 @@ export async function POST(request: Request) {
 ```
 
 ```ts title="app/api/realtime/calls/route.ts"
-// POST /api/realtime/calls: a page asks to come into an appointment's visit, as { room: 'visit:7', type: 'video' }. This
-// server runs the visit's rule (realtime.groupCalls in lib/realtime.ts) for the person signed in, and answers a pass for
-// it, signed with the app's secret, with the key its media is encrypted with, or why not. With the pass, WordPlus Cloud
-// lets them in.
+// POST /api/realtime/calls: what a page does in a visit once its token let it in, for the person signed in: renew what
+// it holds as the visit goes on. Each ask carries a proof only this server makes, which the package checks. Who comes
+// into a visit is the site's own token route, app/api/visit-token/route.ts.
 import { currentUserId } from '@/lib/auth';
 import { realtime } from '@/lib/realtime';
 
@@ -381,24 +377,49 @@ The SDK's other routes, the webhooks among them, and the browser files:
 
 ```ts title="app/api/realtime/[...path]/route.ts"
 // WordPlus Cloud's other routes: the keys of sealed rooms (POST /api/realtime/keys), the webhooks the cloud sends
-// (POST /api/realtime/webhook), and the browser's files (GET). Joining rooms and calling are the site's own routes,
-// auth/route.ts and calls/route.ts beside this one.
+// (POST /api/realtime/webhook), and the browser's files (GET). Joining rooms and what a page does in a
+// visit are the site's own routes, auth/route.ts and calls/route.ts beside this one.
 import { realtime } from '@/lib/realtime';
 
-export const GET = realtime.route;
-export const POST = realtime.route;
+export const { GET, POST } = realtime.handlers;
+```
+
+Then the visit's own route, `/api/visit-token?id=7`. The visit's spot asks it with a GET, with the page's cookies, before it joins. It builds the name of the call from the number of the appointment, `visit:7`, so a page cannot ask for another call, and answers a token only to someone the check of the visit lets in: its expert while it is open, from ten minutes before it starts, and its client once the expert let them in (`mayJoinVisit` above). Anyone else gets a 403.
+
+- **`encrypt: true`** encrypts the visit end to end. Say it in every token for the visit, as this route does for both of them.
+- **Asked each time:** the spot asks again each time someone comes in, so once the expert lets the client in, the next ask of the client gets a token, and once the visit has ended, nobody does.
+
+```ts title="app/api/visit-token/route.ts"
+// GET /api/visit-token?id=7: the visit's spot asks it before it joins (app/(app)/appointments/[id]/visit.tsx). The
+// visit is a group call of two on WordPlus Cloud's media servers, encrypted end to end: each browser encrypts what it
+// sends with a key this server makes, which only those with a token get, so the media servers forward what they can't
+// see or hear. Its expert comes in while it is open, from ten minutes before it starts, and its client once the expert
+// let them in (mayJoinVisit in lib/clinic.ts).
+import { currentUserId } from '@/lib/auth';
+import { mayJoinVisit } from '@/lib/clinic';
+import { realtime } from '@/lib/realtime';
+
+export async function GET(request: Request) {
+    const id = new URL(request.url).searchParams.get('id') ?? '';
+    const me = await currentUserId();
+
+    if (!me || !(await mayJoinVisit(me, id))) return new Response(null, { status: 403 });
+
+    // The name is built here, from the appointment's number: visit:7. Encrypted, as every token for it says.
+    const token = await realtime.groupCallToken(me, `visit:${id}`, { encrypt: true });
+    return Response.json({ token });
+}
 ```
 
 ### Every page connected
 
-Every page of someone signed in connects through the layout of their pages: one connection for all of them, kept as they move between pages. The call screen is in it, so a visit goes on in a window in the corner on any other page of the site, and comes back to its place when the page of the appointment opens again. So are who is free kept current (`ExpertsLive`), the notices, and on the pages of an expert, the requests to talk now:
+Every page of someone signed in connects through the layout of their pages: one connection for all of them, kept as they move between pages. `<RealtimeProvider>` of `@wordplus/realtime/next` signs the page's settings for them on your server, and the page connects with no request first. The call screen is in it, so a visit goes on in a window in the corner on any other page of the site, and comes back to its place when the page of the appointment opens again. So are who is free kept current (`ExpertsLive`), the notices, and on the pages of an expert, the requests to talk now:
 
 ```tsx title="app/(app)/layout.tsx"
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
-import { connection } from 'next/server';
-import { RealtimeProvider } from '@wordplus/realtime/react';
+import { RealtimeProvider } from '@wordplus/realtime/next';
 import { currentUserId } from '@/lib/auth';
 import { personOf } from '@/lib/clinic';
 import { realtime } from '@/lib/realtime';
@@ -411,18 +432,19 @@ import { Screens } from './screens';
 export default function AppLayout({ children }: { children: React.ReactNode }) {
     return (
         <Suspense fallback={<p className="p-6 text-stone-500">Loading…</p>}>
-            <Connected>{children}</Connected>
+            <SignedIn>{children}</SignedIn>
         </Suspense>
     );
 }
 
-async function Connected({ children }: { children: React.ReactNode }) {
-    await connection(); // made for each request: the settings are signed for this person, now
+// Signed in, or sent to sign in. The provider signs the page's settings for them, and connects the page with no
+// request first.
+async function SignedIn({ children }: { children: React.ReactNode }) {
     const me = await currentUserId();
     if (!me) redirect('/signin');
     const person = await personOf(me);
     return (
-        <RealtimeProvider options={await realtime.config(me)}>
+        <RealtimeProvider realtime={realtime} user={me}>
             <Screens />
             <ExpertsLive />
             <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/90 backdrop-blur">
@@ -451,15 +473,14 @@ The call screen, with the look of the chat and the calls:
 ```tsx title="app/(app)/screens.tsx"
 'use client';
 
-// The look of the ready-made chat and call screens, and the call screen itself: it takes no place on the page, shows the
+// The look of the ready-made conversation window and call screens, and the call screen itself: it takes no place on the page, shows the
 // ring over it, and a call in a window in the corner wherever the page has no place of its own for it.
 import '@wordplus/realtime-ui/calls.css';
 import '@wordplus/realtime-ui/chat.css';
-import { useRealtime } from '@wordplus/realtime/react';
 import { CallScreen } from '@wordplus/realtime-ui/react';
 
 export function Screens() {
-    return <CallScreen rt={useRealtime()} />;
+    return <CallScreen />;
 }
 ```
 
@@ -756,7 +777,7 @@ The expert sees it as a notice, which opens the appointment ([notes, and the not
 
 ### The visit
 
-The visit is the group call `visit:{id}`, shown in the page of the appointment by `<CallSpot>`: both cameras, and the call's controls. Inside the spot is what shows while the person is not in the call: the lobby of the client or of the expert ([the waiting room](#the-waiting-room)). `join` comes into the call, with the camera and the microphone on (`joinWith="microphone camera"`), once a click says so, on this page or on the one before it: **Join the visit**, **I'm ready** once the client is let in, or a session taken now, which opens the page with `?join=1`. Your rule decides each time, as for any other way in ([straight into a meeting](calls.md#straight-into-a-meeting)).
+The visit is the group call `visit:{id}`, shown in the page of the appointment by `<CallSpot>`: both cameras, and the call's controls. Inside the spot is what shows while the person is not in the call: the lobby of the client or of the expert ([the waiting room](#the-waiting-room)). `join` comes into the call, with the camera and the microphone on (`joinWith="microphone camera"`), once a click says so, on this page or on the one before it: **Join the visit**, **I'm ready** once the client is let in, or a session taken now, which opens the page with `?join=1`. It asks your visit route for a token, its `tokenUrl`, and your route decides each time, as for any other way in ([straight into a meeting](calls.md#straight-into-a-meeting)).
 
 The page tells apart three times. Before the visit opens, it says when it does, and the messages are already beside it. While it is open, the visit. After its end, or once its expert ended it, it says the visit ended, and the notes follow.
 
@@ -765,7 +786,7 @@ The page tells apart three times. Before the visit opens, it says when it does, 
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { useOnline, usePresence, useRealtime, useRoom, useUserEvent } from '@wordplus/realtime/react';
+import { useOnline, usePresence, useRoom, useUserEvent } from '@wordplus/realtime/react';
 import { CallSpot } from '@wordplus/realtime-ui/react';
 import { endNow, imHere, letIn } from '../../actions';
 import { relative, timeOf, useNow } from '../../when';
@@ -787,11 +808,10 @@ const OPENS_BEFORE = 10 * 60 * 1000;
 /**
  * The visit: a group call of two, visit:{id}, shown here in the page while it is on. It opens ten minutes before its
  * time. The client says they are ready and waits in the waiting room, a presence room the expert's pages see them in,
- * and the expert lets them in: from then on the visit's rule lets the client come in, and their page comes in by
+ * and the expert lets them in: from then on the visit's token route lets the client come in, and their page comes in by
  * itself. Opened from a session taken now (?join=1), both come straight in.
  */
 export function Visit({ id, expert, startsAt, endsAt, ended: endedBefore, admitted: admittedBefore, other }: Props) {
-    const rt = useRealtime();
     const router = useRouter();
     const path = usePathname();
     const params = useSearchParams();
@@ -847,8 +867,9 @@ export function Visit({ id, expert, startsAt, endsAt, ended: endedBefore, admitt
                 <span className="text-stone-500 tabular-nums">{now < startsAt ? `Starts at ${timeOf(startsAt)}` : `${left} min left`}</span>
                 {expert && <ExpertControls id={id} client={other} admitted={admitted} onLetIn={() => { setAdmitted(true); setJoin('video'); }} />}
             </div>
-            {/* Its group call, in the page while it is on: everyone's camera, and the call's controls. */}
-            <CallSpot rt={rt} call={`visit:${id}`} join={join} joinWith="microphone camera" className="h-[32rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
+            {/* Its group call, in the page while it is on: everyone's camera, and the call's controls. It asks this site's
+                route for a token (/api/visit-token), which lets the client in once the expert has. */}
+            <CallSpot call={`visit:${id}`} tokenUrl={`/api/visit-token?id=${id}`} join={join} joinWith="microphone camera" className="h-[32rem] overflow-hidden rounded-2xl bg-stone-900 text-white">
                 {expert ? (
                     <ExpertLobby id={id} client={other} admitted={admitted} onJoin={() => setJoin('video')} />
                 ) : (
@@ -871,7 +892,7 @@ function Encrypted() {
 }
 ```
 
-The visit ends at its time, or when its expert presses **End visit**. Your server ends the call for both, `realtime.call( room ).end()`, which refuses the passes they had, and keeps that it ended, so the rule refuses them from then on. Then it tells both pages, which show that it ended, and every page following who is free (`endVisit` in `lib/realtime.ts` above). The timer that ends it at its time starts as the first one comes in, with the `group.joined` webhook. **End visit** is the expert's alone:
+The visit ends at its time, or when its expert presses **End visit**. Your server ends the call for both, `realtime.call( room ).end()`, so the tokens they had open it no more, and keeps that it ended, so your visit route refuses them from then on. Then it tells both pages, which show that it ended, and every page following who is free (`endVisit` in `lib/realtime.ts` above). The timer that ends it at its time starts as the first one comes in, with the `group.joined` webhook. **End visit** is the expert's alone:
 
 ```ts title="app/(app)/actions.ts"
 /** The expert ends the visit for both. */
@@ -995,7 +1016,7 @@ function Waiting({ room, client, name }: { room: string; client: string; name: s
 
 ### Letting the client in
 
-The expert lets the client in from the page of the appointment, before the time of the visit or during it. Your server keeps when (`admitted_at`), so the rule of the visit says yes to the client from then on, and tells the page of the client. That page comes into the visit by itself if the client said they are ready, as their click on I'm ready lets its sound play, or else shows **Join the visit** (the `admitted` event in `Visit` above). The page of the expert comes in at the same time.
+The expert lets the client in from the page of the appointment, before the time of the visit or during it. Your server keeps when (`admitted_at`), so your visit route answers the client a token from then on, and tells the page of the client. That page comes into the visit by itself if the client said they are ready, as their click on I'm ready lets its sound play, or else shows **Join the visit** (the `admitted` event in `Visit` above). The page of the expert comes in at the same time.
 
 ```tsx title="app/(app)/appointments/[id]/visit.tsx"
 /** The expert's buttons above the visit: let the client in, from before the visit or during it, and end it for both. */
@@ -1021,7 +1042,7 @@ function ExpertControls({ id, client, admitted, onLetIn }: { id: string; client:
 ```
 
 ```ts title="app/(app)/actions.ts"
-/** The expert lets the client in: from now on the visit's rule lets the client come in, and the client hears so. */
+/** The expert lets the client in: from now on the visit's token route lets the client come in, and the client hears so. */
 export async function letIn(id: string): Promise<boolean> {
     const me = await currentUserId();
     const appointment = me ? await admit(id, me) : null;
@@ -1050,7 +1071,6 @@ Each appointment has its messages, before the visit, during it and after, with f
 ```tsx title="app/(app)/appointments/[id]/messages.tsx"
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; other: string; people: Record<string, { name: string; avatar: string }> };
@@ -1064,7 +1084,6 @@ type Props = { room: string; other: string; people: Record<string, { name: strin
 export function Messages({ room, other, people }: Props) {
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             people={people}
             placeholder={`Message ${other}`}
@@ -1199,7 +1218,7 @@ export async function POST(request: Request) {
 }
 ```
 
-- **The room's rule** lets the chat send what it uses, `message`, `typing`, `reaction` and `read`, and names `message` and `reaction` in `webhook` for your server to keep ([the ready-made chat](events.md#ready-made-the-chat)).
+- **The room's rule** lets the chat send what it uses, `message`, `typing`, `reaction` and `read`, and names `message` and `reaction` in `webhook` for your server to keep ([the ready-made conversation window](events.md#ready-made-the-chat)).
 - **A message** to the other one while they aren't on the page of the appointment reaches them as a notice, on whatever page they are (`keepAndTell`, and [the notices](#notes-and-the-notices)).
 - **Pictures** show in a grid that opens them large, and any other file as a row with its download.
 
@@ -1246,11 +1265,11 @@ The pages of an expert show each request, with **Take it** and **Not now**, unti
  * asking, or a minute goes by. Taken, both go to their new appointment and into its visit.
  */
 export function Requests() {
-    const [requests, setRequests] = useState<Request[]>([]);
+    const [requests, setRequests] = useState<TalkRequest[]>([]);
     const router = useRouter();
     const drop = (request: string) => setRequests((list) => list.filter((one) => one.request !== request));
 
-    useUserEvent('request', (data: Request) => {
+    useUserEvent('request', (data: TalkRequest) => {
         setRequests((list) => [...list, data]);
         setTimeout(() => drop(data.request), data.waits);
     });
@@ -1385,7 +1404,7 @@ import { answer } from './actions';
 import { When } from './when';
 
 type Notice = { key: number; text: React.ReactNode; href: string };
-type Request = { request: string; name: string; topic: string; waits: number };
+type TalkRequest = { request: string; name: string; topic: string; waits: number };
 
 /**
  * What the server tells this person, on whatever page they are: a message about an appointment, unless its page is
@@ -1438,10 +1457,10 @@ A user with no page open gets nothing: send an email for what must reach them, s
 
 ## Make it yours
 
-- **Who may use what** is `mayChat` and `mayJoinVisit` in `lib/clinic.ts`, which the rules of `lib/realtime.ts`, the routes and the pages ask.
+- **Who may use what** is `mayChat` and `mayJoinVisit` in `lib/clinic.ts`, which the rules of `lib/realtime.ts`, the visit route, the other routes and the pages ask.
 - **When a visit opens** is `OPENS_BEFORE`, and how long it lasts `SESSION_MINUTES`, in `lib/clinic.ts`. The page of the visit and the list of appointments say when it opens with their own `OPENS_BEFORE`.
 - **No waiting room:** book each appointment with its client let in already, `admitted_at` set as `answerRequest` sets it for a session taken now. The client then finds **Join the visit** as the visit opens.
-- **The expert as host:** the visit's rule answering `{ admin: true }` for the expert gives them mute and remove on the tile of the client ([permissions](../permissions.md#group-calls)).
+- **The expert as host:** `admin: true` in the expert's token gives them mute and remove on the tile of the client ([permissions](../permissions.md#group-calls)).
 - **Files** are `KINDS` and `LARGEST` in `app/api/files/route.ts`, with `accept` and `maxFileSize` on the chat to match. Where they are kept is `keepFile` and `fileOf` in `lib/clinic.ts`: storage of your own works the same, as long as `app/files/[id]/route.ts` asks `mayChat` before it answers.
 - **Ending on time** is a timer of your server, set by the `group.joined` webhook. With several servers, or one that restarts, run it as a job of yours ([ending it on time](../use-cases/consultations.md#ending-it-on-time)).
 - **Your own sign-in:** `currentUserId()` in `lib/auth.ts` is all the realtime side asks of it.

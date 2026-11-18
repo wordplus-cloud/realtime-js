@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -149,6 +150,154 @@ func TestTheStreamGrants(t *testing.T) {
 
 // Users whose ids are text: the label each takes, the user calls take, and what keys and proofs are made of, as the
 // Node, PHP and Python packages make them.
+func TestACallToken(t *testing.T) {
+	v := vectors(t, "vectors.json")
+	app := App{Site: v["site"].(string), Secret: v["secret"].(string), LocalKey: v["local_key"].(string)}
+
+	raw, err := b64.DecodeString(app.CallToken("42", "34", "audio", map[string]any{"name": "Ann"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var made map[string]any
+	if err := json.Unmarshal(raw, &made); err != nil {
+		t.Fatal(err)
+	}
+	call, id := made["call"].(string), made["id"].(string)
+	if call != "call:"+id || made["type"] != "audio" || made["to"] != float64(34) || made["token"] == "" || made["member"] == "" || made["media_key"] == "" {
+		t.Fatalf("a token that holds %v", made)
+	}
+
+	// The proof the ring brings, for the one rung alone.
+	ring := app.Proof("rung|" + call + "|" + id + "|42|34|34")
+	if !app.ProvenSide(map[string]any{"ring": ring}, call, id, "callee", 34, 42) {
+		t.Fatal("the person rung holds the proof")
+	}
+	if app.ProvenSide(map[string]any{"ring": ring}, call, id, "callee", 56, 42) || app.ProvenSide(map[string]any{"ring": ring}, call, id, "caller", 42, 34) {
+		t.Fatal("nobody else does")
+	}
+	if app.ProvenSide(map[string]any{"ring": strings.Repeat("A", 43)}, call, id, "callee", 34, 42) || app.ProvenSide(map[string]any{}, call, id, "callee", 34, 42) {
+		t.Fatal("a made-up proof is none")
+	}
+
+	// Its proof of being in the call, which renews a token that ran out, for its holder alone.
+	if !app.ProvenSide(map[string]any{"member": made["member"]}, call, id, "caller", 42, 34) {
+		t.Fatal("the caller holds the proof of being in it")
+	}
+	if app.ProvenSide(map[string]any{"member": made["member"]}, call, id, "caller", 42, 56) {
+		t.Fatal("for that call alone")
+	}
+}
+
+// A call with a name of the app's own, as callToken( me, to, { name } ) makes it in Node, PHP and Python: the chat it is in.
+func TestANamedCallToken(t *testing.T) {
+	v := vectors(t, "vectors.json")
+	app := App{Site: v["site"].(string), Secret: v["secret"].(string), LocalKey: v["local_key"].(string)}
+
+	raw, err := b64.DecodeString(app.NamedCallToken("42", "34", "chat:34:42", "video", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var made map[string]any
+	if err := json.Unmarshal(raw, &made); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := made["id"].(string)
+	if made["call"] != "chat:34:42" || id == "" || made["type"] != "video" || made["to"] != float64(34) {
+		t.Fatalf("a token that holds %v", made)
+	}
+	// The name in the caller's call token, which the realtime server reads, and in its keys and proofs.
+	payload, err := b64.DecodeString(strings.Split(made["token"].(string), ".")[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil || claims["call"] != "chat:34:42" || claims["id"] != id {
+		t.Fatalf("the call token's claims %s", payload)
+	}
+	if made["media_key"] != app.MediaKey("call|chat:34:42|"+id+"|42|34") || made["key"] != app.CallKey(id, int64(42), int64(34)) {
+		t.Fatalf("the keys of %v", made)
+	}
+	ring := app.Proof("rung|chat:34:42|" + id + "|42|34|34")
+	if !app.ProvenSide(map[string]any{"ring": ring}, "chat:34:42", id, "callee", 34, 42) || !app.ProvenSide(map[string]any{"member": made["member"]}, "chat:34:42", id, "caller", 42, 34) {
+		t.Fatal("the person rung and the caller hold the proofs of the call by its name")
+	}
+	if app.ProvenSide(map[string]any{"member": made["member"]}, "call:"+id, id, "caller", 42, 34) {
+		t.Fatal("for that name alone")
+	}
+
+	// No name is call: and the id, as CallToken has it.
+	raw, _ = b64.DecodeString(app.NamedCallToken("42", "34", "", "audio", nil))
+	var unnamed map[string]any
+	if err := json.Unmarshal(raw, &unnamed); err != nil || unnamed["call"] != "call:"+fmt.Sprint(unnamed["id"]) {
+		t.Fatalf("a token with no name that holds %v", unnamed)
+	}
+}
+
+func TestTheOtherTokens(t *testing.T) {
+	v := vectors(t, "vectors.json")
+	app := App{Site: v["site"].(string), Secret: v["secret"].(string), LocalKey: v["local_key"].(string)}
+	opened := func(token string) map[string]any {
+		raw, err := b64.DecodeString(token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var made map[string]any
+		if err := json.Unmarshal(raw, &made); err != nil {
+			t.Fatal(err)
+		}
+		return made
+	}
+
+	// Into a call: for someone in it, and the person rung answers with the proof.
+	first := opened(app.CallToken("42", "34", "audio", nil))
+	ref := b64.EncodeToString(jsonOf(map[string]any{"id": first["id"], "name": first["call"], "type": first["type"], "pair": first["pair"], "member": first["member"]}))
+	token, err := app.AddToCallToken("42", "56", ref, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	made := opened(token)
+	if made["group"] != first["id"] || made["to"] != float64(56) || made["type"] != "audio" || made["ring"] == "" {
+		t.Fatalf("a ring that holds %v", made)
+	}
+	if _, err := app.AddToCallToken("77", "56", ref, nil); err == nil {
+		t.Fatal("someone not in the call adds nobody")
+	}
+	if _, err := app.AddToCallToken("42", "56", "nothing", nil); err == nil {
+		t.Fatal("what is no ref adds nobody")
+	}
+	body := map[string]any{"group": first["id"], "pair": first["pair"], "ring": made["ring"]}
+	call, id := first["call"].(string), made["id"].(string)
+	answer, ok := app.ProvenRing(body, call, id, "audio", 56, 42, nil)
+	if !ok || answer["media_key"] != first["media_key"] {
+		t.Fatalf("the person rung answers, with the call's key: %v %v", ok, answer)
+	}
+	if _, ok := app.ProvenRing(body, call, id, "audio", 77, 42, nil); ok {
+		t.Fatal("nobody else does")
+	}
+
+	// A group call: what they may do, and a host's proof.
+	host := opened(app.GroupCallToken("42", "class:7", GroupPlace{Admin: true, Encrypt: true}))
+	if host["room"] != "class:7" || host["media_key"] == nil || host["host"] == nil || host["recorder"] == nil {
+		t.Fatalf("a host's token that holds %v", host)
+	}
+	if !app.HoldsHost("class:7", 42, host["host"]) || app.HoldsHost("class:7", 34, host["host"]) || app.HoldsHost("class:8", 42, host["host"]) || app.HoldsHost("class:7", 42, nil) {
+		t.Fatal("the proof holds for its host and its call alone")
+	}
+	if !app.HoldsRecorder("class:7", 42, host["recorder"]) || app.HoldsRecorder("class:7", 42, host["host"]) {
+		t.Fatal("the recorder's proof is its own")
+	}
+	listener := opened(app.GroupCallToken("34", "class:7", GroupPlace{Listener: true, Kind: "audio"}))
+	if listener["host"] != nil || listener["media_key"] != nil || listener["type"] != "audio" {
+		t.Fatalf("a listener's token that holds %v", listener)
+	}
+
+	// A stream.
+	stream := opened(app.StreamToken(Stream{Name: "show:7", Role: "host", User: "42"}))
+	if stream["name"] != "show:7" || stream["token"] == "" {
+		t.Fatalf("a stream's token that holds %v", stream)
+	}
+}
+
 func TestUsersWhoseIdsAreText(t *testing.T) {
 	labels := map[string]string{
 		"42": "42", "-7": "-7", "user_2abc": "user_2abc", "0b6f1c9e-8f5d-4c38": "0b6f1c9e-8f5d-4c38", "ann@shop.example": "ann@shop.example",

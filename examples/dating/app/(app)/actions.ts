@@ -21,7 +21,7 @@ export async function blockMember(them: string, how: How, form: FormData) {
     await block(id, them, reason);
 
     const room = roomOf(await chatBetween(id, them));
-    await realtime.in(room).kick(them); // out of the chat now: the rule says no from here on
+    await realtime.room(room).remove(them); // out of the chat now: the rule says no from here on
     await realtime.toUser([id, them]).emit('closed', { room });
     redirect('/members');
 }

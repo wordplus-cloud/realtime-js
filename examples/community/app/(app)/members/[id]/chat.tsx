@@ -2,15 +2,15 @@
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; to: string; name: string; avatar: string };
 
 /**
  * The conversation with a member, kept by this app's server, with typing, reactions, read ticks and photos. Their name
- * and call buttons are on its top bar, and a call shows in the chat itself, beside the messages. Opened from Call in
- * Members (`?call=video`), it calls them as it opens.
+ * and call buttons are on its top bar, and a call shows in the chat itself, beside the messages. The buttons ask this
+ * site's route for a token (app/api/chat-call-token/route.ts), with the conversation's name. Opened from Call in Members
+ * (`?call=video`), it calls them as it opens.
  */
 export function MemberChat({ room, to, name, avatar }: Props) {
     const path = usePathname();
@@ -23,12 +23,11 @@ export function MemberChat({ room, to, name, avatar }: Props) {
 
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             to={to}
             name={name}
             avatar={avatar}
-            call
+            tokenUrl="/api/chat-call-token"
             startCall={start}
             placeholder={`Message ${name}`}
             messages={`/api/messages?room=${room}`}

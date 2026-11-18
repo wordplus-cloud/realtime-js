@@ -355,7 +355,7 @@ function Auction( { initial, step } ) {
 
     const room = useRoom( `auction:${ initial.id }`, {
         bid: ( bid, meta ) => {
-            setOffset( meta.at - Date.now() );
+            if ( meta.at ) setOffset( meta.at - Date.now() );
             setState( ( s ) => ( { ...s, price: bid.price, bidder: bid.bidder, endsAt: bid.ends_at } ) );
         },
         closed: ( result ) => setState( ( s ) => ( { ...s, price: result.price, bidder: result.winner, sold: true } ) ),
@@ -394,7 +394,7 @@ function Auction( { initial, step } ) {
 **Node**
 
 ```ts
-await realtime.in( 'auction:7' ).count();                         // how many watch it now
+await realtime.room( 'auction:7' ).count();                         // how many watch it now
 await realtime.listRooms( { prefix: 'auction:' } );                // the auctions watched now, each with its count
 await realtime.to( 'auction:7' ).emit( 'paused', { reason: 'The seller is checking a question' } );
 ```
@@ -402,7 +402,7 @@ await realtime.to( 'auction:7' ).emit( 'paused', { reason: 'The seller is checki
 **PHP**
 
 ```php
-$realtime->in( 'auction:7' )->count();
+$realtime->room( 'auction:7' )->count();
 $realtime->listRooms( [ 'prefix' => 'auction:' ] );
 $realtime->to( 'auction:7' )->emit( 'paused', [ 'reason' => 'The seller is checking a question' ] );
 ```
@@ -410,7 +410,7 @@ $realtime->to( 'auction:7' )->emit( 'paused', [ 'reason' => 'The seller is check
 **Python**
 
 ```python
-realtime.in_room("auction:7").count()
+realtime.room("auction:7").count()
 realtime.list_rooms(prefix="auction:")
 realtime.to("auction:7").emit("paused", {"reason": "The seller is checking a question"})
 ```

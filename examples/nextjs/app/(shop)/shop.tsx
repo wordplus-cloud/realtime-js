@@ -287,16 +287,15 @@ export function ShopChat({ room, other, token }: { room: string; other: Person; 
                 <strong>{profile?.name ?? other.name}</strong>
             </header>
             {/* #region demo: chat */}
-            <Chat rt={rt} room={room} placeholder="Write a message" load={load} />
+            <Chat room={room} placeholder="Write a message" load={load} />
             {/* #endregion */}
         </section>
     );
 }
 
-// The shop members, everyone in it whether online or not: a private call to any of the others (<CallButton>), named as
-// the list of who is in the shop names it (support:{pair}), on a demo, their own window too, where the call rings for them.
+// The shop members, everyone in it whether online or not: a private call to any of the others (<CallButton>), with a
+// token from this app's own route (app/api/call-token), and on a demo, their own window too, where the call rings for them.
 export function Members({ me, people, open }: { me: Person; people: Person[]; open?: Frame['open'] }) {
-    const rt = useRealtime();
     return (
         <section className="card" id="members">
             <h2>Members</h2>
@@ -313,11 +312,11 @@ export function Members({ me, people, open }: { me: Person; people: Person[]; op
                             {p.id !== me.id && (
                                 <div className="member-actions">
                                     {/* #region demo: members */}
-                                    {/* A private call to this member, by video or by voice, named by the two of them. */}
-                                    <CallButton rt={rt} to={p.id} call="support:{pair}" type="video" name={p.name} avatar={p.avatar}>
+                                    {/* A private call to this member, by video or by voice: the route says whether it may ring. */}
+                                    <CallButton to={p.id} tokenUrl="/api/call-token" type="video" name={p.name} avatar={p.avatar}>
                                         Video call
                                     </CallButton>
-                                    <CallButton rt={rt} to={p.id} call="support:{pair}" type="audio" name={p.name} avatar={p.avatar}>
+                                    <CallButton to={p.id} tokenUrl="/api/call-token" type="audio" name={p.name} avatar={p.avatar}>
                                         Voice call
                                     </CallButton>
                                     {/* #endregion */}
@@ -338,17 +337,17 @@ export function Members({ me, people, open }: { me: Person; people: Person[]; op
     );
 }
 
-// Everyone in the shop now (<OnlineList>: the presence room members, with a call button for each of the others).
+// Everyone in the shop now (<OnlineList>: the presence room members, with a call button for each of the others, which
+// asks the same call token route).
 // Stepping out takes the list away, which leaves the room.
 export function Presence({ room }: { room: string }) {
-    const rt = useRealtime();
     const [here, setHere] = useState(true);
 
     return (
         <section className="card" id="presence">
             <div className="people">
                 {/* #region demo: presence */}
-                {here ? <OnlineList rt={rt} room={room} title="In the shop now" call="support:{pair}" type="video" /> : <p className="muted">You stepped out.</p>}
+                {here ? <OnlineList room={room} title="In the shop now" tokenUrl="/api/call-token" type="video" /> : <p className="muted">You stepped out.</p>}
                 {/* #endregion */}
             </div>
             <div className="actions">
@@ -425,24 +424,24 @@ export function Webhooks({ room: name, rooms, people }: { room: string; rooms: R
     );
 }
 
-// The shop live show (a live stream, the server `streams()` rule): Ann presents the new mugs with her camera, and
-// everyone else watches, signed in or not, and writes in its chat. The player, the chat and the studio where Ann goes
+// The shop live show (a live stream, with a token from this app's own route, app/api/show-token): Ann presents the new
+// mugs with her camera, and everyone else watches and writes in its chat. The player, the chat and the studio where Ann goes
 // live are <LiveStream>, @wordplus/realtime-ui stream elements.
 export function Show({ room }: { room: string }) {
     return (
         <section className="card" id="show">
             <h2>Live show</h2>
             {/* #region demo: show */}
-            <LiveStream name={room} title="The new mugs" />
+            <LiveStream name={room} tokenUrl={`/api/show-token?id=${room.slice('show:'.length)}`} title="The new mugs" />
             {/* #endregion */}
             <Code card="show" />
         </section>
     );
 }
 
-// The daily meeting: a group call everyone in the shop may join, and a look at your camera before you do.
+// The daily meeting: a group call everyone in the shop may join, with a token from this app's own route
+// (app/api/meeting-token), and a look at your camera before you do.
 export function Meeting({ room }: { room: string }) {
-    const rt = useRealtime();
     const video = useRef<HTMLVideoElement>(null);
     const [stream, setStream] = useState<MediaStream | null>(null);
 
@@ -463,7 +462,7 @@ export function Meeting({ room }: { room: string }) {
             <video ref={video} className="preview" muted playsInline autoPlay hidden={!stream} />
             <div className="actions" onClick={(e) => (e.target as HTMLElement).closest('.realtime-call-button') && setStream(null)}>
                 {/* #region demo: meeting */}
-                <GroupCallButton rt={rt} room={room} type="video" title="Daily meeting">
+                <GroupCallButton call={room} tokenUrl={`/api/meeting-token?id=${room.slice('meeting:'.length)}`} type="video" title="Daily meeting">
                     Join the meeting
                 </GroupCallButton>
                 {/* #endregion */}

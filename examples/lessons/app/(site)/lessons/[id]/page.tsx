@@ -31,9 +31,9 @@ async function Lesson({ params }: { params: Promise<{ id: string }> }) {
 
             {(await mayWatch(me, lesson)) ? (
                 // The player and its chat: WordPlus Cloud's ready-made screens, which ask this server for the stream's
-                // pass (/api/realtime/calls) with the rule of lib/realtime.ts. Its teacher goes live in the studio
+                // token (/api/lesson-token, from lessonToken in lib/realtime.ts). Its teacher goes live in the studio
                 // (/studio/{id}), which the player shows them the way to.
-                <LiveStream name={roomOf(lesson.id)} title={lesson.title} loginUrl="/signin" studioUrl={teaches ? `/studio/${lesson.id}` : undefined} />
+                <LiveStream name={roomOf(lesson.id)} tokenUrl={`/api/lesson-token?id=${lesson.id}`} title={lesson.title} loginUrl="/signin" studioUrl={teaches ? `/studio/${lesson.id}` : undefined} />
             ) : (
                 <div className="rounded-3xl bg-white p-8 text-center shadow-sm">
                     <p className="text-lg font-medium">This lesson is for the students of {lesson.courseTitle}.</p>

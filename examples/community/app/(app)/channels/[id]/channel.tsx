@@ -1,6 +1,5 @@
 'use client';
 
-import { useRealtime } from '@wordplus/realtime/react';
 import { Chat } from '@wordplus/realtime-ui/react';
 
 type Props = { room: string; name: string; people: Record<string, { name: string; avatar: string }> };
@@ -13,7 +12,6 @@ type Props = { room: string; name: string; people: Record<string, { name: string
 export function ChannelChat({ room, name, people }: Props) {
     return (
         <Chat
-            rt={useRealtime()}
             room={room}
             people={people}
             placeholder={`Message #${name}`}

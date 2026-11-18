@@ -44,7 +44,35 @@ await realtime.to("order:42").aemit("updated", {"status": "paid"})   # from asyn
 - **Sealed by default:** the data of a sealed room goes sealed with its key, a copy each, and what goes to a user with their own key. The data of public rooms goes plain, together.
 - **Kept:** a room whose rule keeps history keeps it, and the answer is the kept event ids, by room.
 - **A refusal throws** a `RealtimeError` with the server `code` and HTTP `status` ([errors](errors.md#sending)). The Laravel broadcasting throws a `BroadcastException`. Send after your own work is saved: a failed send is a missed live update, not a lost change.
-- **A user with nothing open** gets nothing: `toUser()` reaches the connections they have, and push stays out of this SDK for now.
+- **A user with nothing open** gets nothing: `toUser()` reaches the connections they have. A push to their phone is your server's own, sent when `realtime.online` says they are offline ([a push for a message](use-cases/chat-server.md#sending-a-push-for-a-message)).
+
+## To everyone
+
+Every page and app connected now, signed in or not, with no room to join. A notice that you are about to restart, a new version to reload for:
+
+**Node**
+
+```ts
+await realtime.toEveryone().emit( 'notice', { text: 'Back at 9' } );
+```
+
+**PHP**
+
+```php
+$realtime->toEveryone()->emit( 'notice', [ 'text' => 'Back at 9' ] );
+```
+
+**Python**
+
+```python
+realtime.to_everyone().emit("notice", {"text": "Back at 9"})
+```
+
+A page hears it as it hears what is sent to its user, with `rt.on( 'notice', … )`, in React `useUserEvent( 'notice', … )`.
+
+- **Never sealed:** anyone may be connected, so there is no key they all hold. Keep it to what anyone may read.
+- **Never kept:** someone who connects a moment later gets nothing, so keep what matters in your database too.
+- **On its own:** it doesn't chain with `to()` or `toUser()`. `except( tab )` works as above, and a batch takes `{ everyone: true, event, data }`.
 
 ## Many at once
 
@@ -82,34 +110,47 @@ realtime.batch([
 **Node**
 
 ```ts
-await realtime.in( 'room:7' ).count();
-await realtime.in( 'room:7' ).members();                      // { count, list: [ { id, info } ], next? }, their info opened
-await realtime.in( 'chat:34:42' ).history( { limit: 50 } );   // { events, more }, oldest first, opened
-await realtime.in( 'chat:34:42' ).forget( id );               // one kept event, forget() for all
-await realtime.in( 'chat:34:42' ).kick( 43 );                 // out now
+await realtime.room( 'room:7' ).count();
+await realtime.room( 'room:7' ).members();                      // { count, list: [ { id, info } ], next? }, their info opened
+await realtime.room( 'chat:34:42' ).history( { limit: 50 } );   // { events, more }, oldest first, opened
+await realtime.room( 'chat:34:42' ).forget( id );               // one kept event, forget() for all
+await realtime.room( 'chat:34:42' ).remove( 43 );               // out now
+await realtime.room( 'chat:34:42' ).removeEveryone();           // everyone out now
+await realtime.room( 'chat:34:42' ).recheck( 43 );              // your rule asked again, in this room alone
+await realtime.room( 'chat:34:42' ).recheckEveryone();          // the same for everyone in it
 ```
 
 **PHP**
 
 ```php
-$realtime->in( 'room:7' )->count();
-$realtime->in( 'room:7' )->members();                        // [ 'count', 'list' => [ [ 'id', 'info' ] ], 'next'? ], their info opened
-$realtime->in( 'chat:34:42' )->history( [ 'limit' => 50 ] );   // [ 'events', 'more' ], oldest first, opened
-$realtime->in( 'chat:34:42' )->forget( $id );                // one kept event, forget() for all
-$realtime->in( 'chat:34:42' )->kick( 43 );                   // out now
+$realtime->room( 'room:7' )->count();
+$realtime->room( 'room:7' )->members();                        // [ 'count', 'list' => [ [ 'id', 'info' ] ], 'next'? ], their info opened
+$realtime->room( 'chat:34:42' )->history( [ 'limit' => 50 ] );   // [ 'events', 'more' ], oldest first, opened
+$realtime->room( 'chat:34:42' )->forget( $id );                // one kept event, forget() for all
+$realtime->room( 'chat:34:42' )->remove( 43 );                 // out now
+$realtime->room( 'chat:34:42' )->removeEveryone();             // everyone out now
+$realtime->room( 'chat:34:42' )->recheck( 43 );                // your rule asked again, in this room alone
+$realtime->room( 'chat:34:42' )->recheckEveryone();            // the same for everyone in it
 ```
 
 **Python**
 
 ```python
-realtime.in_room("room:7").count()
-realtime.in_room("room:7").members()                    # {"count", "list": [{"id", "info"}], "next"?}, their info opened
-realtime.in_room("chat:34:42").history(limit=50)        # {"events", "more"}, oldest first, opened
-realtime.in_room("chat:34:42").forget(event_id)         # one kept event, forget() for all
-realtime.in_room("chat:34:42").kick(43)                 # out now
+realtime.room("room:7").count()
+realtime.room("room:7").members()                    # {"count", "list": [{"id", "info"}], "next"?}, their info opened
+realtime.room("chat:34:42").history(limit=50)        # {"events", "more"}, oldest first, opened
+realtime.room("chat:34:42").forget(event_id)         # one kept event, forget() for all
+realtime.room("chat:34:42").remove(43)               # out now
+realtime.room("chat:34:42").remove_everyone()        # everyone out now
+realtime.room("chat:34:42").recheck(43)              # your rule asked again, in this room alone
+realtime.room("chat:34:42").recheck_everyone()       # the same for everyone in it
 ```
 
-**Kick** takes the user connections out of the room at once, and refuses the token they had. Their page asks your rule again when it loads, so to keep them out, your rule says no for them, from your own data such as a ban list: a room has no ban of its own. With the key generations kept ([encryption](encryption.md#when-someone-loses-access)), it also moves the room key on, so a sealed event after the kick is not theirs to read.
+**Remove** takes the user connections out of the room at once, and refuses the token they had. Their page hears `kicked`, and may join again straight away, which asks your rule, so to keep them out, your rule says no for them, from your own data such as a ban list: a room has no ban of its own. With the key generations kept ([encryption](encryption.md#when-someone-loses-access)), it also moves the room key on, so a sealed event after it is not theirs to read.
+
+**Remove everyone** does that to everyone in the room, visitors too. To close a room, have your rule say no first, then remove everyone. A public room takes anyone back, as it always does.
+
+**Recheck** is for an answer that changed, such as a member made a reader: their pages leave the room and ask your rule again by themselves, in this room alone, and come back with what it says now, or fail with `forbidden` if it says no. The others see them leave and join again. Their other rooms and calls are left alone, where `user( id ).disconnect()` takes them out of everything.
 
 ## The rooms in use
 
